@@ -1,0 +1,20 @@
+# Time cmake module
+#
+# The following import targets are created
+#
+# ::
+#
+#   libaqmsDutyReviewBackend-static
+#   libaqmsDutyReviewBackend
+#
+# This module sets the following variables in your project::
+#
+#   aqmsDutyReviewBackend_FOUND - true if aqmsDutyReviewBackend library was found on the system
+#   aqmsDutyReviewBackend_INCLUDE_DIR - the directory containing aqmsDutyReviewBackend headers
+#   aqmsDutyReviewBackend_LIBRARY - the aqmsDutyReviewBackend library
+
+include(CMakeFindDependencyMacro)
+
+if (NOT TARGET aqmsDutyReviewBackend::@PROJECT_NAME@)
+   include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@Targets.cmake")
+endif()
