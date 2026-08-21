@@ -96,12 +96,18 @@ configure_file(${CMAKE_SOURCE_DIR}/src/version.hpp.in
 
 set(HEADER_FILES
     include/${PROJECT_NAME}/auth/authenticator.hpp
+    include/${PROJECT_NAME}/auth/jsonWebToken.hpp
+    include/${PROJECT_NAME}/auth/jsonWebTokenOptions.hpp
     include/${PROJECT_NAME}/auth/openldap.hpp
     include/${PROJECT_NAME}/auth/openldapOptions.hpp
     include/${PROJECT_NAME}/database/credentials.hpp
     include/${PROJECT_NAME}/version.hpp)
 set(LIBRARY_SRC
     src/auth/authenticator.cpp
+    src/auth/jsonWebToken.cpp
+    src/auth/jsonWebTokenOptions.cpp
+    src/auth/openldap.cpp
+    src/auth/openldapOptions.cpp
     src/database/credentials.cpp
     src/version.cpp)
 
@@ -184,7 +190,8 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
    message("Will build unit tests")
    add_executable(unitTests
                   testing/database/credentials.cpp
-                  #testing/auth/openldap.cpp
+                  testing/auth/openldap.cpp
+                  testing/auth/jsonWebToken.cpp
                   )
    target_compile_definitions(unitTests
                               PRIVATE TESTING_DATA_DIR="${CMAKE_SOURCE_DIR}/testing/data")
