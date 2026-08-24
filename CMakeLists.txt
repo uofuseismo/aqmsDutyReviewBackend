@@ -175,6 +175,7 @@ target_include_directories(aqmsDutyReviewBackend
                           )
 target_link_libraries(aqmsDutyReviewBackend
                       PRIVATE aqmsDutyReviewBackend::libaqmsDutyReviewBackend
+                              spdlog::spdlog_header_only
                               Crow::Crow
                               Boost::headers Boost::program_options)
 if (${WITH_CONAN})
