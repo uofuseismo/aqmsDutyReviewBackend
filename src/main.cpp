@@ -14,8 +14,6 @@
 #include <crow/http_response.h>
 #include <crow/logging.h>
 #include "aqmsDutyReviewBackend/version.hpp"
-#include "aqmsDutyReviewBackend/auth/openldap.hpp"
-#include "aqmsDutyReviewBackend/auth/openldapOptions.hpp"
 #include "programOptions.hpp"
 #include "parseCommandLineOptions.hpp"
 #include "logger.hpp"

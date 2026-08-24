@@ -6,8 +6,10 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/ptree_fwd.hpp>
 #include <boost/property_tree/ini_parser.hpp>
-#include "aqmsDutyReviewBackend/auth/openldapOptions.hpp"
 #include "aqmsDutyReviewBackend/auth/jsonWebTokenOptions.hpp"
+#ifdef WITH_OPENLDAP
+#include "aqmsDutyReviewBackend/auth/openldapOptions.hpp"
+#endif
 #include "otelOptions.hpp"
 
 #define APPLICATION_NAME "aqmsDutyReviewBackend"
@@ -41,11 +43,12 @@ struct ProgramOptions
                                      PRINT_SUMMARY_INTERVAL_MINUTES);
         printSummaryInterval = std::chrono::minutes {printSummaryIntervalInMinutes};
 */
+#ifdef WITH_OPENLDAP
         // OpenLDAP 
         openLDAPOptions
             = DRP::Auth::OpenLDAPOptions::fromInitializationFile(
                 iniFile, "OpenLDAP");
-
+#endif
         // JWT Auth 
         jsonWebTokenOptions
             = DRP::Auth::JSONWebTokenOptions::fromInitializationFile(
@@ -55,7 +58,9 @@ struct ProgramOptions
 
     std::string applicationName{APPLICATION_NAME};
     AQMSDutyReviewBackend::Auth::JSONWebTokenOptions jsonWebTokenOptions;
+#ifdef WITH_OPENLDAP
     AQMSDutyReviewBackend::Auth::OpenLDAPOptions openLDAPOptions;
+#endif
     AQMSDutyReviewBackend::OTelOptions::HTTPMetrics otelHTTPMetricsOptions;
     AQMSDutyReviewBackend::OTelOptions::HTTPLog otelHTTPLogOptions;
     AQMSDutyReviewBackend::OTelOptions::GRPCMetrics otelGRPCMetricsOptions;

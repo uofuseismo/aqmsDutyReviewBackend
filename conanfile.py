@@ -32,8 +32,8 @@ class aqmsDutyReviewBackendConan(ConanFile):
        self.requires("jwt-cpp/0.7.2")
        self.requires("libpqxx/8.0.1")
        self.requires("openssl/3.6.3")
-       self.requires("openldap/2.6.7")
-       #self.requires('libsodium/1.0.22')
+       #self.requires("openldap/2.6.7")
+       self.requires('libsodium/1.0.22')
 
 
    def build_requirements(self):
