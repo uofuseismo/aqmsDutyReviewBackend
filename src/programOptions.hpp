@@ -10,6 +10,7 @@
 #ifdef WITH_OPENLDAP
 #include "aqmsDutyReviewBackend/auth/openldapOptions.hpp"
 #endif
+#include "aqmsDutyReviewBackend/database/credentials.hpp"
 #include "otelOptions.hpp"
 
 #define APPLICATION_NAME "aqmsDutyReviewBackend"
@@ -49,6 +50,38 @@ struct ProgramOptions
             = DRP::Auth::OpenLDAPOptions::fromInitializationFile(
                 iniFile, "OpenLDAP");
 #endif
+        // DRP database
+        drpDatabaseCredentials
+            = DRP::Database::Credentials::fromInitializationFile(
+                iniFile, "DRP");
+        if (drpDatabaseCredentials.isReadOnly())
+        {
+            throw std::invalid_argument(
+                "DRP database requires read/write connection");
+        }
+        if (!drpDatabaseCredentials.hasUser())
+        {
+            throw std::invalid_argument("DRP database user name not set");
+        }
+        if (!drpDatabaseCredentials.hasPassword())
+        {
+            throw std::invalid_argument("DRP database password not set");
+        }
+
+        // AQMS database
+        aqmsDatabaseCredentials
+            = DRP::Database::Credentials::fromInitializationFile(
+                iniFile, "AQMS");
+        if (!aqmsDatabaseCredentials.hasUser())
+        {
+            throw std::invalid_argument("AQMS database user name not set");
+        }
+        if (!aqmsDatabaseCredentials.hasPassword())
+        {
+            throw std::invalid_argument("AQMS database password not set");
+        }
+
+             
         // JWT Auth 
         jsonWebTokenOptions
             = DRP::Auth::JSONWebTokenOptions::fromInitializationFile(
@@ -58,6 +91,8 @@ struct ProgramOptions
 
     std::string applicationName{APPLICATION_NAME};
     AQMSDutyReviewBackend::Auth::JSONWebTokenOptions jsonWebTokenOptions;
+    AQMSDutyReviewBackend::Database::Credentials aqmsDatabaseCredentials;
+    AQMSDutyReviewBackend::Database::Credentials drpDatabaseCredentials;
 #ifdef WITH_OPENLDAP
     AQMSDutyReviewBackend::Auth::OpenLDAPOptions openLDAPOptions;
 #endif
