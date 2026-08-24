@@ -31,9 +31,9 @@ find_package(Boost REQUIRED headers json program_options REQUIRED)
 find_package(Threads REQUIRED)
 find_package(libpqxx REQUIRED)
 find_package(jwt-cpp CONFIG REQUIRED)
-#find_package(libsodium REQUIRED)
-find_package(OpenLDAP REQUIRED)
-find_package(Crow)
+find_package(libsodium REQUIRED)
+find_package(OpenLDAP)
+find_package(Crow REQUIRED)
 if (${ENABLE_COMPRESSION})
    set(CROW_ENABLE_COMPRESSION ON) 
 else()
@@ -98,18 +98,29 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/auth/authenticator.hpp
     include/${PROJECT_NAME}/auth/jsonWebToken.hpp
     include/${PROJECT_NAME}/auth/jsonWebTokenOptions.hpp
-    include/${PROJECT_NAME}/auth/openldap.hpp
-    include/${PROJECT_NAME}/auth/openldapOptions.hpp
+    #include/${PROJECT_NAME}/auth/openldap.hpp
+    #include/${PROJECT_NAME}/auth/openldapOptions.hpp
     include/${PROJECT_NAME}/database/credentials.hpp
     include/${PROJECT_NAME}/version.hpp)
 set(LIBRARY_SRC
     src/auth/authenticator.cpp
     src/auth/jsonWebToken.cpp
     src/auth/jsonWebTokenOptions.cpp
-    src/auth/openldap.cpp
-    src/auth/openldapOptions.cpp
+    #src/auth/openldap.cpp
+    #src/auth/openldapOptions.cpp
     src/database/credentials.cpp
     src/version.cpp)
+if (${OpenLDAP_FOUND})
+   message("Adding OpenLDAP authenticator")
+   set(HEADER_FILES
+       ${HEADER_FILES}
+       include/${PROJECT_NAME}/auth/openldap.hpp
+       include/${PROJECT_NAME}/auth/openldapOptions.hpp)
+   set(LIBRARY_SRC
+       ${LIBRARY_SRC}
+       src/auth/openldap.cpp
+       src/auth/openldapOptions.cpp)    
+endif()
 
 if (${BUILD_SHARED_LIBS})
    add_library(libaqmsDutyReviewBackend SHARED ${LIBRARY_SRC} ${WILL_BE_DELETED_SRC} ${PROTO_SRC})
@@ -133,9 +144,13 @@ target_link_libraries(libaqmsDutyReviewBackend
                               libpqxx::pqxx
                               spdlog::spdlog_header_only
                               Boost::headers Boost::json Boost::program_options
-                              #libsodium::libsodium
-                              openldap::openldap
+                              libsodium::libsodium
                               Threads::Threads)
+if (${OpenLDAP_FOUND})
+   target_compile_definitions(libaqmsDutyReviewBackend PUBLIC WITH_OPENLDAP)
+   target_link_libraries(libaqmsDutyReviewBackend PRIVATE openldap::openldap)
+endif()
+
 target_sources(libaqmsDutyReviewBackend
                PUBLIC FILE_SET
                       HEADERS
@@ -158,7 +173,6 @@ target_include_directories(aqmsDutyReviewBackend
                           )
 target_link_libraries(aqmsDutyReviewBackend
                       PRIVATE aqmsDutyReviewBackend::libaqmsDutyReviewBackend
-                              #openldap::openldap
                               Crow::Crow
                               Boost::headers Boost::program_options)
 if (${WITH_CONAN})
@@ -188,11 +202,15 @@ endif()
 
 if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
    message("Will build unit tests")
-   add_executable(unitTests
-                  testing/database/credentials.cpp
-                  testing/auth/openldap.cpp
-                  testing/auth/jsonWebToken.cpp
-                  )
+   set(TEST_SRC
+       testing/database/credentials.cpp
+       testing/auth/jsonWebToken.cpp)
+   if (${OpenLDAP_FOUND})
+       set(TEST_SRC
+           ${TEST_SRC} 
+           testing/auth/openldap.cpp)
+   endif()
+   add_executable(unitTests ${TEST_SRC})
    target_compile_definitions(unitTests
                               PRIVATE TESTING_DATA_DIR="${CMAKE_SOURCE_DIR}/testing/data")
    set_target_properties(unitTests PROPERTIES
