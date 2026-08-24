@@ -32,6 +32,7 @@ find_package(Threads REQUIRED)
 find_package(libpqxx REQUIRED)
 find_package(jwt-cpp CONFIG REQUIRED)
 find_package(libsodium REQUIRED)
+find_package(libmseed REQUIRED)
 find_package(OpenLDAP)
 find_package(Crow REQUIRED)
 if (${ENABLE_COMPRESSION})
@@ -142,6 +143,7 @@ target_include_directories(libaqmsDutyReviewBackend
 target_link_libraries(libaqmsDutyReviewBackend
                       PRIVATE jwt-cpp::jwt-cpp
                               libpqxx::pqxx
+                              mseed::mseed
                               spdlog::spdlog_header_only
                               Boost::headers Boost::json Boost::program_options
                               libsodium::libsodium
