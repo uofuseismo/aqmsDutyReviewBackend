@@ -145,8 +145,9 @@ int main(int argc, char *argv[])
     // Create the logger (and one for crow)
     std::shared_ptr<spdlog::logger> logger
         = AQMSDutyReviewBackend::Logger::initialize(programOptions);
-    const ::CustomLogger customLogger{logger};
+    ::CustomLogger customLogger{logger};
 
+    crow::logger::setHandler(&customLogger);
     crow::SimpleApp app;
     CROW_ROUTE(app, "/")
     ([&]()  
@@ -161,57 +162,58 @@ int main(int argc, char *argv[])
 */
         return crow::response(200);
     });
-    CROW_ROUTE(app, "/version")
-    ([&]()
+    CROW_ROUTE(app, "/settings")
+    ([&](const crow::request &request)
     {
-        SPDLOG_LOGGER_DEBUG(customLogger.logger, "Version request");
+        // TODO must authorize user's jwt
+        SPDLOG_LOGGER_DEBUG(customLogger.logger,
+                            "Processing version request");
         crow::response response;
         response.code = 200;
         response.set_header("Content-Type", "application/json");
         auto version = AQMSDutyReviewBackend::Version::getVersion();
-        crow::json::wvalue wVersion;
-        wVersion["version"] = version;
-        response.body = wVersion.dump();
+        crow::json::wvalue wSettings;
+        wSettings["backendVersion"] = version;
+        wSettings["stadiaMapKey"] = "super-secret-map-key"; 
+        response.body = wSettings.dump();
         return response;
     });
     ///----------------------------------------------------------------------///
     ///                               Login Stuff                            ///
     ///----------------------------------------------------------------------///
     CROW_ROUTE(app, "/auth/login")
-    ([&]()
+    ([&](const crow::request &request)
     {
-        SPDLOG_LOGGER_DEBUG(customLogger.logger, "Login");
+        SPDLOG_LOGGER_DEBUG(customLogger.logger,
+                            "Login");
+        auto authorizationString
+            = request.get_header_value("Authorization");
+ 
+
         return crow::response(200);
     });
     ///----------------------------------------------------------------------///
     ///                                 Queries                              ///
     ///----------------------------------------------------------------------///
-    CROW_ROUTE(app, "/query/locks");
-    ([&]()
+    CROW_ROUTE(app, "/event-information/locks")
+    ([&](const crow::request &request)
     {
-        SPDLOG_LOGGER_DEBUG(customLogger.logger, "Getting database locks...");
+        SPDLOG_LOGGER_DEBUG(customLogger.logger,
+                            "Getting database locks...");
         return crow::response(200);
     });
-    CROW_ROUTE(app, "/query/catalog");
-    ([&]()
+    CROW_ROUTE(app, "/event-information/catalog")
+    ([&](const crow::request &request)
     {
         SPDLOG_LOGGER_DEBUG(customLogger.logger,
                             "Getting latest catalog...");
         return crow::response(200);
     });
-    CROW_ROUTE(app, "/query/catalog-hash");
+    CROW_ROUTE(app, "/event-information/catalog-hash")
     ([&]()
     {
-        std::string user;
         SPDLOG_LOGGER_DEBUG(customLogger.logger,
                             "Getting latest catalog hash...");
-        return crow::response(200);
-    });
-    CROW_ROUTE(app, "/query/alarms/<int>");
-    ([&](int64_t eventIdentifier)
-    {   
-        SPDLOG_LOGGER_DEBUG(customLogger.logger, 
-                            "Getting alarms for {}...", eventIdentifier);
         return crow::response(200);
     });
     ///----------------------------------------------------------------------///
@@ -235,21 +237,26 @@ int main(int argc, char *argv[])
     /// Run app
     try
     {
+        SPDLOG_LOGGER_INFO(customLogger.logger,
+                           "Starting Crow on {}:{}",
+                           programOptions.crowOptions.bindAddress,
+                           programOptions.crowOptions.port);
         app.bindaddr(programOptions.crowOptions.bindAddress)
            .port(programOptions.crowOptions.port)
-           .server_name(programOptions.crowOptions.serverName)
-           .concurrency(programOptions.crowOptions.nThreads);
+           .server_name(programOptions.crowOptions.serverName);
         if (programOptions.crowOptions.nThreads > 1)
         {
-            app.multithreaded();
+           app.concurrency(programOptions.crowOptions.nThreads);
+           app.multithreaded();
         }
 #ifdef ENABLE_COMPRESSION
         if (programOptions.crowOptions.useCompression)
         {
-            app.use_compression(programOptions.crowOptions.compression);
+            .use_compression(programOptions.crowOptions.compression);
         }
 #endif
         app.run();
+        SPDLOG_LOGGER_INFO(consoleLogger, "Finished running Crow");
         AQMSDutyReviewBackend::Metrics::cleanup();
         AQMSDutyReviewBackend::Logger::cleanup();
         return EXIT_SUCCESS;
