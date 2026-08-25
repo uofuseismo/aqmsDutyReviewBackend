@@ -93,7 +93,7 @@ else()
    set(aqmsDutyReviewBackend_GITTAG "")
 endif()
 configure_file(${CMAKE_SOURCE_DIR}/src/version.hpp.in
-               ${CMAKE_SOURCE_DIR}/include/aqmsDutyReviewBackend/version.hpp)
+               ${CMAKE_SOURCE_DIR}/include/${PROJECT_NAME}/version.hpp)
 
 set(HEADER_FILES
     include/${PROJECT_NAME}/auth/authenticator.hpp
