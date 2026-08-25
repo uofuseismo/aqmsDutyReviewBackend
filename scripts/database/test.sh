@@ -100,6 +100,24 @@ AQMSDB_RO_PASSWORD="${TEST_RO_PASSWORD}" \
   "${SQL_DIR}/create.sh" "${TEST_DB}"
 
 ###########################################################################
+###                           BOOTSTRAP                                 ###
+###########################################################################
+
+# The first administrator cannot be created through the admin functions,
+# because every one of them demands an existing administrator as actor.
+# add_user is granted to no role precisely so that this is a superuser
+# step -- which is also how a real deployment breaks the same cycle:
+#
+#     sudo -u postgres psql -d aqmsdb_prod \
+#       -c "SELECT add_user('bbaker', '\$argon2id\$...', 'admin');"
+#
+# The suites then run as the writer and act on behalf of 'root'.
+echo "==> bootstrapping the first administrator"
+psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+     "${PSQL_CONN[@]}" --dbname="${TEST_DB}" \
+     -c "SELECT add_user('root', 'hash-root', 'admin');" >/dev/null
+
+###########################################################################
 ###                              RUN                                    ###
 ###########################################################################
 

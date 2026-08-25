@@ -49,6 +49,20 @@ BEGIN
     IF user_must_change_password('alice') THEN
         RAISE EXCEPTION 'FAIL: alice is flagged provisional';
     END IF;
+    --- The reader decides what to render, so it needs to be able to ask
+    --- who is an admin.  Asking is a read; acting is not.
+    IF NOT user_is_admin('root') THEN
+        RAISE EXCEPTION 'FAIL: reader cannot see that root is an admin';
+    END IF;
+    IF user_is_admin('alice') THEN
+        RAISE EXCEPTION 'FAIL: alice reads as an admin';
+    END IF;
+    IF NOT user_has_permission('alice', 'read_write') THEN
+        RAISE EXCEPTION 'FAIL: reader cannot evaluate a permission check';
+    END IF;
+    IF count_active_admins() < 1 THEN
+        RAISE EXCEPTION 'FAIL: reader sees no admins';
+    END IF;
     IF get_user_by_key('pubkey-alice-laptop') IS NOT NULL THEN
         RAISE EXCEPTION 'FAIL: revoked key resolved for the reader';
     END IF;
@@ -61,6 +75,10 @@ END $$;
 ---                   Functions the reader may NOT call                 ---
 --------------------------------------------------------------------------
 
+--- Both the ungated function and its admin_ wrapper, because they fail
+--- for different reasons and only one of them is a grant.  The reader
+--- holding EXECUTE on an admin_ function would be a real hole even
+--- though every call would still need an administrator as actor.
 DO $$
 BEGIN
     PERFORM add_user('intruder', 'hash-intruder');
@@ -71,10 +89,52 @@ END $$;
 
 DO $$
 BEGIN
+    PERFORM admin_add_user('root', 'intruder', 'hash-intruder');
+    RAISE EXCEPTION 'FAIL: reader could call admin_add_user';
+EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'ok: reader denied admin_add_user';
+END $$;
+
+DO $$
+BEGIN
     PERFORM remove_user('alice');
     RAISE EXCEPTION 'FAIL: reader could remove a user';
 EXCEPTION WHEN insufficient_privilege THEN
     RAISE NOTICE 'ok: reader denied remove_user';
+END $$;
+
+DO $$
+BEGIN
+    PERFORM admin_remove_user('root', 'alice');
+    RAISE EXCEPTION 'FAIL: reader could call admin_remove_user';
+EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'ok: reader denied admin_remove_user';
+END $$;
+
+DO $$
+BEGIN
+    PERFORM admin_set_user_permission('root', 'alice', 'admin');
+    RAISE EXCEPTION 'FAIL: reader could call admin_set_user_permission';
+EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'ok: reader denied admin_set_user_permission';
+END $$;
+
+DO $$
+BEGIN
+    PERFORM admin_reset_user_password('root', 'alice', 'hash-x',
+                                      INTERVAL '1 day');
+    RAISE EXCEPTION 'FAIL: reader could call admin_reset_user_password';
+EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'ok: reader denied admin_reset_user_password';
+END $$;
+
+DO $$
+BEGIN
+    PERFORM admin_add_provisional_user('root', 'intruder', 'hash',
+                                       INTERVAL '1 hour');
+    RAISE EXCEPTION 'FAIL: reader could call admin_add_provisional_user';
+EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'ok: reader denied admin_add_provisional_user';
 END $$;
 
 DO $$

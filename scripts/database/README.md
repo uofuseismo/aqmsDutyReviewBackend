@@ -13,8 +13,8 @@ no others.  Target is PostgreSQL 18, floor is 14.
 | `createTables.sql` | Every table and function. |
 | `grantPrivileges.sql` | Privileges.  Runs last, because it names objects from the step before. |
 | `test.sh` | Builds a throwaway database and runs the suites against it. |
-| `testWriter.sql` | 39 checks as the read_write role. |
-| `testReader.sql` | 18 checks as the read_only role. |
+| `testWriter.sql` | Checks run as the read_write role. |
+| `testReader.sql` | Checks run as the read_only role. |
 
 ## One database per system
 
@@ -79,6 +79,56 @@ schema, a catalog loop would also flip the event trigger function.
 Plaintext passwords never enter the database.  The backend hashes with
 something like libsodium's `crypto_pwhash_str` and stores the result.
 
+### Permission levels and administrators
+
+Three ranked levels: `read_only` < `read_write` < `admin`.  They are
+ranked, not independent, so an admin satisfies a `read_write` check.
+`user_has_permission(name, required)` is the only place that ordering is
+written down; use it rather than spelling out `IN (...)` at call sites,
+which is how an admin ends up mysteriously unable to write data.
+
+An administrator can create and delete users, reset passwords, and
+change other people's levels.  The `admin_` functions each take the
+acting user as their first argument and check it in the database:
+
+    SELECT admin_add_provisional_user('bbaker', 'tim', '$argon2id$...',
+                                      INTERVAL '7 days', 'read_only');
+    SELECT admin_set_user_permission('bbaker', 'tim', 'read_write');
+    SELECT admin_reset_user_password('bbaker', 'tim', '$argon2id$...',
+                                     INTERVAL '1 day');
+    SELECT admin_remove_user('bbaker', 'tim');
+
+The check happens here rather than in the backend for the same reason
+password hashes are unreachable there: the database should not depend on
+the backend being correct.  The grant says which *backend* may ask; the
+actor argument says on whose behalf.  Both have to hold.
+
+Authorization failure raises `insufficient_privilege` (SQLSTATE 42501)
+rather than returning FALSE, because a boolean cannot distinguish "you
+may not" from "that did not work" and those are a 403 and a 400.  Bad
+input still returns FALSE.
+
+The ungated `add_user`, `remove_user`, `set_user_permission`, and
+`add_provisional_user` are granted to **no role**.  Only a superuser can
+call them, which is how the first administrator gets created -- every
+`admin_` function demands an existing administrator, so the cycle has to
+be broken from outside:
+
+    sudo -u postgres psql -d aqmsdb_prod \
+      -c "SELECT add_user('bbaker', '\$argon2id\$...', 'admin');"
+
+A password reset hands the user a *provisional* password (see below), so
+an administrator who resets an account is not left holding a working
+credential for it.
+
+Two things the database refuses outright, because both are one-call
+lockouts whose only remedy is a superuser session:
+
+* Demoting, deleting, or resetting the **last activated administrator**.
+* Acting as a **provisional administrator**.  They hold a password that
+  arrived by e-mail and have proved nothing yet; they do not count
+  toward the administrator total either.
+
 ### Provisioning
 
 There is no registration workflow.  An operator's script creates the
@@ -132,7 +182,9 @@ it would silently come to mean "last written" instead of "first seen".
 
 ## Not done yet
 
-* No provisioning script -- `add_provisional_user` has no caller.
+* No provisioning script -- `admin_add_provisional_user` has no caller.
+* No audit trail for administrative actions.  Who deleted Tim, and when,
+  is not recorded anywhere; the row simply stops existing.
 * The sweep is inert until something calls it on a timer.
 * `createProcedures.sql`, referenced by the original installer, never
   surfaced.  The functions currently live in `createTables.sql`.
