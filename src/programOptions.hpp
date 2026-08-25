@@ -53,7 +53,7 @@ struct CrowOptions
 
         options.nThreads 
             = propertyTree.get<uint16_t>
-                  (section + "nThreads",
+                  (section + "numberOfThreads",
                    static_cast<uint16_t> (options.nThreads));
         if (options.nThreads < 1)
         {
