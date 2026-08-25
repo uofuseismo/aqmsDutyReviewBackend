@@ -112,7 +112,7 @@ jobs:
         run: |
            cmake --preset conan-release -DENABLE_SSL=ON -DENABLE_COMPRESSION=ON -DWITH_CONAN=ON -DBUILD_CONTAINER=ON
            cmake --build --preset conan-release
-           cp include/${PROJECT_NAME}/version.hpp build
+           cp include/aqmsDutyReviewBackend/version.hpp build
            cp CMakeUserPresets.json build
 
       - name: Upload build directory
