@@ -24,10 +24,14 @@ CREATE TABLE users(
     password_hash TEXT NOT NULL CHECK (length(password_hash) > 0),
     --- What this user may do.  With one database per system (test,
     --- prod) there is nothing left for a permission to range over, so
-    --- it is a column here rather than a join table.  Adding a level
-    --- (e.g., 'management') means editing this CHECK.
+    --- it is a column here rather than a join table.
+    ---
+    --- These are ranked, not independent: admin implies read_write
+    --- implies read_only.  See user_has_permission below, which is the
+    --- one place that ordering is written down.  Adding a level means
+    --- editing this CHECK and that function together.
     permission TEXT NOT NULL DEFAULT 'read_only'
-        CHECK (permission IN ('read_only', 'read_write')),
+        CHECK (permission IN ('read_only', 'read_write', 'admin')),
     --- The provisioning deadline for an account issued with a dummy
     --- password.  NULL means an ordinary, activated account.  Non-NULL
     --- means the account still has the password it was handed and will
@@ -51,6 +55,12 @@ CREATE TABLE users(
 --- Adds a user.  Returns TRUE on success; FALSE if the name or password
 --- hash is empty, the permission is not a known level, or the user
 --- already exists.
+---
+--- Ungated: it takes no actor and checks nothing.  It is granted to no
+--- role, so only a superuser can call it directly -- that is the
+--- bootstrap path for the first administrator, and the reason the
+--- chicken-and-egg problem has an answer.  Everything else goes through
+--- admin_add_user.
 CREATE OR REPLACE FUNCTION add_user(p_name TEXT, p_password_hash TEXT,
                                     p_permission TEXT DEFAULT 'read_only')
 RETURNS BOOLEAN AS $$
@@ -105,7 +115,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 --- Removes a user.  Returns TRUE if a row was deleted.  The user's keys
---- cascade away with them.
+--- cascade away with them.  Ungated and granted to no role; the backend
+--- calls admin_remove_user.
 CREATE OR REPLACE FUNCTION remove_user(p_name TEXT)
 RETURNS BOOLEAN AS $$
 DECLARE n_deleted INTEGER;
@@ -145,7 +156,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 --- Sets a user's permission level.  Returns FALSE if the user does not
---- exist or the level is not a known one.
+--- exist or the level is not a known one.  Ungated and granted to no
+--- role; the backend calls admin_set_user_permission.
 CREATE OR REPLACE FUNCTION set_user_permission(p_name TEXT, p_permission TEXT)
 RETURNS BOOLEAN AS $$
 DECLARE n_updated INTEGER;
@@ -170,13 +182,196 @@ RETURNS TEXT AS $$
      WHERE name = lower(trim(p_name));
 $$ LANGUAGE sql;
 
+--- Does this user hold AT LEAST the named level?  The levels are
+--- ranked, so an admin passes a read_write check without anyone having
+--- to remember to write 'permission IN (...)' at every call site --
+--- which is how an admin ends up mysteriously unable to write data.
+---
+--- Returns FALSE for an unknown user and for an unknown level, so a
+--- typo'd requirement denies rather than admits.
+CREATE OR REPLACE FUNCTION user_has_permission(p_name TEXT, p_required TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT COALESCE(
+        (SELECT CASE u.permission WHEN 'read_only'  THEN 1
+                                  WHEN 'read_write' THEN 2
+                                  WHEN 'admin'      THEN 3 END
+           FROM users u WHERE u.name = lower(trim(p_name)))
+        >=
+        CASE lower(trim(p_required)) WHEN 'read_only'  THEN 1
+                                     WHEN 'read_write' THEN 2
+                                     WHEN 'admin'      THEN 3 END,
+        FALSE);
+$$ LANGUAGE sql;
+
+--------------------------------------------------------------------------
+---                          Administration                             ---
+--------------------------------------------------------------------------
+--- Everything below takes p_actor: the logged-in user on whose behalf
+--- the backend is acting.  The check happens here rather than in the
+--- backend for the same reason password hashes are unreachable there --
+--- the database should not depend on the backend being correct.
+---
+--- Authorization failure RAISEs insufficient_privilege (SQLSTATE 42501)
+--- instead of returning FALSE.  A boolean cannot distinguish 'you may
+--- not' from 'that did not work', and those are a 403 and a 400 to the
+--- frontend.  Bad input still returns FALSE, as everywhere else.
+
+--- Raises unless p_actor is an activated administrator.  Granted to no
+--- role: it is called from inside the definer functions below, which
+--- run as the owner and so do not need EXECUTE of their own.
+---
+--- A provisional admin is refused.  They hold a password that was
+--- e-mailed to them and have proved nothing yet; that is not who should
+--- be able to create accounts.
+CREATE OR REPLACE FUNCTION require_admin(p_actor TEXT)
+RETURNS VOID AS $$
+DECLARE v_permission TEXT;
+        v_provisional TIMESTAMPTZ;
+BEGIN
+    SELECT permission, provisional_until
+      INTO v_permission, v_provisional
+      FROM users WHERE name = lower(trim(p_actor));
+    --- One message for every failure: whether a given name exists is
+    --- not something an unauthorized caller should be able to probe.
+    IF v_permission IS NULL
+       OR v_permission <> 'admin'
+       OR v_provisional IS NOT NULL THEN
+        RAISE EXCEPTION 'not authorized: administrator privilege required'
+              USING ERRCODE = 'insufficient_privilege';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+--- TRUE if this user is an activated administrator.  The frontend uses
+--- it to decide whether to show the user-management page at all; the
+--- functions below do not trust that decision.
+CREATE OR REPLACE FUNCTION user_is_admin(p_name TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT COALESCE(
+        (SELECT permission = 'admin' AND provisional_until IS NULL
+           FROM users WHERE name = lower(trim(p_name))),
+        FALSE);
+$$ LANGUAGE sql;
+
+--- How many administrators can actually administer right now.
+--- Provisional ones are excluded because require_admin refuses them:
+--- counting them would let the last usable admin be removed on the
+--- strength of one who cannot log in.
+CREATE OR REPLACE FUNCTION count_active_admins()
+RETURNS INTEGER AS $$
+    SELECT count(*)::INTEGER FROM users
+     WHERE permission = 'admin' AND provisional_until IS NULL;
+$$ LANGUAGE sql;
+
+--- Raises if p_name is the last activated administrator.  Called before
+--- anything that would demote, delete, or de-activate one.
+---
+--- Without this the database can be locked out of its own user
+--- management with a single ordinary-looking call, and the only way
+--- back in is a superuser session.
+CREATE OR REPLACE FUNCTION forbid_last_admin_removal(p_name TEXT)
+RETURNS VOID AS $$
+BEGIN
+    IF user_is_admin(p_name) AND count_active_admins() <= 1 THEN
+        RAISE EXCEPTION 'refusing to leave the database with no administrator'
+              USING ERRCODE = 'insufficient_privilege';
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+--- Creates a user directly, with a password the administrator chose.
+--- Prefer admin_add_provisional_user: it does not require an
+--- administrator to handle someone else's password at all.
+CREATE OR REPLACE FUNCTION admin_add_user(
+    p_actor TEXT, p_name TEXT, p_password_hash TEXT,
+    p_permission TEXT DEFAULT 'read_only')
+RETURNS BOOLEAN AS $$
+BEGIN
+    PERFORM require_admin(p_actor);
+    RETURN add_user(p_name, p_password_hash, p_permission);
+END;
+$$ LANGUAGE plpgsql;
+
+--- The normal way to hire someone: create the account with a dummy
+--- password valid for p_valid_for, hand it over out of band, and let it
+--- delete itself if they never turn up.
+CREATE OR REPLACE FUNCTION admin_add_provisional_user(
+    p_actor TEXT, p_name TEXT, p_password_hash TEXT, p_valid_for INTERVAL,
+    p_permission TEXT DEFAULT 'read_only')
+RETURNS BOOLEAN AS $$
+BEGIN
+    PERFORM require_admin(p_actor);
+    RETURN add_provisional_user(p_name, p_password_hash, p_valid_for,
+                                p_permission);
+END;
+$$ LANGUAGE plpgsql;
+
+--- Changes someone's level -- the 'training is over, give them
+--- read_write' call, and its reverse.
+CREATE OR REPLACE FUNCTION admin_set_user_permission(
+    p_actor TEXT, p_name TEXT, p_permission TEXT)
+RETURNS BOOLEAN AS $$
+BEGIN
+    PERFORM require_admin(p_actor);
+    --- Demoting the last admin is the same lockout as deleting them.
+    --- This also stops an administrator demoting themselves by
+    --- accident, which is the likelier version.
+    IF lower(trim(p_permission)) IS DISTINCT FROM 'admin' THEN
+        PERFORM forbid_last_admin_removal(p_name);
+    END IF;
+    RETURN set_user_permission(p_name, p_permission);
+END;
+$$ LANGUAGE plpgsql;
+
+--- Resets a forgotten password.  The new password is provisional, so
+--- the user must replace it on their next login: an administrator who
+--- resets an account should not be left holding a working credential
+--- for it, and this way the window is p_valid_for rather than forever.
+---
+--- Returns FALSE if the user does not exist or the inputs are bad.
+CREATE OR REPLACE FUNCTION admin_reset_user_password(
+    p_actor TEXT, p_name TEXT, p_password_hash TEXT, p_valid_for INTERVAL)
+RETURNS BOOLEAN AS $$
+DECLARE n_updated INTEGER;
+BEGIN
+    PERFORM require_admin(p_actor);
+    IF p_password_hash IS NULL OR length(p_password_hash) = 0 THEN
+        RETURN FALSE;
+    END IF;
+    IF p_valid_for IS NULL OR p_valid_for <= INTERVAL '0' THEN
+        RETURN FALSE;
+    END IF;
+    --- A reset makes the target provisional, and a provisional admin
+    --- cannot act -- so resetting the last administrator, including
+    --- yourself, is a lockout like any other.
+    PERFORM forbid_last_admin_removal(p_name);
+    UPDATE users
+       SET password_hash = p_password_hash,
+           password_updated = NOW(),
+           provisional_until = NOW() + p_valid_for
+     WHERE name = lower(trim(p_name));
+    GET DIAGNOSTICS n_updated = ROW_COUNT;
+    RETURN n_updated > 0;
+END;
+$$ LANGUAGE plpgsql;
+
+--- Deletes a user.  Their keys go with them.
+CREATE OR REPLACE FUNCTION admin_remove_user(p_actor TEXT, p_name TEXT)
+RETURNS BOOLEAN AS $$
+BEGIN
+    PERFORM require_admin(p_actor);
+    PERFORM forbid_last_admin_removal(p_name);
+    RETURN remove_user(p_name);
+END;
+$$ LANGUAGE plpgsql;
+
 --------------------------------------------------------------------------
 ---                        Provisioning users                           ---
 --------------------------------------------------------------------------
---- With ~15 users there is no registration workflow.  An operator's
---- script creates the account with a dummy password, hands that
---- password to the person out of band, and the account deletes itself
---- if they never turn it into a real one.
+--- With ~15 users there is no registration workflow.  An administrator
+--- creates the account with a dummy password, hands that password to
+--- the person out of band, and the account deletes itself if they never
+--- turn it into a real one.
 ---
 --- The dummy password is a real credential for as long as it lives, so
 --- the script should generate a distinct random one per user and hash
@@ -186,6 +381,8 @@ $$ LANGUAGE sql;
 
 --- Creates a user holding a dummy password, valid for p_valid_for.
 --- Returns TRUE on success; FALSE on empty input or an existing user.
+--- Ungated and granted to no role; the backend calls
+--- admin_add_provisional_user.
 ---
 --- The interval is an argument, not a default written here, because the
 --- .sql files deliberately carry no site policy -- the calling script
