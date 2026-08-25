@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <memory>
@@ -12,6 +13,7 @@
 #include <crow.h>
 #include <crow/app.h>
 #include <crow/http_response.h>
+#include <crow/json.h>
 #include <crow/logging.h>
 #include "aqmsDutyReviewBackend/version.hpp"
 #include "programOptions.hpp"
@@ -55,12 +57,10 @@ public:
             throw std::runtime_error("Failed to initialize logger");
         }
     }
-    /*
     ~CustomLogger()
-    {    
-        AQMSDutyReviewBackend::Logger::cleanup();
+    {
+        logger = nullptr;
     }
-    */
     void log(const std::string &message,  crow::LogLevel level)
     {    
         if (logger == nullptr){return;}
@@ -160,20 +160,96 @@ int main(int argc, char *argv[])
         return response;//crow::response(200);
 */
         return crow::response(200);
-    }); 
+    });
+    CROW_ROUTE(app, "/version")
+    ([&]()
+    {
+        SPDLOG_LOGGER_DEBUG(customLogger.logger, "Version request");
+        crow::response response;
+        response.code = 200;
+        response.set_header("Content-Type", "application/json");
+        auto version = AQMSDutyReviewBackend::Version::getVersion();
+        crow::json::wvalue wVersion;
+        wVersion["version"] = version;
+        response.body = wVersion.dump();
+        return response;
+    });
+    ///----------------------------------------------------------------------///
+    ///                               Login Stuff                            ///
+    ///----------------------------------------------------------------------///
+    CROW_ROUTE(app, "/auth/login")
+    ([&]()
+    {
+        SPDLOG_LOGGER_DEBUG(customLogger.logger, "Login");
+        return crow::response(200);
+    });
+    ///----------------------------------------------------------------------///
+    ///                                 Queries                              ///
+    ///----------------------------------------------------------------------///
+    CROW_ROUTE(app, "/query/locks");
+    ([&]()
+    {
+        SPDLOG_LOGGER_DEBUG(customLogger.logger, "Getting database locks...");
+        return crow::response(200);
+    });
+    CROW_ROUTE(app, "/query/catalog");
+    ([&]()
+    {
+        SPDLOG_LOGGER_DEBUG(customLogger.logger,
+                            "Getting latest catalog...");
+        return crow::response(200);
+    });
+    CROW_ROUTE(app, "/query/catalog-hash");
+    ([&]()
+    {
+        std::string user;
+        SPDLOG_LOGGER_DEBUG(customLogger.logger,
+                            "Getting latest catalog hash...");
+        return crow::response(200);
+    });
+    CROW_ROUTE(app, "/query/alarms/<int>");
+    ([&](int64_t eventIdentifier)
+    {   
+        SPDLOG_LOGGER_DEBUG(customLogger.logger, 
+                            "Getting alarms for {}...", eventIdentifier);
+        return crow::response(200);
+    });
+    ///----------------------------------------------------------------------///
+    ///                                 Actions                              ///
+    ///----------------------------------------------------------------------///
+    CROW_ROUTE(app, "/actions/accept/<int>")
+    ([&](int64_t eventIdentifier)
+    {
+        SPDLOG_LOGGER_DEBUG(customLogger.logger,
+                            "Accepting... {}", eventIdentifier);
+        return crow::response(200);
+    });
+    CROW_ROUTE(app, "/actions/cancel/<int>")
+    ([&](int64_t eventIdentifier)
+    {
+        SPDLOG_LOGGER_DEBUG(customLogger.logger,
+                            "Canceling... {}", eventIdentifier);
+        return crow::response(200);
+    });
 
     /// Run app
     try
     {
-        app.bindaddr("127.0.0.1") //programOptions.crowBindAddress)
-           .port(8080) //programOptions.crowPort)
-           .server_name("aqms-drp-server") //programOptions.crowServerName)
-           .concurrency(1) //programOptions.nThreads)
+        app.bindaddr(programOptions.crowOptions.bindAddress)
+           .port(programOptions.crowOptions.port)
+           .server_name(programOptions.crowOptions.serverName)
+           .concurrency(programOptions.crowOptions.nThreads);
+        if (programOptions.crowOptions.nThreads > 1)
+        {
+            app.multithreaded();
+        }
 #ifdef ENABLE_COMPRESSION
-           .use_compression(crow::compression::algorithm::GZIP)
+        if (programOptions.crowOptions.useCompression)
+        {
+            app.use_compression(programOptions.crowOptions.compression);
+        }
 #endif
-           .multithreaded()
-           .run();
+        app.run();
         AQMSDutyReviewBackend::Metrics::cleanup();
         AQMSDutyReviewBackend::Logger::cleanup();
         return EXIT_SUCCESS;
