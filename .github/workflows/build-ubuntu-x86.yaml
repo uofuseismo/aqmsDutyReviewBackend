@@ -140,7 +140,7 @@ jobs:
       - name: Run unit tests for release
         working-directory: ${{github.workspace}}
         run: |
-          mv build/version.hpp include/${PROJECT_NAME}/
+          mv build/version.hpp include/aqmsDutyReviewBackend/
           mv build/CMakeUserPresets.json ./
           ctest --preset conan-release --verbose
 
@@ -167,7 +167,7 @@ jobs:
       - name: Package tgz
         working-directory: ${{github.workspace}}
         run: |
-          mv build/version.hpp include/${PROJECT_NAME}/
+          mv build/version.hpp include/aqmsDutyReviewBackend/
           mv build/CMakeUserPresets.json ./
           cd build/Release
           mkdir -p artifacts
@@ -182,7 +182,7 @@ jobs:
           echo $QUAY_ROBOT_PASSWORD | buildah login -u $QUAY_ROBOT_USER --password-stdin quay.io
           cd build/Release
           cp artifacts/*tar.gz ./
-          version=$(ls *tar.gz | sed 's/AQMSDataReviewBackend-//g' | sed 's/-Linux.tar.gz//g')
+          version=$(ls *tar.gz | sed 's/AQMSDutyReviewBackend-//g' | sed 's/-Linux.tar.gz//g')
           echo "Will build container version ${version}"
           buildah bud -t ${CONTAINER_NAME}:${version} -t ${CONTAINER_NAME}:latest -f ./Dockerfile.u26
           buildah tag ${CONTAINER_NAME}:${version} quay.io/uuss/${QUAY_DIRECTORY}:${version}
