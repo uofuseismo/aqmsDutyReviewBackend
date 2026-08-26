@@ -26,7 +26,7 @@ private:
     MetricsSingleton() = default;
     ~MetricsSingleton() = default;
     mutable std::mutex mMutex;
-    // The following are a (map, count)
+    // The following maps use the form (route, count) (e.g., (auth-login, 1):
     std::map<std::string, int64_t> mServerErrorCounter; // 500 response codes
     std::map<std::string, int64_t> mClientErrorCounter; // 400 response codes
     std::map<std::string, int64_t> mSuccessCounter;     // 200 response codes

@@ -10,11 +10,14 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/logger.h>
 #include <spdlog/sinks/stdout_color_sinks.h> //NOLINT
+#include <boost/algorithm/string/trim.hpp>
 #include <crow.h>
 #include <crow/app.h>
 #include <crow/http_response.h>
 #include <crow/json.h>
 #include <crow/logging.h>
+#include "aqmsDutyReviewBackend/auth/jsonWebToken.hpp"
+#include "aqmsDutyReviewBackend/auth/authNZ.hpp"
 #include "aqmsDutyReviewBackend/metricsSingleton.hpp"
 #include "aqmsDutyReviewBackend/version.hpp"
 #include "programOptions.hpp"
@@ -149,6 +152,12 @@ int main(int argc, char *argv[])
         = AQMSDutyReviewBackend::Logger::initialize(programOptions);
     ::CustomLogger customLogger{logger};
 
+    // Initialize the JWT
+    auto jwtAuthenticator
+        = std::make_unique<AQMSDutyReviewBackend::Auth::JSONWebToken>
+          (programOptions.jsonWebTokenOptions, logger);
+
+
     crow::logger::setHandler(&customLogger);
     crow::SimpleApp app;
     CROW_ROUTE(app, "/")
@@ -186,17 +195,29 @@ int main(int argc, char *argv[])
     CROW_ROUTE(app, "/auth/login")
     ([&](const crow::request &request)
     {
+        const std::string route{"auth-login"};
         SPDLOG_LOGGER_DEBUG(customLogger.logger,
                             "Login");
         auto authorizationString
             = request.get_header_value("Authorization");
-        if (authorizationString.empty())
+        if (authorizationString.size() < 7)
         {
             return crow::response(400);
         }
-        // Remove the "Basic: " part
- 
+        // Remove the "Basic:" part
+        auto credentialsBase64 = authorizationString.substr(6, std::string::npos);
+        // And the leading/trailing blank space
+        boost::algorithm::trim(credentialsBase64);
+        if (credentialsBase64.empty())
+        {
+            return crow::response(400);
+        }
+        auto credentials
+            = crow::utility::base64decode(credentialsBase64,
+                                          credentialsBase64.size());
 
+
+        //metrics.incrementSuccessCounter(route);
         return crow::response(200);
     });
     ///----------------------------------------------------------------------///
@@ -256,10 +277,30 @@ int main(int argc, char *argv[])
            app.concurrency(programOptions.crowOptions.nThreads);
            app.multithreaded();
         }
-#ifdef ENABLE_COMPRESSION
+#ifdef CROW_ENABLE_COMPRESSION
         if (programOptions.crowOptions.useCompression)
         {
-            .use_compression(programOptions.crowOptions.compression);
+            SPDLOG_LOGGER_INFO(consoleLogger, "Enabling compression");
+            app.use_compression(programOptions.crowOptions.compression);
+        }
+#endif
+#ifdef CROW_USE_SSL
+        if (programOptions.crowOptions.useSSL)
+        {
+            if (programOptions.crowOptions.useCertificateChain)
+            {
+                SPDLOG_LOGGER_INFO(consoleLogger, "Enabling SSL key chain");
+                app.ssl_chainfile(
+                   programOptions.crowOptions.certificateAndKeyFile.first, 
+                   programOptoins.crowOptions.certificateAndKeyFile.second);
+            }
+            else
+            {
+                SPDLOG_LOGGER_INFO(consoleLogger, "Enabling SSL keys");
+                app.ssl_file(
+                   programOptions.crowOptions.certificateAndKeyFile.first, 
+                   programOptoins.crowOptions.certificateAndKeyFile.second);
+            }
         }
 #endif
         app.run();

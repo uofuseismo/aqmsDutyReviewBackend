@@ -7,8 +7,6 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
-#include <vector>
-#include <boost/json/object.hpp>
 #include <boost/json/value.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/logger.h>
@@ -23,8 +21,10 @@ using namespace AQMSDutyReviewBackend::Auth;
 
 namespace
 {
-/// The payload claim carrying the (schema, permission) grants.
-constexpr std::string_view PERMISSIONS_CLAIM{"permissions"};
+/// The payload claim carrying the user's permissions level.  The value is
+/// the same string the database stores in users.permission - "read_only",
+/// "read_write", "admin" - so the token and the table agree on spelling.
+constexpr std::string_view PERMISSIONS_CLAIM{"permission"};
 }
 
 class JSONWebToken::JSONWebTokenImpl
@@ -68,7 +68,7 @@ public:
     /// @brief Creates the token; permissions, when present, ride in the
     ///        signed payload.
     [[nodiscard]] std::string createToken(const std::string &user,
-        const std::vector<std::pair<std::string, std::string>> &permissions) const
+        const std::optional<IAuthenticator::Permissions> permissions) const
     {
         auto token = jwt::create<jwt::traits::boost_json> ();
         token.set_subject(user)
@@ -76,17 +76,17 @@ public:
              .set_type("JWT")
              .set_issued_now()
              .set_expires_in(mExpirationDuration);
-        if (!permissions.empty())
+        if (permissions != std::nullopt)
         {
-            boost::json::object permissionsObject;
-            for (const auto &[schema, permission] : permissions)
-            {
-                permissionsObject[schema] = permission;
-            }
+            // A bare string, not an object wrapping one.  The claim used
+            // to be {"permission": {"permission": "read_write"}}, which
+            // read back as the pair ("permission", "read_write") and made
+            // the claim name look like data.
             token.set_payload_claim(
                 std::string {PERMISSIONS_CLAIM},
                 jwt::basic_claim<jwt::traits::boost_json>
-                    {boost::json::value {permissionsObject}});
+                    {boost::json::value {
+                        IAuthenticator::permissionsToString(*permissions)}});
         }
         if (mSignToken)
         {
@@ -141,20 +141,33 @@ public:
             {
                 JSONWebToken::Claims claims;
                 claims.user = decodedToken.get_subject();
+                // A token with no subject names nobody, so there is no
+                // identity to authorize even though the signature is
+                // good.  Treat it as a bad credential rather than
+                // handing back claims with an empty user.
+                if (claims.user.empty())
+                {
+                    SPDLOG_LOGGER_WARN(mLogger,
+                                       "Token carries no subject");
+                    return {IAuthenticator::Result::InvalidCredentials,
+                            std::nullopt};
+                }
+                // An absent claim leaves permissions at None, which is
+                // what a token minted by createToken(user) carries.
                 if (decodedToken.has_payload_claim(
                         std::string {PERMISSIONS_CLAIM}))
                 {
-                    const auto permissionsObject
+                    const auto permissionsValue
                         = decodedToken.get_payload_claim(
                               std::string {PERMISSIONS_CLAIM})
-                             .to_json().as_object();
-                    claims.permissions.reserve(permissionsObject.size());
-                    for (const auto &item : permissionsObject)
-                    {
-                        claims.permissions.emplace_back(
-                            std::string {item.key()},
-                            std::string {item.value().as_string()});
-                    }
+                             .to_json();
+                    // as_string throws on anything that is not a string,
+                    // which the catch below turns into a rejection - a
+                    // client sending a permissions claim of the wrong
+                    // shape does not get to be authenticated.
+                    claims.permissions
+                        = IAuthenticator::stringToPermissions(
+                              std::string {permissionsValue.as_string()});
                 }
                 SPDLOG_LOGGER_INFO(mLogger, "Verified {}", claims.user);
                 return {IAuthenticator::Result::Authenticated,
@@ -162,10 +175,17 @@ public:
             }
             catch (const std::exception &e)
             {
+                // The token verified but its payload is not shaped the
+                // way this authority mints them.  From here there is no
+                // telling whether a client crafted it - which an
+                // unsigned authority allows - or this backend minted it
+                // wrong, so deny either way and log loudly enough that
+                // the second case is not mistaken for a bad password.
                 SPDLOG_LOGGER_ERROR(mLogger,
                                     "Could not extract claims because {}",
                                     std::string {e.what()});
-                return {IAuthenticator::Result::ServerError, std::nullopt};
+                return {IAuthenticator::Result::InvalidCredentials,
+                        std::nullopt};
             }
         }
         catch (const std::exception &e)
@@ -198,14 +218,22 @@ JSONWebToken::JSONWebToken(const JSONWebTokenOptions &options,
 {
 }
 
-/// Generate a token
+/// Generate a token that proves identity and grants nothing.
 std::string JSONWebToken::createToken(const std::string &user) const
 {
-    return createToken(user, {});
+    if (user.empty())
+    {
+        throw std::invalid_argument("User is empty");
+    }
+    // std::nullopt, not Permissions::None: this mints a token with no
+    // permissions claim at all.  Writing "none" into the payload would
+    // mean the same thing to this backend but puts a level in the token
+    // that the database has no counterpart for.
+    return pImpl->createToken(user, std::nullopt);
 }
 
 std::string JSONWebToken::createToken(const std::string &user,
-    const std::vector<std::pair<std::string, std::string>> &permissions) const
+    const IAuthenticator::Permissions permissions) const
 {
     if (user.empty())
     {

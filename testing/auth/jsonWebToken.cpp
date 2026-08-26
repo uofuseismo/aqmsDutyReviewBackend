@@ -5,6 +5,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 #include <catch2/catch_test_macros.hpp>
@@ -149,28 +150,27 @@ TEST_CASE("AQMSDutyReviewBackend::Auth::JSONWebToken", "JSONWebToken")
     {
         const JSONWebToken authenticator{makeSignedOptions(), nullptr};
 
-        const std::vector<std::pair<std::string, std::string>> permissions
+        // Every level round trips, so the claim cannot be one that
+        // happens to work for the level the first test picked.
+        const std::vector<IAuthenticator::Permissions> levels{
+            IAuthenticator::Permissions::None,
+            IAuthenticator::Permissions::ReadOnly,
+            IAuthenticator::Permissions::ReadWrite,
+            IAuthenticator::Permissions::Administrator};
+        for (const auto &permissions : levels)
         {
-            {"test", "read_write"},
-            {"prod", "read_only"}
-        };
-        const auto token = authenticator.createToken("sam-i-am", permissions);
-
-        const auto [result, claims] = authenticator.verify(token);
-        REQUIRE(result == IAuthenticator::Result::Authenticated);
-        REQUIRE(claims.has_value());
-        //NOLINTBEGIN(bugprone-unchecked-optional-access)
-        REQUIRE(claims->user == "sam-i-am");
-        REQUIRE(claims->permissions.size() == permissions.size());
-        for (const auto &permission : permissions)
-        {
-            REQUIRE(std::find(claims->permissions.begin(),
-                              claims->permissions.end(),
-                              permission) != claims->permissions.end());
+            const auto token
+                = authenticator.createToken("sam-i-am", permissions);
+            const auto [result, claims] = authenticator.verify(token);
+            REQUIRE(result == IAuthenticator::Result::Authenticated);
+            REQUIRE(claims.has_value());
+            //NOLINTBEGIN(bugprone-unchecked-optional-access)
+            REQUIRE(claims->user == "sam-i-am");
+            REQUIRE(claims->permissions == permissions);
+            //NOLINTEND(bugprone-unchecked-optional-access)
         }
-        //NOLINTEND(bugprone-unchecked-optional-access)
     }
-    SECTION("Token without permissions verifies with empty permissions")
+    SECTION("Token without permissions verifies as None")
     {
         const JSONWebToken authenticator{makeSignedOptions(), nullptr};
 
@@ -180,8 +180,43 @@ TEST_CASE("AQMSDutyReviewBackend::Auth::JSONWebToken", "JSONWebToken")
         REQUIRE(claims.has_value());
         //NOLINTBEGIN(bugprone-unchecked-optional-access)
         REQUIRE(claims->user == "sam-i-am");
-        REQUIRE(claims->permissions.empty());
+        // Authenticated, but entitled to nothing.
+        REQUIRE(claims->permissions == IAuthenticator::Permissions::None);
         //NOLINTEND(bugprone-unchecked-optional-access)
+    }
+    SECTION("An expired token is rejected")
+    {
+        // The shortest lifetime the options will accept.  A token minted
+        // now is still valid, so wait it out rather than asserting on
+        // the mint alone.
+        auto options = makeSignedOptions();
+        options.setTimeToLive(std::chrono::seconds {1});
+        JSONWebToken authenticator{options, nullptr};
+
+        const auto token = authenticator.createToken("sam-i-am");
+        REQUIRE(authenticator.authenticateBearer(token)
+                == IAuthenticator::Result::Authenticated);
+
+        std::this_thread::sleep_for(std::chrono::seconds {2});
+        REQUIRE(authenticator.authenticateBearer(token)
+                == IAuthenticator::Result::InvalidCredentials);
+    }
+    SECTION("A token from another key pair is rejected")
+    {
+        // Same algorithm, different signer: the thing a stolen public
+        // key does not let you forge.
+        JSONWebToken authenticator{makeSignedOptions(), nullptr};
+
+        JSONWebTokenOptions otherOptions;
+        otherOptions.setKeyPair({loadKey("ed25519-public-key-2.pem"),
+                                 loadKey("ed25519-private-key-2.pem")});
+        const JSONWebToken otherAuthority{otherOptions, nullptr};
+
+        const auto foreignToken
+            = otherAuthority.createToken(
+                  "sam-i-am", IAuthenticator::Permissions::Administrator);
+        REQUIRE(authenticator.authenticateBearer(foreignToken)
+                == IAuthenticator::Result::InvalidCredentials);
     }
     SECTION("Tampered signed token is rejected")
     {

@@ -7,7 +7,7 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/ptree_fwd.hpp>
 #include <boost/property_tree/ini_parser.hpp>
-#ifdef ENABLE_COMPRESSION
+#ifdef CROW_ENABLE_COMPRESSION
 #include <crow/compression.h>
 #endif
 #include "aqmsDutyReviewBackend/auth/jsonWebTokenOptions.hpp"
@@ -60,7 +60,7 @@ struct CrowOptions
             throw std::invalid_argument("Crow number of threads not positive");
         }
 
-#ifdef ENABLE_COMPRESSION
+#ifdef CROW_ENABLE_COMPRESSION
         auto compressionType
            = propertyTree.get<std::string> (section + "compression",
                                             "none");
@@ -75,7 +75,7 @@ struct CrowOptions
         else if (compressionType == "zlib")
         {
             options.useCompression = true;
-            options.compression = crow::compression::algorithm::ZLIB;
+            options.compression = crow::compression::algorithm::DEFLATE;
         }
         else if (compressionType == "gzip")
         {
@@ -88,18 +88,27 @@ struct CrowOptions
                                        + compressionType);
         }
 #endif
-  
+#ifdef CROW_ENABLE_SSL
+        
+#endif
         return options;
     }
     std::string bindAddress{"127.0.0.1"};
     std::string serverName{"aqms-drp-server"};
     int nThreads{1};
     uint16_t port{8080};
-#ifdef ENABLE_COMPRESSION
-    crow::compression::algorithm compression{crow::compression::algorithm::GZIP};
+#ifdef CROW_ENABLE_COMPRESSION
+    crow::compression::algorithm compression = crow::compression::algorithm::GZIP;
     bool useCompression{true};
 #else
-    bool useCompression{true};
+    bool useCompression{false};
+#endif
+#ifdef CROW_ENABLE_SSL
+    std::pair<std::filesystem::path, std::filesystem::path> certificateAndKeyFile;
+    bool useCertificateChain{false};
+    bool useSSL{true};
+#else
+    bool useSSL{false};
 #endif
 };
 
