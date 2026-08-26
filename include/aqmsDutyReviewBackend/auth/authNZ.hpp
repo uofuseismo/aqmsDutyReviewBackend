@@ -39,9 +39,14 @@ struct Requirement
 };
 
 /// @brief The verdict on one request.
-class Authorization
+/// @note An aggregate, deliberately.  There are no invariants to guard
+///       here: AuthNZ::authorize is the only thing that builds one, and
+///       it is what keeps identity populated exactly when the status is
+///       Allowed.  The member functions below are derived views, not
+///       guards - they exist so the status-code and challenge rules are
+///       written down once rather than at every route.
+struct Authorization
 {
-public:
     /// @brief What happened.
     enum class Status
     {
@@ -60,6 +65,11 @@ public:
 
     /// The verdict.
     Status status{Status::NoCredential};
+    /// What the route demanded, carried along so the verdict is
+    /// self-describing: the challenge scheme is derived from it, and a
+    /// denial can say what it wanted without the caller having to hold
+    /// onto the requirement separately.
+    Requirement requirement;
     /// Who the caller is.  Populated only when the status is Allowed.
     std::optional<JSONWebToken::Claims> identity;
     /// Why, in a form fit for the log.
@@ -78,13 +88,6 @@ public:
     ///         A route demanding a password challenges with Basic even
     ///         though the rest of the API is Bearer.
     [[nodiscard]] std::optional<Scheme> challenge() const noexcept;
-private:
-    /// Set by AuthNZ::authorize when the route demanded a password, so
-    /// the challenge asks for the scheme that can actually satisfy it.
-    /// Not a caller's to set - a challenge that disagrees with the check
-    /// sends the client round in circles.
-    std::optional<Scheme> mChallengeScheme{std::nullopt};
-    friend class AuthNZ;
 };
 }
 

@@ -134,6 +134,28 @@ jobs:
       - name: Prepare test environment
         uses: ./.github/actions/prepare-test-environment
 
+      # Runs before the build artifacts are unpacked because it does not
+      # need them: a regression in the SQL fails here rather than after a
+      # download.  test.sh builds a throwaway database, runs both suites
+      # against it as the backend roles, and drops it again.
+      - name: Run database tests
+        working-directory: ${{github.workspace}}
+        env:
+          TEST_DB: ${{ vars.CI_TEST_DB || 'aqmsdb_selftest' }}
+        run: |
+          set -euo pipefail
+          # psql runs \i as the postgres user, and that user cannot read
+          # the workspace under /home/runner.  Stage the scripts where it
+          # can - the same reason the README says not to run them out of
+          # a home directory.
+          sudo install -d -m 755 /usr/local/share/aqmsdb
+          sudo cp scripts/database/*.sql scripts/database/*.sh \
+                  /usr/local/share/aqmsdb/
+          sudo chmod 755 /usr/local/share/aqmsdb/*.sh
+          sudo chmod 644 /usr/local/share/aqmsdb/*.sql
+          cd /usr/local/share/aqmsdb
+          sudo -u postgres --preserve-env=TEST_DB ./test.sh
+
       - name: Download build directory
         uses: ./.github/actions/download-build-directory
 

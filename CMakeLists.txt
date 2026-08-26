@@ -99,6 +99,8 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/auth/authenticator.hpp
     include/${PROJECT_NAME}/auth/authNZ.hpp
     include/${PROJECT_NAME}/auth/authorization.hpp
+    include/${PROJECT_NAME}/auth/database.hpp
+    include/${PROJECT_NAME}/auth/databaseOptions.hpp
     include/${PROJECT_NAME}/auth/jsonWebToken.hpp
     include/${PROJECT_NAME}/auth/jsonWebTokenOptions.hpp
     include/${PROJECT_NAME}/database/credentials.hpp
@@ -107,7 +109,9 @@ set(HEADER_FILES
 set(LIBRARY_SRC
     src/auth/authenticator.cpp
     src/auth/authNZ.cpp
-    src/auth/authorization.cpp 
+    src/auth/authorization.cpp
+    src/auth/database.cpp
+    src/auth/databaseOptions.cpp 
     src/auth/jsonWebToken.cpp
     src/auth/jsonWebTokenOptions.cpp
     src/database/credentials.cpp

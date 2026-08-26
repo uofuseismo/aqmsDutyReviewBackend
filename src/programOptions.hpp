@@ -10,6 +10,7 @@
 #ifdef CROW_ENABLE_COMPRESSION
 #include <crow/compression.h>
 #endif
+#include "aqmsDutyReviewBackend/auth/databaseOptions.hpp"
 #include "aqmsDutyReviewBackend/auth/jsonWebTokenOptions.hpp"
 #ifdef WITH_OPENLDAP
 #include "aqmsDutyReviewBackend/auth/openldapOptions.hpp"
@@ -89,7 +90,60 @@ struct CrowOptions
         }
 #endif
 #ifdef CROW_ENABLE_SSL
-        
+        auto certificateFile
+            = propertyTree.get_optional<std::string>
+              (section + "certificateFile");
+        auto certificateKey
+            = propertyTree.get_optional<std::string>
+              (section + "certificateKey");
+        if (certificateFile && certificateKey)
+        {
+            if (!std::filesystem::exists(*certificateFile))
+            {
+                throw std::invalid_argument("Certificate "
+                                          + *certificateFile 
+                                          + " does not exist");
+            }
+            if (!std::filesystem::exists(*certificateKey))
+            {
+                throw std::invalid_argument("Certificate "
+                                          + *certificateKey
+                                          + " does not exist");
+            }
+            options.certificateAndKeyFile
+                = std::make_pair(*certificateFile, *certificateKey); 
+            options.useCertificateChain = false;
+            options.useSSL = true;
+        } 
+        else
+        {
+            auto certificateChainFile 
+               = propertyTree.get_optional<std::string> 
+                 (section + "certificateChainFile");
+            auto certificateChainKey 
+               = propertyTree.get_optional<std::string> 
+                 (section + "certificateChainKey");
+            if (certificateChainFile && certificateChainKey)
+            {
+                if (!std::filesystem::exists(*certificateChainFile))
+                {
+                    throw std::invalid_argument("Certificate chain "
+                                              + *certificateChainFile
+                                              + " does not exist");
+                }
+                if (!std::filesystem::exists(*certificateChainKey))
+                {
+                    throw std::invalid_argument("Certificate chain "
+                                              + *certificateChainKey
+                                              + " does not exist");
+                }
+                options.certificateAndKeyFile
+                    = std::make_pair(*certificateChainFile,
+                                     *certificateChainKey);
+                options.useCertificateChain = true;
+                options.useSSL = true;
+            }
+        }
 #endif
         return options;
     }
@@ -106,7 +160,7 @@ struct CrowOptions
 #ifdef CROW_ENABLE_SSL
     std::pair<std::filesystem::path, std::filesystem::path> certificateAndKeyFile;
     bool useCertificateChain{false};
-    bool useSSL{true};
+    bool useSSL{false};
 #else
     bool useSSL{false};
 #endif
@@ -146,7 +200,7 @@ struct ProgramOptions
                 iniFile, "OpenLDAP");
 #endif
         // DRP database
-        drpDatabaseCredentials
+        auto drpDatabaseCredentials
             = DRP::Database::Credentials::fromInitializationFile(
                 iniFile, "DRP");
         if (drpDatabaseCredentials.isReadOnly())
@@ -162,6 +216,7 @@ struct ProgramOptions
         {
             throw std::invalid_argument("DRP database password not set");
         }
+        drpDatabaseOptions.setCredentials(drpDatabaseCredentials);
 
         // Crow
         crowOptions
@@ -237,9 +292,9 @@ struct ProgramOptions
 
     std::string applicationName{APPLICATION_NAME};
     CrowOptions crowOptions;
+    AQMSDutyReviewBackend::Auth::DatabaseOptions drpDatabaseOptions;
     AQMSDutyReviewBackend::Auth::JSONWebTokenOptions jsonWebTokenOptions;
     AQMSDutyReviewBackend::Database::Credentials aqmsDatabaseCredentials;
-    AQMSDutyReviewBackend::Database::Credentials drpDatabaseCredentials;
 #ifdef WITH_OPENLDAP
     AQMSDutyReviewBackend::Auth::OpenLDAPOptions openLDAPOptions;
 #endif
