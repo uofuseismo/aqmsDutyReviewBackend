@@ -3,8 +3,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <utility>
-#include <vector>
 #include <spdlog/logger.h>
 #include <aqmsDutyReviewBackend/auth/authenticator.hpp>
 
@@ -27,9 +25,14 @@ public:
     {
         /// The authenticated user.
         std::string user;
-        /// The (schema, permission) pairs granted to the user - e.g.,
-        /// ("test", "read_write"), ("production", "read_only").
-        std::vector<std::pair<std::string, std::string>> permissions;
+        /// What the user may do.  There is one database per system and
+        /// no schemas to range over, so this is a single ranked level
+        /// rather than a set of grants - the same shape as the
+        /// database's users.permission column.  A token minted without
+        /// a permissions claim verifies as None: authenticated, but
+        /// entitled to nothing.
+        IAuthenticator::Permissions permissions
+            {IAuthenticator::Permissions::None};
     };
 public:
     /// @brief Constructor.
@@ -49,14 +52,22 @@ public:
     /// @result True indicates the this will a signature algorithm.
     [[nodiscard]] bool isSigned() const noexcept;
 
-    /// @brief Creates a token for the user.
+    /// @brief Creates a token for the user that carries no permissions
+    ///        claim.  It proves who the holder is and nothing more, so
+    ///        every authorization check against it denies.
+    /// @param[in] user  The user the token identifies.
+    /// @throws std::invalid_argument if the user is empty.
     [[nodiscard]] std::string createToken(const std::string &user) const;
+
     /// @brief Creates a token for the user with embedded permissions.
+    /// @param[in] user         The user the token identifies.
+    /// @param[in] permissions  The level the user holds.
     /// @note The permissions ride in the signed payload; a client cannot
     ///       alter them without invalidating the signature.  The token's
     ///       lifetime is fixed by the authority's options.
+    /// @throws std::invalid_argument if the user is empty.
     [[nodiscard]] std::string createToken(const std::string &user,
-        const std::vector<std::pair<std::string, std::string>> &permissions) const;
+        const IAuthenticator::Permissions permissions) const;
 
     /// @brief Verifies the token and unpacks its claims.
     /// @result The authentication result and, on Authenticated, the claims.
