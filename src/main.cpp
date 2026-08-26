@@ -21,6 +21,7 @@
 #include "aqmsDutyReviewBackend/auth/authNZ.hpp"
 #include "aqmsDutyReviewBackend/metricsSingleton.hpp"
 #include "aqmsDutyReviewBackend/version.hpp"
+#include "authorizeRoute.hpp"
 #include "programOptions.hpp"
 #include "parseCommandLineOptions.hpp"
 #include "logger.hpp"
@@ -164,7 +165,7 @@ int main(int argc, char *argv[])
           (programOptions.jsonWebTokenOptions, logger);
 
     // Create the authentciator
-    auto authentciator
+    auto authenticator
         = std::make_unique<AQMSDutyReviewBackend::Auth::AuthNZ>
           (std::move(drpDatabase), std::move(jwtAuthenticator), logger);
 
@@ -238,39 +239,106 @@ int main(int argc, char *argv[])
     CROW_ROUTE(app, "/event-information/locks")
     ([&](const crow::request &request)
     {
-        SPDLOG_LOGGER_DEBUG(customLogger.logger,
-                            "Getting database locks...");
+        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
+        {
+            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
+            false // Require password
+        };
+        auto authResult = ::authorizeRoute(request,
+                                           *authenticator,
+                                           requirement,
+                                           logger);
+        if (!authResult){return std::move(*authResult.rejection);}
+
+        SPDLOG_LOGGER_INFO(customLogger.logger,
+                           "Getting database locks for {}",
+                           authResult.identity->user);
+
         return crow::response(200);
     });
     CROW_ROUTE(app, "/event-information/catalog")
     ([&](const crow::request &request)
     {
+        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
+        {
+            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
+            false // Require password
+        };
+        auto authResult = ::authorizeRoute(request,
+                                           *authenticator,
+                                           requirement,
+                                           logger);
+        if (!authResult){return std::move(*authResult.rejection);}
+
         SPDLOG_LOGGER_DEBUG(customLogger.logger,
-                            "Getting latest catalog...");
+                            "{} requesting catalog...",
+                            authResult.identity->user);
+
         return crow::response(200);
     });
     CROW_ROUTE(app, "/event-information/catalog-hash")
-    ([&]()
+    ([&](const crow::request &request)
     {
+        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
+        {
+            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
+            false // Require password
+        };
+        auto authResult = ::authorizeRoute(request,
+                                           *authenticator,
+                                           requirement,
+                                           logger);
+        if (!authResult){return std::move(*authResult.rejection);}
+
         SPDLOG_LOGGER_DEBUG(customLogger.logger,
-                            "Getting latest catalog hash...");
+                            "{} requesting catalog hash...",
+                            authResult.identity->user);
+
         return crow::response(200);
     });
     ///----------------------------------------------------------------------///
     ///                                 Actions                              ///
     ///----------------------------------------------------------------------///
     CROW_ROUTE(app, "/actions/accept/<int>")
-    ([&](int64_t eventIdentifier)
+    ([&](const crow::request &request, int64_t eventIdentifier)
     {
-        SPDLOG_LOGGER_DEBUG(customLogger.logger,
-                            "Accepting... {}", eventIdentifier);
+        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
+        {
+            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadWrite,
+            false // Require password
+        };
+        auto authResult = ::authorizeRoute(request,
+                                           *authenticator,
+                                           requirement,
+                                           logger);
+        if (!authResult){return std::move(*authResult.rejection);}
+
+        SPDLOG_LOGGER_INFO(customLogger.logger,
+                           "{} accepting event {}",
+                           authResult.identity->user,
+                           eventIdentifier);
+
         return crow::response(200);
     });
     CROW_ROUTE(app, "/actions/cancel/<int>")
-    ([&](int64_t eventIdentifier)
+    ([&](const crow::request &request, int64_t eventIdentifier)
     {
-        SPDLOG_LOGGER_DEBUG(customLogger.logger,
-                            "Canceling... {}", eventIdentifier);
+        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
+        {
+            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadWrite,
+            false // Require password
+        };                 
+        auto authResult = ::authorizeRoute(request,
+                                           *authenticator,
+                                           requirement,
+                                           logger);
+        if (!authResult){return std::move(*authResult.rejection);}
+
+        SPDLOG_LOGGER_INFO(customLogger.logger,
+                           "{} canceling event {}",
+                           authResult.identity->user,
+                           eventIdentifier);
+
         return crow::response(200);
     });
 
