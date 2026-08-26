@@ -15,6 +15,7 @@
 #include <crow/http_response.h>
 #include <crow/json.h>
 #include <crow/logging.h>
+#include "aqmsDutyReviewBackend/metricsSingleton.hpp"
 #include "aqmsDutyReviewBackend/version.hpp"
 #include "programOptions.hpp"
 #include "parseCommandLineOptions.hpp"
@@ -96,6 +97,7 @@ public:
 int main(int argc, char *argv[])
 {
     namespace DRP = AQMSDutyReviewBackend;
+    DRP::Metrics::initializeMetricsSingleton();
     //NOLINTNEXTLINE(misc-include-cleaner)
     auto consoleLogger = spdlog::stdout_color_st("console");
     SPDLOG_LOGGER_INFO(consoleLogger,
@@ -188,6 +190,11 @@ int main(int argc, char *argv[])
                             "Login");
         auto authorizationString
             = request.get_header_value("Authorization");
+        if (authorizationString.empty())
+        {
+            return crow::response(400);
+        }
+        // Remove the "Basic: " part
  
 
         return crow::response(200);

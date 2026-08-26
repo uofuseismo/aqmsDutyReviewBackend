@@ -93,15 +93,13 @@ struct CrowOptions
     }
     std::string bindAddress{"127.0.0.1"};
     std::string serverName{"aqms-drp-server"};
+    int nThreads{1};
     uint16_t port{8080};
 #ifdef ENABLE_COMPRESSION
     crow::compression::algorithm compression{crow::compression::algorithm::GZIP};
-#endif
-    int nThreads{1};
-#ifdef ENABLE_COMPRESSION
     bool useCompression{true};
 #else
-    bool useCompression{false};
+    bool useCompression{true};
 #endif
 };
 
@@ -179,6 +177,53 @@ struct ProgramOptions
             = DRP::Auth::JSONWebTokenOptions::fromInitializationFile(
                 iniFile, "Authentication");
 
+        // Get OTel logs options
+        auto httpLog
+            = DRP::OTelOptions::getHTTPLogOptionsFromIniFile(
+                propertyTree, "OTelHTTPLogOptions");
+        exportLogs = false;
+        if (httpLog != std::nullopt)
+        {
+            otelHTTPLogOptions = *httpLog;
+            exportLogs = true;
+            exportLogsWithHTTP = true;
+        }
+        else
+        {
+            auto grpcLog
+                = DRP::OTelOptions::getGRPCLogOptionsFromIniFile(
+                    propertyTree, "OTelGRPCLogOptions");
+            if (grpcLog != std::nullopt)
+            {   
+                otelGRPCLogOptions = *grpcLog;
+                exportLogs = true;
+                exportLogsWithHTTP = false;
+            }
+        }
+
+        // Get OTel metrics options
+        auto httpMetrics
+            = DRP::OTelOptions::getHTTPMetricsOptionsFromIniFile(
+                propertyTree, "OTelHTTPMetricsOptions");
+        exportMetrics = false;
+        if (httpMetrics != std::nullopt)
+        {
+            otelHTTPMetricsOptions = *httpMetrics;
+            exportMetrics = true;
+            exportMetricsWithHTTP = true;
+        }
+        else
+        {
+            auto grpcMetrics
+                = DRP::OTelOptions::getGRPCMetricsOptionsFromIniFile(
+                    propertyTree, "OTelGRPCMetricsOptions");
+            if (grpcMetrics != std::nullopt)
+            {
+                otelGRPCMetricsOptions = *grpcMetrics;
+                exportMetrics = true;
+                exportMetricsWithHTTP = false;
+            }
+        }
     }
 
     std::string applicationName{APPLICATION_NAME};

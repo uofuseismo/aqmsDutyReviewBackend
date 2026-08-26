@@ -102,6 +102,7 @@ set(HEADER_FILES
     #include/${PROJECT_NAME}/auth/openldap.hpp
     #include/${PROJECT_NAME}/auth/openldapOptions.hpp
     include/${PROJECT_NAME}/database/credentials.hpp
+    include/${PROJECT_NAME}/metricsSingleton.hpp
     include/${PROJECT_NAME}/version.hpp)
 set(LIBRARY_SRC
     src/auth/authenticator.cpp
@@ -110,6 +111,7 @@ set(LIBRARY_SRC
     #src/auth/openldap.cpp
     #src/auth/openldapOptions.cpp
     src/database/credentials.cpp
+    src/metricsSingleton.cpp
     src/version.cpp)
 if (${OpenLDAP_FOUND})
    message("Adding OpenLDAP authenticator")
