@@ -160,21 +160,31 @@ bool Authorization::isAllowed() const noexcept
 
 int Authorization::statusCode() const noexcept
 {
-    switch (status)
+    if (status == Status::Allowed)
     {
-    case Status::Allowed:            return 200;
+        return 200;
+    }
     // A credential we could not read is a malformed request, not a
     // rejected one.  Answering 401 would invite the client to retry the
     // same broken header forever.
-    case Status::Malformed:          return 400;
-    case Status::NoCredential:       return 401;
-    case Status::InvalidCredentials: return 401;
+    else if (status == Status::Malformed)
+    {
+        return 400;
+    }
+    else if (status == Status::NoCredential ||
+             status == Status::InvalidCredentials)
+    {
+        return 401;
+    }
     // Authenticated but outranked.  Distinct from 401 on purpose: 401
     // means "try again with credentials", and a read-only user retrying
     // will never become a writer.
-    case Status::Forbidden:          return 403;
-    case Status::ServerError:        return 500;
+    else if (status == Status::Forbidden)
+    {
+        return 403;
     }
+    // ServerError, and anything unhandled: if this check cannot reach a
+    // verdict that is our fault, not the caller's.
     return 500;
 }
 
@@ -189,7 +199,7 @@ std::optional<Scheme> Authorization::challenge() const noexcept
     }
     // A route that insisted on a password has to say so in the
     // challenge, or the client just re-sends the token it already has.
-    if (mChallengeScheme != std::nullopt){return mChallengeScheme;}
+    if (requirement.requirePassword){return Scheme::Basic;}
     return Scheme::Bearer;
 }
 
@@ -199,12 +209,9 @@ AuthNZ::authorize(const std::string &authorizationHeader,
                   const Requirement &requirement) const noexcept
 {
     Authorization authorization;
-    // A route that demands a password must challenge with Basic; every
-    // other rejection challenges with Bearer.
-    if (requirement.requirePassword)
-    {
-        authorization.mChallengeScheme = Scheme::Basic;
-    }
+    // The verdict carries what it was judged against; challenge() reads
+    // the scheme back out of it.
+    authorization.requirement = requirement;
     try
     {
         const auto [parseStatus, credential]

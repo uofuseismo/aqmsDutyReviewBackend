@@ -11,11 +11,12 @@
 #include <spdlog/logger.h>
 #include <spdlog/sinks/stdout_color_sinks.h> //NOLINT
 #include <boost/algorithm/string/trim.hpp>
-#include <crow.h>
 #include <crow/app.h>
+#include <crow/http_request.h>
 #include <crow/http_response.h>
 #include <crow/json.h>
 #include <crow/logging.h>
+#include "aqmsDutyReviewBackend/auth/database.hpp"
 #include "aqmsDutyReviewBackend/auth/jsonWebToken.hpp"
 #include "aqmsDutyReviewBackend/auth/authNZ.hpp"
 #include "aqmsDutyReviewBackend/metricsSingleton.hpp"
@@ -152,10 +153,20 @@ int main(int argc, char *argv[])
         = AQMSDutyReviewBackend::Logger::initialize(programOptions);
     ::CustomLogger customLogger{logger};
 
+    // Initialize the database
+    auto drpDatabase
+        = std::make_unique<AQMSDutyReviewBackend::Auth::Database>
+          (programOptions.drpDatabaseOptions, logger);
+
     // Initialize the JWT
     auto jwtAuthenticator
         = std::make_unique<AQMSDutyReviewBackend::Auth::JSONWebToken>
           (programOptions.jsonWebTokenOptions, logger);
+
+    // Create the authentciator
+    auto authentciator
+        = std::make_unique<AQMSDutyReviewBackend::Auth::AuthNZ>
+          (std::move(drpDatabase), std::move(jwtAuthenticator), logger);
 
 
     crow::logger::setHandler(&customLogger);
@@ -198,6 +209,7 @@ int main(int argc, char *argv[])
         const std::string route{"auth-login"};
         SPDLOG_LOGGER_DEBUG(customLogger.logger,
                             "Login");
+/*
         auto authorizationString
             = request.get_header_value("Authorization");
         if (authorizationString.size() < 7)
@@ -216,7 +228,7 @@ int main(int argc, char *argv[])
             = crow::utility::base64decode(credentialsBase64,
                                           credentialsBase64.size());
 
-
+*/
         //metrics.incrementSuccessCounter(route);
         return crow::response(200);
     });

@@ -99,13 +99,20 @@ bool IAuthenticator::satisfies(const Permissions held,
     // user who holds nothing.
     constexpr auto rank = [](const Permissions permissions) noexcept -> int
     {
-        switch (permissions)
+        if (permissions == Permissions::ReadOnly)
         {
-        case Permissions::ReadOnly:      return 1;
-        case Permissions::ReadWrite:     return 2;
-        case Permissions::Administrator: return 3;
-        case Permissions::None:          return 0;
+            return 1;
         }
+        else if (permissions == Permissions::ReadWrite)
+        {
+            return 2;
+        }
+        else if (permissions == Permissions::Administrator)
+        {
+            return 3;
+        }
+        // None, and anything added later that nobody ranked, grants
+        // nothing.
         return 0;
     };
     const auto heldRank = rank(held);

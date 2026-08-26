@@ -1,5 +1,6 @@
 #ifndef AQMS_DUTY_REVIEW_BACKEND_AUTHORIZE_ROUTE_HPP
 #define AQMS_DUTY_REVIEW_BACKEND_AUTHORIZE_ROUTE_HPP
+#include <exception>
 #include <memory>
 #include <optional>
 #include <string>
@@ -72,6 +73,30 @@ struct RouteAuthorization
     return body.dump();
 }
 
+/// @brief Builds the response sent to a caller who is turned away.
+/// @param[in] statusCode  The HTTP status to return.
+/// @param[in] challenge   The scheme to name in WWW-Authenticate, or
+///                        nullopt for the verdicts that do not call for
+///                        one.
+/// @note Naming the scheme matters on the password-only routes:
+///       challenging with Bearer there would have the client re-send the
+///       token that was just refused, forever.
+[[nodiscard]] inline crow::response makeAuthorizationRejection(
+    const int statusCode,
+    const std::optional<AQMSDutyReviewBackend::Auth::Scheme> challenge)
+{
+    crow::response response{statusCode, ::authorizationErrorBody(statusCode)};
+    response.set_header("Content-Type", "application/json");
+    if (challenge != std::nullopt)
+    {
+        response.set_header(
+            "WWW-Authenticate",
+            AQMSDutyReviewBackend::Auth::schemeToString(*challenge)
+          + std::string {" realm=\"aqmsDutyReviewBackend\""});
+    }
+    return response;
+}
+
 /// @brief Runs a route's requirement against a request.
 /// @param[in] request      The incoming request.
 /// @param[in] authNZ       The authentication and authorization utility.
@@ -94,9 +119,46 @@ struct RouteAuthorization
 {
     namespace Auth = AQMSDutyReviewBackend::Auth;
 
-    const auto verdict
-        = authNZ.authorize(request.get_header_value("Authorization"),
-                           requirement);
+    // Reading the header is the one step of the check that sits outside
+    // AuthNZ::authorize's noexcept guarantee, so it does not get to be
+    // the thing that escapes.  Crow hashes the key through the global
+    // locale - std::locale's constructor and the use_facet inside the
+    // locale-aware std::toupper can both throw - and copying the value
+    // out allocates.
+    //
+    // A failure here answers 400, the same as a header that parsed but
+    // made no sense: every way of failing to read a caller's
+    // Authorization header looks identical from the outside, so nobody
+    // gets to tell from a response whether it was their header or this
+    // server that was unwell.  The cost is that a genuine fault is
+    // reported as a client error, which is why the log line below stays
+    // at error level - it is the only place that distinction survives.
+    std::string authorization;
+    try
+    {
+        authorization = request.get_header_value("Authorization");
+    }
+    catch (const std::exception &e)
+    {
+        SPDLOG_LOGGER_ERROR(logger,
+                            "Could not read the authorization header "
+                            "because {}", std::string {e.what()});
+        return RouteAuthorization
+               {std::nullopt,
+                ::makeAuthorizationRejection(400, std::nullopt)};
+    }
+    catch (...)
+    {
+        // Not everything throwable derives from std::exception, and the
+        // point of this block is that nothing escapes.
+        SPDLOG_LOGGER_ERROR(logger,
+                            "Could not read the authorization header");
+        return RouteAuthorization
+               {std::nullopt,
+                ::makeAuthorizationRejection(400, std::nullopt)};
+    }
+
+    const auto verdict = authNZ.authorize(authorization, requirement);
     if (verdict.isAllowed())
     {
         SPDLOG_LOGGER_DEBUG(logger, "{}", verdict.reason);
@@ -117,20 +179,9 @@ struct RouteAuthorization
         SPDLOG_LOGGER_INFO(logger, "Authorization denied ({}): {}",
                            statusCode, verdict.reason);
     }
-
-    crow::response response{statusCode, ::authorizationErrorBody(statusCode)};
-    response.set_header("Content-Type", "application/json");
-    // Naming the scheme matters on the password-only routes: challenging
-    // with Bearer there would have the client re-send the token that was
-    // just refused, forever.
-    const auto challenge = verdict.challenge();
-    if (challenge != std::nullopt)
-    {
-        response.set_header("WWW-Authenticate",
-                            Auth::schemeToString(*challenge)
-                          + std::string {" realm=\"aqmsDutyReviewBackend\""});
-    }
-    return RouteAuthorization {std::nullopt, std::move(response)};
+    return RouteAuthorization
+           {std::nullopt,
+            ::makeAuthorizationRejection(statusCode, verdict.challenge())};
 }
 
 }
