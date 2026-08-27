@@ -19,8 +19,15 @@ class LocalMagnitude final : public IMagnitude
 private:
     using StationLocalMagnitudeType = std::vector<StationLocalMagnitude>;
 public:
-    using iterator = typename StationLocalMagnitudeType::iterator;
     using const_iterator = typename StationLocalMagnitudeType::const_iterator;
+    /// @note Iteration is read-only, which is how these objects are
+    ///       actually used: a query builds the vector, it is moved in
+    ///       once with setStationMagnitudes, and from then on the event
+    ///       graph is only read - typically straight into JSON.  Nothing
+    ///       needs to edit a station magnitude in place, so nothing is
+    ///       offered that could.  To change one, take a copy from
+    ///       getStationMagnitudes(), edit it, and hand it back.
+    using iterator = const_iterator;
 public:
     /// @brief Constructor.
     LocalMagnitude();
@@ -52,16 +59,17 @@ public:
     /// @brief Move assignment.
     LocalMagnitude& operator=(LocalMagnitude &&) noexcept;
 
-    iterator begin();
-    const_iterator begin() const;
-    const_iterator cbegin() const;
-    iterator end();
-    const_iterator end() const;
-    const_iterator cend() const;
-    StationLocalMagnitude& at(size_t pos);
-    const StationLocalMagnitude& at(size_t pos) const;
-    StationLocalMagnitude& operator[](size_t pos);
-    const StationLocalMagnitude& operator[](size_t pos) const;
+    /// @name Read-only access to the station magnitudes
+    /// @{
+    [[nodiscard]] const_iterator begin() const;
+    [[nodiscard]] const_iterator cbegin() const;
+    [[nodiscard]] const_iterator end() const;
+    [[nodiscard]] const_iterator cend() const;
+    /// @throws std::out_of_range if pos is not a valid index.
+    [[nodiscard]] const StationLocalMagnitude& at(size_t pos) const;
+    /// @note Not bounds checked; use at() for an index from outside.
+    [[nodiscard]] const StationLocalMagnitude& operator[](size_t pos) const;
+    /// @}
 private:
     class LocalMagnitudeImpl;
     std::unique_ptr<LocalMagnitudeImpl> pImpl;

@@ -351,11 +351,6 @@ size_t Origin::size() const noexcept
 }
 
 /// Iterators
-Origin::iterator Origin::begin()
-{
-    return pImpl->mArrivals.begin();
-}
-
 Origin::const_iterator Origin::begin() const
 {
     return pImpl->mArrivals.begin();
@@ -364,11 +359,6 @@ Origin::const_iterator Origin::begin() const
 Origin::const_iterator Origin::cbegin() const
 {
     return pImpl->mArrivals.cbegin();
-}
-
-Origin::iterator Origin::end()
-{
-    return pImpl->mArrivals.end();
 }
 
 Origin::const_iterator Origin::end() const
@@ -381,19 +371,9 @@ Origin::const_iterator Origin::cend() const
     return pImpl->mArrivals.cend();
 }
 
-Arrival& Origin::at(size_t pos)
-{
-    return pImpl->mArrivals.at(pos);
-}
-
 const Arrival& Origin::at(size_t pos) const
 {
     return pImpl->mArrivals.at(pos);
-}
-
-Arrival& Origin::operator[](size_t pos)
-{
-    return pImpl->mArrivals[pos];
 }
 
 const Arrival& Origin::operator[](size_t pos) const
