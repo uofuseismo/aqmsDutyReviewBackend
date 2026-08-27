@@ -3,8 +3,12 @@
 #include <exception>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
+#ifndef NDEBUG
+#include <cassert>
+#endif
 #include <spdlog/spdlog.h>
 #include <spdlog/logger.h>
 #include <crow/http_request.h>
@@ -45,32 +49,102 @@ struct RouteAuthorization
     }
 };
 
-/// @brief Builds the body sent to a rejected caller.
+/// @brief Builds the body every response in this backend carries.
+/// @note One shape throughout: the HTTP status says whether it went well,
+///       and "message" says what happened in words - on success as much
+///       as on failure.  A client renders the same field either way
+///       instead of guessing which of "error"/"detail"/"reason" this
+///       particular route happened to pick.  Routes with more to say add
+///       fields alongside it; nothing replaces it.
+[[nodiscard]] crow::json::wvalue makeMessageBody(const std::string &message)
+{
+    crow::json::wvalue body;
+    body["message"] = message;
+    return body;
+}
+
+/// @brief Wraps a body into a JSON response.
+[[nodiscard]] crow::response makeJSONResponse(const int statusCode,
+                                              crow::json::wvalue &&body)
+{
+    crow::response response{statusCode, body.dump()};
+    response.set_header("Content-Type", "application/json");
+    return response;
+}
+
+/// @brief The message-only case, which is most of them.
+/// @note A separate name rather than an overload: a string literal
+///       converts to crow::json::wvalue exactly as readily as to
+///       std::string, so the two would be ambiguous at every call site
+///       that passes one.
+[[nodiscard]] crow::response makeMessageResponse(const int statusCode,
+                                                 const std::string &message)
+{
+    return ::makeJSONResponse(statusCode, ::makeMessageBody(message));
+}
+
+/// @brief Builds a response carrying a payload alongside the message.
+/// @note The envelope is {"message": ..., "data": {...}}.  Nesting the
+///       payload keeps it from colliding with the envelope - a route
+///       whose payload wants its own "message" key has somewhere to put
+///       it - and means a client always looks in the same place.
+///
+///       There is deliberately no return code in the body.  The HTTP
+///       status already carries whether it went well, and a second copy
+///       in the payload is one more thing to keep in step; when the two
+///       disagree, every proxy, log, and monitor between here and the
+///       client believes the status and only the client believes the
+///       body.
+///
+///       Errors carry no "data" at all, and not because it would be
+///       inconvenient: there is nothing truthful to put there.  A 500
+///       means the operation was interrupted part-way, so anything
+///       attached describes a half-finished state nobody should act on.
+///       A 400 means it never ran.  A payload in either case would be
+///       describing work that did not happen.
+[[nodiscard]] crow::response makeDataResponse(const int statusCode,
+                                              const std::string &message,
+                                              crow::json::wvalue &&data)
+{
+    auto body = ::makeMessageBody(message);
+    body["data"] = std::move(data);
+    return ::makeJSONResponse(statusCode, std::move(body));
+}
+
+/// @brief Names the scheme the client should authenticate with.
+/// @note Naming it matters wherever only one scheme will do: challenging
+///       with Bearer on a route that insists on a password would have the
+///       client re-send the token that was just refused, forever.
+void setChallenge(crow::response &response,
+                  const AQMSDutyReviewBackend::Auth::Scheme scheme)
+{
+    response.set_header(
+        "WWW-Authenticate",
+        AQMSDutyReviewBackend::Auth::schemeToString(scheme)
+      + std::string {" realm=\"aqmsDutyReviewBackend\""});
+}
+
+/// @brief The message sent to a caller who is turned away.
 /// @note Deliberately vague.  The verdict's own reason separates an
 ///       unknown user from a wrong password and a missing header from an
 ///       unsupported scheme; the client is told none of that, because
 ///       those distinctions are what let someone enumerate valid user
 ///       names.  The detail goes to the log instead.
-[[nodiscard]] inline std::string authorizationErrorBody(const int statusCode)
+[[nodiscard]] std::string authorizationMessage(const int statusCode)
 {
-    crow::json::wvalue body;
     if (statusCode == 400)
     {
-        body["error"] = "Malformed authorization header";
+        return "Malformed authorization header";
     }
     else if (statusCode == 403)
     {
-        body["error"] = "Insufficient permissions";
+        return "Insufficient permissions";
     }
     else if (statusCode == 500)
     {
-        body["error"] = "Internal server error";
+        return "Internal server error";
     }
-    else
-    {
-        body["error"] = "Unauthorized";
-    }
-    return body.dump();
+    return "Unauthorized";
 }
 
 /// @brief Builds the response sent to a caller who is turned away.
@@ -78,23 +152,165 @@ struct RouteAuthorization
 /// @param[in] challenge   The scheme to name in WWW-Authenticate, or
 ///                        nullopt for the verdicts that do not call for
 ///                        one.
-/// @note Naming the scheme matters on the password-only routes:
-///       challenging with Bearer there would have the client re-send the
-///       token that was just refused, forever.
-[[nodiscard]] inline crow::response makeAuthorizationRejection(
+[[nodiscard]] crow::response makeAuthorizationRejection(
     const int statusCode,
     const std::optional<AQMSDutyReviewBackend::Auth::Scheme> challenge)
 {
-    crow::response response{statusCode, ::authorizationErrorBody(statusCode)};
-    response.set_header("Content-Type", "application/json");
+    auto response
+        = ::makeMessageResponse(statusCode, ::authorizationMessage(statusCode));
     if (challenge != std::nullopt)
     {
-        response.set_header(
-            "WWW-Authenticate",
-            AQMSDutyReviewBackend::Auth::schemeToString(*challenge)
-          + std::string {" realm=\"aqmsDutyReviewBackend\""});
+        ::setChallenge(response, *challenge);
     }
     return response;
+}
+
+/// @brief This is a login action where the user is looking to get a JWT.
+///        We aren't going to let them abuse this route and relogin with
+///        an existing token.
+/// @param[in] request  The incoming request.
+/// @param[in] authNZ   The authentication and authorization utility.
+/// @param[in] logger   Where the reason for a refusal is recorded.
+/// @note The status codes here match AuthNZ::authorize's on purpose, so a
+///       client sees one set of rules across the whole API: 400 means the
+///       request could not be read, 401 means authenticate (and the
+///       challenge says how), 500 means this backend is unwell.
+[[nodiscard]] crow::response userLoginRoute(
+    const crow::request &request,
+    const AQMSDutyReviewBackend::Auth::AuthNZ &authNZ,
+    const std::shared_ptr<spdlog::logger> &logger)
+{
+    namespace Auth = AQMSDutyReviewBackend::Auth;
+
+    // Every refusal below is a 401 challenging for Basic: this route
+    // exists to turn a password into a token, so Basic is the only thing
+    // that can satisfy it.
+    const auto refuse = [](const std::string &message)
+    {
+        auto response = ::makeMessageResponse(401, message);
+        ::setChallenge(response, Auth::Scheme::Basic);
+        return response;
+    };
+
+    std::string authorization;
+    try
+    {
+        authorization = request.get_header_value("Authorization");
+    }
+    catch (const std::exception &e)
+    {
+        SPDLOG_LOGGER_ERROR(logger,
+                            "Could not read the authorization header "
+                            "because {}", std::string {e.what()});
+        return ::makeMessageResponse(
+            400, "Could not parse authorization header - check basic "
+                 "credentials are set");
+    }
+    catch (...)
+    {
+        SPDLOG_LOGGER_ERROR(logger,
+                            "Could not read the authorization header");
+        return ::makeMessageResponse(
+            400, "Could not parse authorization header - check basic "
+                 "credentials are set");
+    }
+
+    const auto [status, credential]
+        = Auth::parseAuthorizationHeader(authorization);
+    if (status == Auth::CredentialStatus::Malformed)
+    {
+        SPDLOG_LOGGER_WARN(logger,
+                           "Could not parse the authorization header");
+        return ::makeMessageResponse(
+            400, "Authorization header set but appears malformed - check "
+                 "basic credentials format");
+    }
+    if (status == Auth::CredentialStatus::Absent)
+    {
+        // Ordinary, not exceptional: anything that probes the port lands
+        // here.  A 401 with a challenge is the answer, and the log line
+        // stays below error level so probing does not bury real faults.
+        SPDLOG_LOGGER_DEBUG(logger, "Login attempted with no credentials");
+        return refuse("No credentials supplied - send basic authentication "
+                      "credentials");
+    }
+    if (status != Auth::CredentialStatus::Valid ||
+        credential == std::nullopt)
+    {
+        // Unsupported scheme, and the belt-and-braces case of a Valid
+        // status with no credential attached.
+        SPDLOG_LOGGER_DEBUG(logger,
+                            "Login attempted with an unusable credential");
+        return refuse("Only basic authentication credentials are accepted");
+    }
+    if (credential->scheme != Auth::Scheme::Basic)
+    {
+        // A bearer token cannot buy a fresh one; that would let an
+        // expiring session renew itself indefinitely without the password
+        // ever being presented again.
+        SPDLOG_LOGGER_DEBUG(logger, "Login attempted with a bearer token");
+        return refuse("Only basic authentication credentials are accepted");
+    }
+
+    const auto &user = credential->user;
+    try
+    {
+        SPDLOG_LOGGER_DEBUG(logger, "{} attempting to login", user);
+        auto [authResult, jwt]
+            = authNZ.login(std::pair {user, credential->password});
+        if (authResult == Auth::IAuthenticator::Result::Authenticated)
+        {
+            SPDLOG_LOGGER_INFO(logger, "{} logged in", user);
+            crow::json::wvalue data;
+            data["jwt"] = std::move(jwt);
+            return ::makeDataResponse(200,
+                                      "Successfully logged in as " + user
+                                    + ".  Your session token is attached "
+                                      "to this message.",
+                                      std::move(data));
+        }
+        if (authResult == Auth::IAuthenticator::Result::InvalidCredentials)
+        {
+            // 401, not 400: the request was perfectly well formed, the
+            // credentials in it were not.  The message does not say
+            // which of the user name or the password was wrong - that
+            // difference is what lets someone enumerate accounts.
+            SPDLOG_LOGGER_WARN(logger,
+                               "{} rejected - invalid credentials", user);
+            return refuse("Invalid credentials - double check "
+                          "user/password");
+        }
+        if (authResult == Auth::IAuthenticator::Result::ServerError)
+        {
+            SPDLOG_LOGGER_ERROR(logger, "{} rejected - server error", user);
+            return ::makeMessageResponse(
+                500, "Server error - try again in a bit.");
+        }
+    }
+    catch (const std::invalid_argument &e)
+    {
+        SPDLOG_LOGGER_WARN(logger, "Login rejected for {} because {}",
+                           user, std::string {e.what()});
+        return ::makeMessageResponse(
+            400, "Invalid credentials - ensure user:password are base64 "
+                 "encoded");
+    }
+    catch (const std::exception &e)
+    {
+        // Anything else - a database fault, an exhausted heap - is ours,
+        // not the caller's.  Catching std::exception rather than
+        // runtime_error alone means a new failure mode cannot escape into
+        // Crow's handler and become a 500 with no log line saying why.
+        SPDLOG_LOGGER_ERROR(logger, "Login failed for {} because {}",
+                            user, std::string {e.what()});
+        return ::makeMessageResponse(500, "Server error - try again in a bit.");
+    }
+    // A Result this function does not know about.  Denying is the only
+    // safe reading of a verdict we cannot interpret.
+    SPDLOG_LOGGER_ERROR(logger, "Unhandled authentication result for {}",
+                        user);
+    return ::makeMessageResponse(500,
+                              "Critical server error - contact developer.");
 }
 
 /// @brief Runs a route's requirement against a request.
@@ -111,7 +327,7 @@ struct RouteAuthorization
 ///       check: the handler has no identity to work with until this has
 ///       run, so forgetting it does not compile into something that
 ///       silently serves everyone.
-[[nodiscard]] inline RouteAuthorization authorizeRoute(
+[[nodiscard]] RouteAuthorization authorizeRoute(
     const crow::request &request,
     const AQMSDutyReviewBackend::Auth::AuthNZ &authNZ,
     const AQMSDutyReviewBackend::Auth::Requirement &requirement,
