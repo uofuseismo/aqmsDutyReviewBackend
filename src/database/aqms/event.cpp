@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <memory>
 #include <set>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -259,6 +260,49 @@ std::unique_ptr<IMagnitude> Event::getPreferredMagnitude() const
     }
     // setMagnitudes guarantees exactly one preferred magnitude, so this is
     // unreachable in practice.
+    throw std::runtime_error("No preferred magnitude");
+}
+
+///--------------------------------------------------------------------------///
+///                            Zero-copy views                               ///
+///--------------------------------------------------------------------------///
+/// These hand back the event's own storage.  Nothing is copied and no
+/// magnitude is cloned, which is what makes walking an event into JSON
+/// cost nothing beyond the walk.
+
+std::span<const Origin> Event::origins() const &
+{
+    if (!hasOrigins()){throw std::runtime_error("Origins not set");}
+    return pImpl->mOrigins;
+}
+
+std::span<const std::unique_ptr<IMagnitude>> Event::magnitudes() const &
+{
+    if (!hasMagnitudes()){throw std::runtime_error("Magnitudes not set");}
+    return pImpl->mMagnitudes;
+}
+
+const Origin &Event::preferredOrigin() const &
+{
+    if (!hasOrigins()){throw std::runtime_error("Origins not set");}
+    for (const auto &origin : pImpl->mOrigins)
+    {
+        if (origin.isPreferred()){return origin;}
+    }
+    // setOrigins guarantees a preferred origin exists, so this is
+    // unreachable in practice.
+    throw std::runtime_error("No preferred origin");
+}
+
+const IMagnitude &Event::preferredMagnitude() const &
+{
+    if (!hasMagnitudes()){throw std::runtime_error("Magnitudes not set");}
+    for (const auto &magnitude : pImpl->mMagnitudes)
+    {
+        if (magnitude->isPreferred()){return *magnitude;}
+    }
+    // setMagnitudes guarantees exactly one preferred magnitude, so this
+    // is unreachable in practice.
     throw std::runtime_error("No preferred magnitude");
 }
 

@@ -28,6 +28,13 @@ public:
 
     /// @result These are computed out of band and should always be human reviewed.
     [[nodiscard]] IMagnitude::ReviewStatus getReviewStatus() const noexcept override final;
+    /// @result True, always.  Nobody auto-computes a CMT - a person runs
+    ///         another application, decides the answer is good, and writes
+    ///         the values into the database - so the review status is a
+    ///         property of the type rather than something a caller has to
+    ///         set.  Saying otherwise would have a caller who guards on
+    ///         \c hasReviewStatus() skip a value that is always there.
+    [[nodiscard]] bool hasReviewStatus() const noexcept override final;
 
     /// @brief Destructor.
     virtual ~CentroidMomentTensorMagnitude();

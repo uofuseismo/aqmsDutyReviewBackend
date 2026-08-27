@@ -2,7 +2,9 @@
 #define AQMS_DUTY_REVIEW_BACKEND_DATABASE_AQMS_EVENT_HPP 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <vector>
+#include <aqmsDutyReviewBackend/database/aqms/origin.hpp>
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
  class IMagnitude;
@@ -58,7 +60,9 @@ public:
     /// @brief The preferred origin.
     /// @throws std::runtime_error if \c hasOrigins() is false.
     [[nodiscard]] Origin getPreferredOrigin() const;
-    /// @brief Gets the origins.
+    /// @brief Gets deep copies of the origins.
+    /// @note Prefer \c origins() unless a copy is genuinely wanted; this
+    ///       copies every origin, and each of those copies its arrivals.
     /// @throws std::runtime_error if \c hasOrigins() is false. 
     [[nodiscard]] std::vector<Origin> getOrigins() const; 
 
@@ -69,6 +73,9 @@ public:
     ///         share a type, or the number of preferred magnitudes is not one.
     void setMagnitudes(const std::vector<std::unique_ptr<IMagnitude>> &magnitudes);
     /// @result Deep copies of the magnitudes, preserving their derived types.
+    /// @note Prefer \c magnitudes() unless a copy is genuinely wanted;
+    ///       this clones every magnitude, and each clone copies its
+    ///       station magnitudes.
     /// @throws std::runtime_error if \c hasMagnitudes() is false.
     [[nodiscard]] std::vector<std::unique_ptr<IMagnitude>> getMagnitudes() const;
     /// @result A deep copy of the preferred magnitude.
@@ -76,6 +83,47 @@ public:
     [[nodiscard]] std::unique_ptr<IMagnitude> getPreferredMagnitude() const;
     /// @result True indicates the magnitudes were set.
     [[nodiscard]] bool hasMagnitudes() const noexcept;
+
+    /// @name Zero-copy views
+    /// @{
+    /// These are the read path.  An event is built once from a query,
+    /// moved in, and from then on only read - usually straight into
+    /// JSON - so the getters above, which deep-copy the origins and
+    /// clone every magnitude, are the wrong tool for that job.  These
+    /// hand back a view of the event's own storage instead.
+    ///
+    /// @warning A view is only valid while the event is alive and its
+    ///          contents unchanged.  Calling setOrigins or setMagnitudes
+    ///          invalidates every view previously handed out, exactly as
+    ///          it would for a vector.  The rvalue overloads are deleted
+    ///          so a view cannot be taken from a temporary event, which
+    ///          is the easiest way to get a dangling one.  N.B. a
+    ///          'const &' qualifier alone would not do that - a const
+    ///          lvalue reference binds to a temporary perfectly happily -
+    ///          so the deleted overloads are what carries the guarantee.
+
+    /// @result A view of the origins, in the order they were set.
+    /// @throws std::runtime_error if \c hasOrigins() is false.
+    [[nodiscard]] std::span<const Origin> origins() const &;
+    std::span<const Origin> origins() const && = delete;
+    /// @result A view of the magnitudes, in the order they were set.
+    /// @note The elements are unique_ptrs, so a magnitude is read through
+    ///       two dereferences - e.g. magnitude->getValue() in a range-for.
+    ///       No clone happens.
+    /// @throws std::runtime_error if \c hasMagnitudes() is false.
+    [[nodiscard]] std::span<const std::unique_ptr<IMagnitude>>
+        magnitudes() const &;
+    std::span<const std::unique_ptr<IMagnitude>>
+        magnitudes() const && = delete;
+    /// @result The preferred origin.
+    /// @throws std::runtime_error if \c hasOrigins() is false.
+    [[nodiscard]] const Origin &preferredOrigin() const &;
+    const Origin &preferredOrigin() const && = delete;
+    /// @result The preferred magnitude.
+    /// @throws std::runtime_error if \c hasMagnitudes() is false.
+    [[nodiscard]] const IMagnitude &preferredMagnitude() const &;
+    const IMagnitude &preferredMagnitude() const && = delete;
+    /// @}
 
     /// @brief Sets the event type.
     void setEventType(EventType type) noexcept;

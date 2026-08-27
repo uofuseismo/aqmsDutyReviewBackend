@@ -1,5 +1,10 @@
+#include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <iterator>
+#include <span>
+#include <type_traits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -14,6 +19,7 @@
 #include "aqmsDutyReviewBackend/database/aqms/localMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/durationMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/humanMagnitude.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/centroidMomentTensorMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/event.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/peakToPeakAmplitude.hpp"
@@ -298,6 +304,10 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Magnitude", "Magnitude")
     {
         const HumanMagnitude magnitude;
         REQUIRE(magnitude.getReviewStatus() == IMagnitude::ReviewStatus::Human);
+        // And says so: hasReviewStatus used to report false on a fresh
+        // one, which contradicted the value getReviewStatus was already
+        // returning.
+        REQUIRE(magnitude.hasReviewStatus());
     }
     SECTION("Clone preserves derived type through the base pointer")
     {
@@ -906,5 +916,844 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::NetworkMagnitudeStations",
         REQUIRE(magnitude.getStationMagnitudes().size() == 2);
         REQUIRE(magnitude.getStationMagnitudes().at(1).getDuration() == 12.5);
         REQUIRE(magnitude.getValue() == 2.9);
+    }
+}
+
+namespace
+{
+
+/// @brief Builds a valid arrival on its own channel at the given time.
+/// @note A distinct channel per arrival keeps a set of them clear of the
+///       duplicate stream-and-phase check in Origin::setArrivals, which is
+///       not what these tests are about.
+Arrival makeArrivalAt(const int64_t identifier,
+                      const std::string &channel,
+                      const std::chrono::seconds &time,
+                      const Arrival::Phase phase = Arrival::Phase::P)
+{
+    Arrival arrival;
+    arrival.setIdentifier(identifier);
+    arrival.setPhase(phase);
+    arrival.setStreamIdentifier(makeStream(channel));
+    arrival.setTime(time);
+    arrival.setReviewStatus(Arrival::ReviewStatus::Automatic);
+    return arrival;
+}
+
+/// @brief An origin holding three arrivals, handed to setArrivals OUT of
+///        time order so the ordering the class imposes is visible.
+Origin makeOriginWithArrivals()
+{
+    auto origin = makeValidOrigin();
+    origin.setArrivals(std::vector<Arrival> {
+        makeArrivalAt(3, "HHZ", std::chrono::seconds {300}),
+        makeArrivalAt(1, "HHN", std::chrono::seconds {100}),
+        makeArrivalAt(2, "HHE", std::chrono::seconds {200})});
+    return origin;
+}
+
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Origin iterators", "Origin")
+{
+    SECTION("An origin with no arrivals iterates over nothing")
+    {
+        Origin origin;
+        REQUIRE(origin.size() == 0);
+        REQUIRE(origin.begin() == origin.end());
+        REQUIRE(origin.cbegin() == origin.cend());
+        REQUIRE(std::distance(origin.begin(), origin.end()) == 0);
+
+        int visited{0};
+        for ([[maybe_unused]] const auto &arrival : origin){++visited;}
+        REQUIRE(visited == 0);
+    }
+    SECTION("Iteration visits every arrival in time order")
+    {
+        // The property worth pinning: setArrivals sorts by time, so what
+        // comes back is NOT what went in.  A caller reading arrivals in
+        // iteration order is reading them chronologically whether or not
+        // they built the vector that way.
+        auto origin = makeOriginWithArrivals();
+        REQUIRE(origin.size() == 3);
+        REQUIRE(std::distance(origin.begin(), origin.end()) == 3);
+
+        std::vector<int64_t> identifiers;
+        for (const auto &arrival : origin)
+        {
+            identifiers.push_back(arrival.getIdentifier());
+        }
+        // Handed over as 3, 1, 2 - at times 300, 100, 200.
+        REQUIRE(identifiers == std::vector<int64_t> {1, 2, 3});
+
+        REQUIRE(std::is_sorted(origin.begin(), origin.end(),
+                               [](const Arrival &lhs, const Arrival &rhs)
+                               {
+                                   return lhs.getTime() < rhs.getTime();
+                               }));
+    }
+    SECTION("size, distance, and getArrivals agree")
+    {
+        const auto origin = makeOriginWithArrivals();
+        const auto arrivals = origin.getArrivals();
+        REQUIRE(arrivals.size() == origin.size());
+        REQUIRE(static_cast<std::size_t>
+                (std::distance(origin.begin(), origin.end()))
+                == origin.size());
+        for (std::size_t i = 0; i < origin.size(); ++i)
+        {
+            REQUIRE(arrivals.at(i).getIdentifier()
+                    == origin.at(i).getIdentifier());
+        }
+    }
+    SECTION("at, operator[] and the iterator name the same object")
+    {
+        auto origin = makeOriginWithArrivals();
+        for (std::size_t i = 0; i < origin.size(); ++i)
+        {
+            const auto offset = static_cast<std::ptrdiff_t> (i);
+            REQUIRE(&origin.at(i) == &origin[i]);
+            REQUIRE(&origin.at(i) == &*std::next(origin.begin(), offset));
+        }
+    }
+    SECTION("at is bounds checked")
+    {
+        // operator[] deliberately is not - it forwards to the vector's,
+        // so an out-of-range index there is undefined and untestable.
+        // at() is the one to reach for when the index came from outside.
+        auto origin = makeOriginWithArrivals();
+        REQUIRE_THROWS_AS(origin.at(3), std::out_of_range);
+        REQUIRE_THROWS_AS(std::as_const(origin).at(3), std::out_of_range);
+
+        const Origin empty;
+        REQUIRE_THROWS_AS(empty.at(0), std::out_of_range);
+    }
+    SECTION("A const origin yields const iterators")
+    {
+        const auto origin = makeOriginWithArrivals();
+        static_assert(std::is_same_v<decltype(origin.begin()),
+                                     Origin::const_iterator>);
+        static_assert(std::is_same_v<decltype(origin.cbegin()),
+                                     Origin::const_iterator>);
+        static_assert(std::is_same_v<decltype(origin.end()),
+                                     Origin::const_iterator>);
+        REQUIRE(std::distance(origin.begin(), origin.end()) == 3);
+        REQUIRE(std::distance(origin.cbegin(), origin.cend()) == 3);
+        REQUIRE(origin.begin() == origin.cbegin());
+        REQUIRE(origin.begin()->getIdentifier() == 1);
+    }
+    SECTION("Access is read-only even through a non-const origin")
+    {
+        // There is no mutable iterator: setArrivals sorts by time and
+        // rejects duplicate stream-and-phase pairs, and a caller who
+        // could edit an arrival in place would leave neither holding
+        // with nothing re-run to notice.
+        auto origin = makeOriginWithArrivals();
+        static_assert(std::is_same_v<Origin::iterator,
+                                     Origin::const_iterator>);
+        static_assert(std::is_same_v<decltype(origin.begin()),
+                                     Origin::const_iterator>);
+        static_assert(std::is_same_v<decltype(*origin.begin()),
+                                     const Arrival &>);
+        static_assert(std::is_same_v<decltype(origin.at(0)),
+                                     const Arrival &>);
+        static_assert(std::is_same_v<decltype(origin[0]),
+                                     const Arrival &>);
+        REQUIRE(origin.begin()->getIdentifier() == 1);
+    }
+    SECTION("Editing goes through getArrivals and back to setArrivals")
+    {
+        // The supported way to change an arrival, and the reason losing
+        // the mutable iterator costs nothing: the round trip re-validates
+        // and re-sorts, so the ordering cannot be quietly broken.
+        auto origin = makeOriginWithArrivals();
+        auto arrivals = origin.getArrivals();
+        arrivals.at(0).setQuality(0.75);
+        arrivals.at(0).setTime(std::chrono::seconds {400});
+        origin.setArrivals(arrivals);
+
+        // Moved to the end, because setArrivals sorted it there.
+        REQUIRE(origin.size() == 3);
+        REQUIRE(std::next(origin.begin(), 2)->getIdentifier() == 1);
+        REQUIRE(std::as_const(origin).at(2).getQuality().has_value());
+        //NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+        REQUIRE(*origin.at(2).getQuality() == Catch::Approx(0.75));
+        REQUIRE(std::is_sorted(origin.begin(), origin.end(),
+                               [](const Arrival &lhs, const Arrival &rhs)
+                               {
+                                   return lhs.getTime() < rhs.getTime();
+                               }));
+    }
+    SECTION("Standard algorithms work over the range")
+    {
+        // These are vector iterators, so the whole of <algorithm> applies;
+        // this is what makes exposing begin/end worth more than a
+        // getArrivals() that copies.
+        auto origin = makeOriginWithArrivals();
+        const auto found
+            = std::find_if(origin.begin(), origin.end(),
+                           [](const Arrival &arrival)
+                           {
+                               return arrival.getIdentifier() == 2;
+                           });
+        REQUIRE(found != origin.end());
+        REQUIRE(std::distance(origin.begin(), found) == 1);
+
+        REQUIRE(std::count_if(origin.begin(), origin.end(),
+                              [](const Arrival &arrival)
+                              {
+                                  return arrival.getPhase()
+                                      == Arrival::Phase::P;
+                              }) == 3);
+
+        const auto earliest
+            = std::min_element(origin.begin(), origin.end(),
+                               [](const Arrival &lhs, const Arrival &rhs)
+                               {
+                                   return lhs.getTime() < rhs.getTime();
+                               });
+        REQUIRE(earliest == origin.begin());
+    }
+    SECTION("A copy iterates over its own arrivals")
+    {
+        auto origin = makeOriginWithArrivals();
+        Origin copy{origin};
+        REQUIRE(copy.size() == origin.size());
+        // Deep copy: the same index in each names a different object.
+        REQUIRE(&*copy.begin() != &*origin.begin());
+
+        // Replacing the copy's arrivals leaves the original untouched.
+        copy.setArrivals(std::vector<Arrival> {
+            makeArrivalAt(999, "HHZ", std::chrono::seconds {10})});
+        REQUIRE(copy.size() == 1);
+        REQUIRE(copy.at(0).getIdentifier() == 999);
+        REQUIRE(origin.size() == 3);
+        REQUIRE(origin.at(0).getIdentifier() == 1);
+    }
+    SECTION("Replacing the arrivals replaces what iteration sees")
+    {
+        auto origin = makeOriginWithArrivals();
+        REQUIRE(origin.size() == 3);
+        origin.setArrivals(std::vector<Arrival> {
+            makeArrivalAt(7, "HHZ", std::chrono::seconds {50})});
+        REQUIRE(origin.size() == 1);
+        REQUIRE(std::distance(origin.begin(), origin.end()) == 1);
+        REQUIRE(origin.begin()->getIdentifier() == 7);
+        REQUIRE(std::next(origin.begin()) == origin.end());
+    }
+}
+
+
+namespace
+{
+
+/// @brief Builds a station local magnitude with a valid two-channel
+///        amplitude pair and the given weight.
+StationLocalMagnitude makeStationLocalMagnitude(const double weight,
+                                                const double amplitude)
+{
+    StationLocalMagnitude magnitude;
+    magnitude.setPeakToPeakAmplitudes(
+        {makeAmplitude("HHN", amplitude), makeAmplitude("HHE", amplitude/2)});
+    magnitude.setWeight(weight);
+    return magnitude;
+}
+
+/// @brief Builds a station duration magnitude with the given weight.
+StationDurationMagnitude makeStationDurationMagnitude(const double weight,
+                                                      const double duration)
+{
+    StationDurationMagnitude magnitude;
+    magnitude.setDuration(duration);
+    magnitude.setWeight(weight);
+    return magnitude;
+}
+
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::LocalMagnitude iterators",
+          "LocalMagnitude")
+{
+    SECTION("A magnitude with no station magnitudes iterates over nothing")
+    {
+        const LocalMagnitude magnitude;
+        REQUIRE(magnitude.size() == 0);
+        REQUIRE(magnitude.begin() == magnitude.end());
+        REQUIRE(magnitude.cbegin() == magnitude.cend());
+        REQUIRE(std::distance(magnitude.begin(), magnitude.end()) == 0);
+
+        int visited{0};
+        for ([[maybe_unused]] const auto &station : magnitude){++visited;}
+        REQUIRE(visited == 0);
+    }
+    SECTION("Iteration visits every station magnitude in insertion order")
+    {
+        // Unlike Origin::setArrivals, setStationMagnitudes neither sorts
+        // nor validates - what goes in is what comes back, in order.
+        LocalMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationLocalMagnitude> {
+            makeStationLocalMagnitude(1.0, 6.0),
+            makeStationLocalMagnitude(0.5, 4.0),
+            makeStationLocalMagnitude(0.0, 2.0)});
+
+        REQUIRE(magnitude.size() == 3);
+        REQUIRE(std::distance(magnitude.begin(), magnitude.end()) == 3);
+
+        std::vector<double> weights;
+        for (const auto &station : magnitude)
+        {
+            weights.push_back(station.getWeight());
+        }
+        REQUIRE(weights == std::vector<double> {1.0, 0.5, 0.0});
+    }
+    SECTION("size, distance and getStationMagnitudes agree")
+    {
+        LocalMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationLocalMagnitude> {
+            makeStationLocalMagnitude(1.0, 6.0),
+            makeStationLocalMagnitude(0.5, 4.0)});
+        const auto stations = magnitude.getStationMagnitudes();
+        REQUIRE(stations.size() == magnitude.size());
+        REQUIRE(static_cast<std::size_t>
+                (std::distance(magnitude.begin(), magnitude.end()))
+                == magnitude.size());
+        for (std::size_t i = 0; i < magnitude.size(); ++i)
+        {
+            REQUIRE(stations.at(i).getWeight() == magnitude.at(i).getWeight());
+        }
+    }
+    SECTION("at, operator[] and the iterator name the same object")
+    {
+        LocalMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationLocalMagnitude> {
+            makeStationLocalMagnitude(1.0, 6.0),
+            makeStationLocalMagnitude(0.5, 4.0)});
+        for (std::size_t i = 0; i < magnitude.size(); ++i)
+        {
+            const auto offset = static_cast<std::ptrdiff_t> (i);
+            REQUIRE(&magnitude.at(i) == &magnitude[i]);
+            REQUIRE(&magnitude.at(i)
+                    == &*std::next(magnitude.begin(), offset));
+        }
+    }
+    SECTION("at is bounds checked")
+    {
+        LocalMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationLocalMagnitude> {
+            makeStationLocalMagnitude(1.0, 6.0)});
+        REQUIRE_THROWS_AS(magnitude.at(1), std::out_of_range);
+
+        const LocalMagnitude empty;
+        REQUIRE_THROWS_AS(empty.at(0), std::out_of_range);
+    }
+    SECTION("Access is read-only even through a non-const magnitude")
+    {
+        LocalMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationLocalMagnitude> {
+            makeStationLocalMagnitude(1.0, 6.0)});
+        static_assert(std::is_same_v<LocalMagnitude::iterator,
+                                     LocalMagnitude::const_iterator>);
+        static_assert(std::is_same_v<decltype(magnitude.begin()),
+                                     LocalMagnitude::const_iterator>);
+        static_assert(std::is_same_v<decltype(*magnitude.begin()),
+                                     const StationLocalMagnitude &>);
+        static_assert(std::is_same_v<decltype(magnitude.at(0)),
+                                     const StationLocalMagnitude &>);
+        static_assert(std::is_same_v<decltype(magnitude[0]),
+                                     const StationLocalMagnitude &>);
+        REQUIRE(magnitude.begin()->getWeight() == 1.0);
+    }
+    SECTION("Standard algorithms work over the range")
+    {
+        LocalMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationLocalMagnitude> {
+            makeStationLocalMagnitude(1.0, 6.0),
+            makeStationLocalMagnitude(0.5, 4.0),
+            makeStationLocalMagnitude(0.0, 2.0)});
+        REQUIRE(std::count_if(magnitude.begin(), magnitude.end(),
+                              [](const StationLocalMagnitude &station)
+                              {
+                                  return station.getWeight() > 0.0;
+                              }) == 2);
+        const auto found
+            = std::find_if(magnitude.begin(), magnitude.end(),
+                           [](const StationLocalMagnitude &station)
+                           {
+                               return station.getWeight() == 0.5;
+                           });
+        REQUIRE(found != magnitude.end());
+        REQUIRE(std::distance(magnitude.begin(), found) == 1);
+    }
+    SECTION("A copy iterates over its own station magnitudes")
+    {
+        LocalMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationLocalMagnitude> {
+            makeStationLocalMagnitude(1.0, 6.0),
+            makeStationLocalMagnitude(0.5, 4.0)});
+        LocalMagnitude copy{magnitude};
+        REQUIRE(copy.size() == magnitude.size());
+        REQUIRE(&*copy.begin() != &*magnitude.begin());
+
+        copy.setStationMagnitudes(std::vector<StationLocalMagnitude> {
+            makeStationLocalMagnitude(0.25, 1.0)});
+        REQUIRE(copy.size() == 1);
+        REQUIRE(magnitude.size() == 2);
+        REQUIRE(magnitude.begin()->getWeight() == 1.0);
+    }
+    SECTION("The station magnitudes survive a clone through the base")
+    {
+        // clone() returns unique_ptr<IMagnitude>, which has no iterators;
+        // this checks the payload is carried across all the same.
+        LocalMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationLocalMagnitude> {
+            makeStationLocalMagnitude(1.0, 6.0),
+            makeStationLocalMagnitude(0.5, 4.0)});
+        const auto cloned = magnitude.clone();
+        REQUIRE(cloned != nullptr);
+        const auto *asLocal
+            = dynamic_cast<const LocalMagnitude *> (cloned.get());
+        REQUIRE(asLocal != nullptr);
+        REQUIRE(asLocal->size() == 2);
+        REQUIRE(std::distance(asLocal->begin(), asLocal->end()) == 2);
+        REQUIRE(asLocal->begin()->getWeight() == 1.0);
+    }
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::DurationMagnitude iterators",
+          "DurationMagnitude")
+{
+    SECTION("A magnitude with no station magnitudes iterates over nothing")
+    {
+        const DurationMagnitude magnitude;
+        REQUIRE(magnitude.size() == 0);
+        REQUIRE(magnitude.begin() == magnitude.end());
+        REQUIRE(magnitude.cbegin() == magnitude.cend());
+        REQUIRE(std::distance(magnitude.begin(), magnitude.end()) == 0);
+
+        int visited{0};
+        for ([[maybe_unused]] const auto &station : magnitude){++visited;}
+        REQUIRE(visited == 0);
+    }
+    SECTION("Iteration visits every station magnitude in insertion order")
+    {
+        DurationMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationDurationMagnitude> {
+            makeStationDurationMagnitude(1.0, 30.0),
+            makeStationDurationMagnitude(0.5, 20.0),
+            makeStationDurationMagnitude(0.0, 10.0)});
+
+        REQUIRE(magnitude.size() == 3);
+        REQUIRE(std::distance(magnitude.begin(), magnitude.end()) == 3);
+
+        std::vector<double> durations;
+        for (const auto &station : magnitude)
+        {
+            durations.push_back(station.getDuration());
+        }
+        REQUIRE(durations == std::vector<double> {30.0, 20.0, 10.0});
+    }
+    SECTION("size, distance and getStationMagnitudes agree")
+    {
+        DurationMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationDurationMagnitude> {
+            makeStationDurationMagnitude(1.0, 30.0),
+            makeStationDurationMagnitude(0.5, 20.0)});
+        const auto stations = magnitude.getStationMagnitudes();
+        REQUIRE(stations.size() == magnitude.size());
+        REQUIRE(static_cast<std::size_t>
+                (std::distance(magnitude.begin(), magnitude.end()))
+                == magnitude.size());
+        for (std::size_t i = 0; i < magnitude.size(); ++i)
+        {
+            REQUIRE(stations.at(i).getDuration()
+                    == magnitude.at(i).getDuration());
+        }
+    }
+    SECTION("at, operator[] and the iterator name the same object")
+    {
+        DurationMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationDurationMagnitude> {
+            makeStationDurationMagnitude(1.0, 30.0),
+            makeStationDurationMagnitude(0.5, 20.0)});
+        for (std::size_t i = 0; i < magnitude.size(); ++i)
+        {
+            const auto offset = static_cast<std::ptrdiff_t> (i);
+            REQUIRE(&magnitude.at(i) == &magnitude[i]);
+            REQUIRE(&magnitude.at(i)
+                    == &*std::next(magnitude.begin(), offset));
+        }
+    }
+    SECTION("at is bounds checked")
+    {
+        DurationMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationDurationMagnitude> {
+            makeStationDurationMagnitude(1.0, 30.0)});
+        REQUIRE_THROWS_AS(magnitude.at(1), std::out_of_range);
+
+        const DurationMagnitude empty;
+        REQUIRE_THROWS_AS(empty.at(0), std::out_of_range);
+    }
+    SECTION("Access is read-only even through a non-const magnitude")
+    {
+        DurationMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationDurationMagnitude> {
+            makeStationDurationMagnitude(1.0, 30.0)});
+        static_assert(std::is_same_v<DurationMagnitude::iterator,
+                                     DurationMagnitude::const_iterator>);
+        static_assert(std::is_same_v<decltype(magnitude.begin()),
+                                     DurationMagnitude::const_iterator>);
+        static_assert(std::is_same_v<decltype(*magnitude.begin()),
+                                     const StationDurationMagnitude &>);
+        static_assert(std::is_same_v<decltype(magnitude.at(0)),
+                                     const StationDurationMagnitude &>);
+        static_assert(std::is_same_v<decltype(magnitude[0]),
+                                     const StationDurationMagnitude &>);
+        REQUIRE(magnitude.begin()->getDuration() == 30.0);
+    }
+    SECTION("Standard algorithms work over the range")
+    {
+        DurationMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationDurationMagnitude> {
+            makeStationDurationMagnitude(1.0, 30.0),
+            makeStationDurationMagnitude(0.5, 20.0),
+            makeStationDurationMagnitude(0.0, 10.0)});
+        REQUIRE(std::count_if(magnitude.begin(), magnitude.end(),
+                              [](const StationDurationMagnitude &station)
+                              {
+                                  return station.getWeight() > 0.0;
+                              }) == 2);
+        const auto longest
+            = std::max_element(magnitude.begin(), magnitude.end(),
+                               [](const StationDurationMagnitude &lhs,
+                                  const StationDurationMagnitude &rhs)
+                               {
+                                   return lhs.getDuration()
+                                        < rhs.getDuration();
+                               });
+        REQUIRE(longest == magnitude.begin());
+    }
+    SECTION("A copy iterates over its own station magnitudes")
+    {
+        DurationMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationDurationMagnitude> {
+            makeStationDurationMagnitude(1.0, 30.0),
+            makeStationDurationMagnitude(0.5, 20.0)});
+        DurationMagnitude copy{magnitude};
+        REQUIRE(copy.size() == magnitude.size());
+        REQUIRE(&*copy.begin() != &*magnitude.begin());
+
+        copy.setStationMagnitudes(std::vector<StationDurationMagnitude> {
+            makeStationDurationMagnitude(0.25, 5.0)});
+        REQUIRE(copy.size() == 1);
+        REQUIRE(magnitude.size() == 2);
+        REQUIRE(magnitude.begin()->getDuration() == 30.0);
+    }
+    SECTION("The station magnitudes survive a clone through the base")
+    {
+        DurationMagnitude magnitude;
+        magnitude.setStationMagnitudes(std::vector<StationDurationMagnitude> {
+            makeStationDurationMagnitude(1.0, 30.0),
+            makeStationDurationMagnitude(0.5, 20.0)});
+        const auto cloned = magnitude.clone();
+        REQUIRE(cloned != nullptr);
+        const auto *asDuration
+            = dynamic_cast<const DurationMagnitude *> (cloned.get());
+        REQUIRE(asDuration != nullptr);
+        REQUIRE(asDuration->size() == 2);
+        REQUIRE(std::distance(asDuration->begin(), asDuration->end()) == 2);
+        REQUIRE(asDuration->begin()->getDuration() == 30.0);
+    }
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event zero-copy views",
+          "Event")
+{
+    const auto makeEvent = []()
+    {
+        auto origin1 = makeValidOrigin(40.77, -111.89, 5000, 100);
+        origin1.setIsPreferred();
+        auto origin2 = makeValidOrigin(41.00, -112.00, 6000, 200);
+        origin2.setNotPreferred();
+
+        Event event;
+        event.setIdentifier(77);
+        event.setOrigins(std::vector<Origin> {origin1, origin2});
+        event.setMagnitudes(makeMagnitudes());
+        return event;
+    };
+
+    SECTION("The views alias the event's own storage")
+    {
+        // The property that makes them worth having: no copy, no clone.
+        // Compared by address, because equal values would also pass if
+        // these quietly copied.
+        const auto event = makeEvent();
+        const auto origins = event.origins();
+        REQUIRE(origins.size() == 2);
+        REQUIRE(&origins[0] == &event.preferredOrigin());
+
+        const auto again = event.origins();
+        REQUIRE(again.data() == origins.data());
+
+        const auto magnitudes = event.magnitudes();
+        REQUIRE(magnitudes.size() == 2);
+        REQUIRE(event.magnitudes().data() == magnitudes.data());
+        REQUIRE(magnitudes[0].get() == &event.preferredMagnitude());
+    }
+    SECTION("The copying getters really do copy")
+    {
+        // The contrast that justifies the views existing at all.
+        const auto event = makeEvent();
+        const auto copied = event.getOrigins();
+        REQUIRE(copied.size() == event.origins().size());
+        REQUIRE(copied.data() != event.origins().data());
+
+        const auto clonedMagnitudes = event.getMagnitudes();
+        REQUIRE(clonedMagnitudes.size() == event.magnitudes().size());
+        REQUIRE(clonedMagnitudes[0].get() != event.magnitudes()[0].get());
+    }
+    SECTION("Views carry the same contents as the copying getters")
+    {
+        const auto event = makeEvent();
+        const auto copied = event.getOrigins();
+        const auto view = event.origins();
+        REQUIRE(copied.size() == view.size());
+        for (std::size_t i = 0; i < view.size(); ++i)
+        {
+            REQUIRE(copied.at(i).getIdentifier() == view[i].getIdentifier());
+        }
+        REQUIRE(event.getPreferredOrigin().getIdentifier()
+                == event.preferredOrigin().getIdentifier());
+        REQUIRE(event.getPreferredMagnitude()->getType()
+                == event.preferredMagnitude().getType());
+    }
+    SECTION("A view walks the whole event without copying anything")
+    {
+        // What the JSON path will actually look like.
+        const auto event = makeEvent();
+        int nOrigins{0};
+        int nArrivals{0};
+        for (const auto &origin : event.origins())
+        {
+            ++nOrigins;
+            for ([[maybe_unused]] const auto &arrival : origin)
+            {
+                ++nArrivals;
+            }
+        }
+        REQUIRE(nOrigins == 2);
+        REQUIRE(nArrivals == 0);
+
+        std::vector<IMagnitude::Type> types;
+        for (const auto &magnitude : event.magnitudes())
+        {
+            types.push_back(magnitude->getType());
+        }
+        REQUIRE(types.size() == 2);
+        REQUIRE(types.at(0) == IMagnitude::Type::Local);
+        REQUIRE(types.at(1) == IMagnitude::Type::Duration);
+    }
+    SECTION("Standard algorithms work over the views")
+    {
+        const auto event = makeEvent();
+        REQUIRE(std::count_if(event.origins().begin(), event.origins().end(),
+                              [](const Origin &origin)
+                              {
+                                  return origin.isPreferred();
+                              }) == 1);
+        REQUIRE(std::count_if(event.magnitudes().begin(),
+                              event.magnitudes().end(),
+                              [](const std::unique_ptr<IMagnitude> &magnitude)
+                              {
+                                  return magnitude->isPreferred();
+                              }) == 1);
+    }
+    SECTION("An empty event has nothing to view")
+    {
+        const Event event;
+        REQUIRE_THROWS_AS(event.origins(), std::runtime_error);
+        REQUIRE_THROWS_AS(event.magnitudes(), std::runtime_error);
+        REQUIRE_THROWS_AS(event.preferredOrigin(), std::runtime_error);
+        REQUIRE_THROWS_AS(event.preferredMagnitude(), std::runtime_error);
+    }
+    SECTION("A view of a copied event is that copy's own storage")
+    {
+        const auto event = makeEvent();
+        const Event copy{event};
+        REQUIRE(copy.origins().size() == event.origins().size());
+        REQUIRE(copy.origins().data() != event.origins().data());
+        REQUIRE(copy.magnitudes()[0].get() != event.magnitudes()[0].get());
+    }
+    SECTION("The views are read-only")
+    {
+        const auto event = makeEvent();
+        static_assert(std::is_same_v<decltype(event.origins()),
+                                     std::span<const Origin>>);
+        static_assert(std::is_same_v<decltype(event.preferredOrigin()),
+                                     const Origin &>);
+        static_assert(std::is_same_v<decltype(event.preferredMagnitude()),
+                                     const IMagnitude &>);
+        static_assert(std::is_same_v<decltype(event.origins()[0]),
+                                     const Origin &>);
+    }
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::CentroidMomentTensorMagnitude",
+          "CentroidMomentTensorMagnitude")
+{
+    // A CMT magnitude is computed out of band from AQMS, so this class
+    // carries the punchline and nothing else: no moment tensor, no
+    // variance reduction, no measure of waveform fit.  The value just is.
+    // Everything here is therefore the base interface - if this test ever
+    // needs to reach for something CMT-specific, the class has grown a
+    // surface it was deliberately built without.
+    SECTION("Defaults")
+    {
+        const CentroidMomentTensorMagnitude magnitude;
+        REQUIRE(magnitude.getType() == IMagnitude::Type::Moment);
+        REQUIRE(magnitude.isPreferred());
+        REQUIRE_FALSE(magnitude.hasIdentifier());
+        REQUIRE_FALSE(magnitude.hasValue());
+        REQUIRE_THROWS_AS(magnitude.getIdentifier(), std::runtime_error);
+        REQUIRE_THROWS_AS(magnitude.getValue(), std::runtime_error);
+        // Reviewed out of the box, with nothing set: nobody auto-computes
+        // a CMT, so the status comes with the type.
+        REQUIRE(magnitude.hasReviewStatus());
+        REQUIRE(magnitude.getReviewStatus() == IMagnitude::ReviewStatus::Human);
+    }
+    SECTION("It is always human reviewed")
+    {
+        // A person runs another application, decides the answer is good,
+        // and writes the values in - so the review status is a property
+        // of the type rather than something a caller sets.
+        CentroidMomentTensorMagnitude magnitude;
+        REQUIRE(magnitude.hasReviewStatus());
+        REQUIRE(magnitude.getReviewStatus() == IMagnitude::ReviewStatus::Human);
+
+        // The setter is inherited and cannot be honoured; both accessors
+        // hold their answer regardless, so a caller guarding on
+        // hasReviewStatus() never skips a value that is really there.
+        magnitude.setReviewStatus(IMagnitude::ReviewStatus::Automatic);
+        REQUIRE(magnitude.hasReviewStatus());
+        REQUIRE(magnitude.getReviewStatus() == IMagnitude::ReviewStatus::Human);
+    }
+    SECTION("Set and get through the base interface")
+    {
+        constexpr int64_t identifier{451};
+        constexpr double value{5.7};
+        CentroidMomentTensorMagnitude magnitude;
+        magnitude.setIdentifier(identifier);
+        magnitude.setValue(value);
+        magnitude.setNotPreferred();
+
+        REQUIRE(magnitude.getIdentifier() == identifier);
+        REQUIRE(magnitude.getValue() == value);
+        REQUIRE(magnitude.hasIdentifier());
+        REQUIRE(magnitude.hasValue());
+        REQUIRE_FALSE(magnitude.isPreferred());
+
+        magnitude.setIsPreferred();
+        REQUIRE(magnitude.isPreferred());
+    }
+    SECTION("Value bounds are the base class's")
+    {
+        CentroidMomentTensorMagnitude magnitude;
+        REQUIRE_NOTHROW(magnitude.setValue(11.0));
+        REQUIRE(magnitude.getValue() == 11.0);
+        REQUIRE_NOTHROW(magnitude.setValue(-1.5));
+        REQUIRE(magnitude.getValue() == -1.5);
+        REQUIRE_THROWS_AS(magnitude.setValue(11.0001), std::invalid_argument);
+    }
+    SECTION("Clone preserves the derived type through a base pointer")
+    {
+        CentroidMomentTensorMagnitude moment;
+        moment.setIdentifier(12);
+        moment.setValue(5.1);
+        // Held as a base pointer, which is how Event stores it.
+        const std::unique_ptr<IMagnitude> base
+            = std::make_unique<CentroidMomentTensorMagnitude> (moment);
+        const auto cloned = base->clone();
+        REQUIRE(cloned != nullptr);
+        REQUIRE(cloned.get() != base.get());
+        REQUIRE(cloned->getType() == IMagnitude::Type::Moment);
+        REQUIRE(cloned->getIdentifier() == 12);
+        REQUIRE(cloned->getValue() == 5.1);
+        REQUIRE(cloned->hasReviewStatus());
+        REQUIRE(cloned->getReviewStatus() == IMagnitude::ReviewStatus::Human);
+        REQUIRE(dynamic_cast<const CentroidMomentTensorMagnitude *>
+                (cloned.get()) != nullptr);
+    }
+    SECTION("Copy preserves base state independently")
+    {
+        CentroidMomentTensorMagnitude magnitude;
+        magnitude.setIdentifier(21);
+        magnitude.setValue(4.4);
+        magnitude.setNotPreferred();
+
+        const CentroidMomentTensorMagnitude copy{magnitude};
+        magnitude.setValue(6.6);
+        REQUIRE(magnitude.getValue() == 6.6);
+        REQUIRE(copy.getType() == IMagnitude::Type::Moment);
+        REQUIRE(copy.getIdentifier() == 21);
+        REQUIRE(copy.getValue() == 4.4);
+        REQUIRE_FALSE(copy.isPreferred());
+    }
+    SECTION("Move preserves base state and type")
+    {
+        CentroidMomentTensorMagnitude toMove;
+        toMove.setIdentifier(31);
+        toMove.setValue(6.2);
+        const CentroidMomentTensorMagnitude moved{std::move(toMove)};
+        REQUIRE(moved.getType() == IMagnitude::Type::Moment);
+        REQUIRE(moved.getIdentifier() == 31);
+        REQUIRE(moved.getValue() == 6.2);
+        REQUIRE(moved.hasReviewStatus());
+        REQUIRE(moved.getReviewStatus() == IMagnitude::ReviewStatus::Human);
+    }
+    SECTION("Moment is its own type alongside the others")
+    {
+        // Event rejects two magnitudes of the same type, so this being
+        // distinct is what lets a CMT sit next to an Ml and an Md.
+        REQUIRE(CentroidMomentTensorMagnitude{}.getType()
+                != HumanMagnitude{}.getType());
+        REQUIRE(CentroidMomentTensorMagnitude{}.getType()
+                != LocalMagnitude{}.getType());
+        REQUIRE(CentroidMomentTensorMagnitude{}.getType()
+                != DurationMagnitude{}.getType());
+
+        auto local = std::make_unique<LocalMagnitude> ();
+        local->setValue(3.4);
+        local->setNotPreferred();
+        auto moment = std::make_unique<CentroidMomentTensorMagnitude> ();
+        moment->setValue(5.7);
+        moment->setIsPreferred();
+
+        std::vector<std::unique_ptr<IMagnitude>> magnitudes;
+        magnitudes.push_back(std::move(local));
+        magnitudes.push_back(std::move(moment));
+
+        Event event;
+        REQUIRE_NOTHROW(event.setMagnitudes(magnitudes));
+        REQUIRE(event.magnitudes().size() == 2);
+        REQUIRE(event.preferredMagnitude().getType()
+                == IMagnitude::Type::Moment);
+        REQUIRE(event.preferredMagnitude().getValue() == 5.7);
+    }
+    SECTION("Two moment magnitudes in one event are rejected")
+    {
+        auto first = std::make_unique<CentroidMomentTensorMagnitude> ();
+        first->setValue(5.7);
+        first->setIsPreferred();
+        auto second = std::make_unique<CentroidMomentTensorMagnitude> ();
+        second->setValue(5.9);
+        second->setNotPreferred();
+
+        std::vector<std::unique_ptr<IMagnitude>> magnitudes;
+        magnitudes.push_back(std::move(first));
+        magnitudes.push_back(std::move(second));
+
+        Event event;
+        REQUIRE_THROWS_AS(event.setMagnitudes(magnitudes),
+                          std::invalid_argument);
     }
 }
