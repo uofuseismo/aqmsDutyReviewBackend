@@ -207,31 +207,23 @@ int main(int argc, char *argv[])
     CROW_ROUTE(app, "/auth/login")
     ([&](const crow::request &request)
     {
-        const std::string route{"auth-login"};
-        SPDLOG_LOGGER_DEBUG(customLogger.logger,
-                            "Login");
-/*
-        auto authorizationString
-            = request.get_header_value("Authorization");
-        if (authorizationString.size() < 7)
+        SPDLOG_LOGGER_DEBUG(customLogger.logger, "Login route");
+        try
         {
-            return crow::response(400);
+            return ::userLoginRoute(request, *authenticator, logger);
         }
-        // Remove the "Basic:" part
-        auto credentialsBase64 = authorizationString.substr(6, std::string::npos);
-        // And the leading/trailing blank space
-        boost::algorithm::trim(credentialsBase64);
-        if (credentialsBase64.empty())
+        catch (const std::exception &e)
         {
-            return crow::response(400);
+            SPDLOG_LOGGER_ERROR(logger, "User login failed because {}",
+                                e.what());
+            crow::response response;
+            response.code = 500;
+            response.set_header("Content-Type", "application/json");
+            crow::json::wvalue wError;
+            wError["message"] = "Server error - contact developer";
+            response.body = wError.dump();
+            return response;
         }
-        auto credentials
-            = crow::utility::base64decode(credentialsBase64,
-                                          credentialsBase64.size());
-
-*/
-        //metrics.incrementSuccessCounter(route);
-        return crow::response(200);
     });
     ///----------------------------------------------------------------------///
     ///                                 Queries                              ///
@@ -364,7 +356,7 @@ int main(int argc, char *argv[])
             app.use_compression(programOptions.crowOptions.compression);
         }
 #endif
-#ifdef CROW_USE_SSL
+#ifdef CROW_ENABLE_SSL
         if (programOptions.crowOptions.useSSL)
         {
             if (programOptions.crowOptions.useCertificateChain)
@@ -372,14 +364,14 @@ int main(int argc, char *argv[])
                 SPDLOG_LOGGER_INFO(consoleLogger, "Enabling SSL key chain");
                 app.ssl_chainfile(
                    programOptions.crowOptions.certificateAndKeyFile.first, 
-                   programOptoins.crowOptions.certificateAndKeyFile.second);
+                   programOptions.crowOptions.certificateAndKeyFile.second);
             }
             else
             {
                 SPDLOG_LOGGER_INFO(consoleLogger, "Enabling SSL keys");
                 app.ssl_file(
                    programOptions.crowOptions.certificateAndKeyFile.first, 
-                   programOptoins.crowOptions.certificateAndKeyFile.second);
+                   programOptions.crowOptions.certificateAndKeyFile.second);
             }
         }
 #endif

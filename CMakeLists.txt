@@ -103,6 +103,8 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/auth/databaseOptions.hpp
     include/${PROJECT_NAME}/auth/jsonWebToken.hpp
     include/${PROJECT_NAME}/auth/jsonWebTokenOptions.hpp
+    include/${PROJECT_NAME}/database/aqms/arrival.hpp
+    include/${PROJECT_NAME}/database/aqms/streamIdentifier.hpp
     include/${PROJECT_NAME}/database/credentials.hpp
     include/${PROJECT_NAME}/metricsSingleton.hpp
     include/${PROJECT_NAME}/version.hpp)
@@ -114,6 +116,9 @@ set(LIBRARY_SRC
     src/auth/databaseOptions.cpp 
     src/auth/jsonWebToken.cpp
     src/auth/jsonWebTokenOptions.cpp
+    src/database/aqms/arrival.cpp
+    src/database/aqms/origin.cpp
+    src/database/aqms/streamIdentifier.cpp
     src/database/credentials.cpp
     src/metricsSingleton.cpp
     src/version.cpp)
@@ -216,6 +221,7 @@ endif()
 if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
    message("Will build unit tests")
    set(TEST_SRC
+       testing/database/aqms.cpp
        testing/database/credentials.cpp
        testing/auth/authenticator.cpp
        testing/auth/authNZ.cpp
