@@ -94,11 +94,6 @@ size_t DurationMagnitude::size() const noexcept
 }
 
 /// Iterators
-DurationMagnitude::iterator DurationMagnitude::begin()
-{
-    return pImpl->mStationDurationMagnitudes.begin();
-}
-
 DurationMagnitude::const_iterator DurationMagnitude::begin() const
 {
     return pImpl->mStationDurationMagnitudes.begin();
@@ -107,11 +102,6 @@ DurationMagnitude::const_iterator DurationMagnitude::begin() const
 DurationMagnitude::const_iterator DurationMagnitude::cbegin() const
 {
     return pImpl->mStationDurationMagnitudes.cbegin();
-}
-
-DurationMagnitude::iterator DurationMagnitude::end()
-{
-    return pImpl->mStationDurationMagnitudes.end();
 }
 
 DurationMagnitude::const_iterator DurationMagnitude::end() const
@@ -124,19 +114,9 @@ DurationMagnitude::const_iterator DurationMagnitude::cend() const
     return pImpl->mStationDurationMagnitudes.cend();
 }
 
-StationDurationMagnitude& DurationMagnitude::at(size_t pos)
-{
-    return pImpl->mStationDurationMagnitudes.at(pos);
-}
-
 const StationDurationMagnitude& DurationMagnitude::at(size_t pos) const
 {
     return pImpl->mStationDurationMagnitudes.at(pos);
-}
-
-StationDurationMagnitude& DurationMagnitude::operator[](size_t pos)
-{
-    return pImpl->mStationDurationMagnitudes[pos];
 }
 
 const StationDurationMagnitude& DurationMagnitude::operator[](size_t pos) const

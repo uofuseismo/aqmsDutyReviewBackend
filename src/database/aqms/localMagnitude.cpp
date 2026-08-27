@@ -92,11 +92,6 @@ size_t LocalMagnitude::size() const noexcept
 }
 
 /// Iterators
-LocalMagnitude::iterator LocalMagnitude::begin()
-{
-    return pImpl->mStationLocalMagnitudes.begin();
-}
-
 LocalMagnitude::const_iterator LocalMagnitude::begin() const
 {
     return pImpl->mStationLocalMagnitudes.begin();
@@ -105,11 +100,6 @@ LocalMagnitude::const_iterator LocalMagnitude::begin() const
 LocalMagnitude::const_iterator LocalMagnitude::cbegin() const
 {
     return pImpl->mStationLocalMagnitudes.cbegin();
-}
-
-LocalMagnitude::iterator LocalMagnitude::end()
-{
-    return pImpl->mStationLocalMagnitudes.end();
 }
 
 LocalMagnitude::const_iterator LocalMagnitude::end() const
@@ -122,19 +112,9 @@ LocalMagnitude::const_iterator LocalMagnitude::cend() const
     return pImpl->mStationLocalMagnitudes.cend();
 }
 
-StationLocalMagnitude& LocalMagnitude::at(size_t pos)
-{
-    return pImpl->mStationLocalMagnitudes.at(pos);
-}
-
 const StationLocalMagnitude& LocalMagnitude::at(size_t pos) const
 {
     return pImpl->mStationLocalMagnitudes.at(pos);
-}
-
-StationLocalMagnitude& LocalMagnitude::operator[](size_t pos)
-{
-    return pImpl->mStationLocalMagnitudes[pos];
 }
 
 const StationLocalMagnitude& LocalMagnitude::operator[](size_t pos) const

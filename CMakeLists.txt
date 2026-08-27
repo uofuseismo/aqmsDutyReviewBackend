@@ -103,6 +103,7 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/auth/databaseOptions.hpp
     include/${PROJECT_NAME}/auth/jsonWebToken.hpp
     include/${PROJECT_NAME}/auth/jsonWebTokenOptions.hpp
+    include/${PROJECT_NAME}/database/aqms/aqms.hpp
     include/${PROJECT_NAME}/database/aqms/arrival.hpp
     include/${PROJECT_NAME}/database/aqms/durationMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/event.hpp
@@ -125,6 +126,7 @@ set(LIBRARY_SRC
     src/auth/databaseOptions.cpp 
     src/auth/jsonWebToken.cpp
     src/auth/jsonWebTokenOptions.cpp
+    src/database/aqms/aqms.cpp
     src/database/aqms/arrival.cpp
     src/database/aqms/durationMagnitude.cpp
     src/database/aqms/event.cpp

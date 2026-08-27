@@ -22,8 +22,20 @@ class Origin
 private:
     using ArrivalType = std::vector<Arrival>;
 public:
-    using iterator = typename ArrivalType::iterator;
     using const_iterator = typename ArrivalType::const_iterator;
+    /// @note Iteration is read-only, which is how these objects are
+    ///       actually used: a query builds the vector, it is moved in
+    ///       once with setArrivals, and from then on the event graph is
+    ///       only read - typically straight into JSON.  Nothing needs to
+    ///       edit an arrival in place, so nothing is offered that could.
+    ///
+    ///       That also keeps setArrivals' work from being undone behind
+    ///       its back: it sorts by time and rejects duplicate
+    ///       stream-and-phase pairs, and a mutable iterator would let a
+    ///       caller move a time or a stream afterwards with neither check
+    ///       re-run.  To change an arrival, take a copy from
+    ///       getArrivals(), edit it, and hand it back.
+    using iterator = const_iterator;
 public:
     /// @brief The geographic type.
     enum class GeographicType
@@ -138,16 +150,17 @@ public:
     /// @brief Move constructor.
     Origin &operator=(Origin &&origin) noexcept;
 
-    iterator begin();
-    const_iterator begin() const;
-    const_iterator cbegin() const;
-    iterator end();
-    const_iterator end() const;
-    const_iterator cend() const;
-    Arrival& at(size_t pos);
-    const Arrival& at(size_t pos) const;
-    Arrival& operator[](size_t pos);
-    const Arrival& operator[](size_t pos) const;
+    /// @name Read-only access to the arrivals
+    /// @{
+    [[nodiscard]] const_iterator begin() const;
+    [[nodiscard]] const_iterator cbegin() const;
+    [[nodiscard]] const_iterator end() const;
+    [[nodiscard]] const_iterator cend() const;
+    /// @throws std::out_of_range if pos is not a valid index.
+    [[nodiscard]] const Arrival& at(size_t pos) const;
+    /// @note Not bounds checked; use at() for an index from outside.
+    [[nodiscard]] const Arrival& operator[](size_t pos) const;
+    /// @}
 private:
     class OriginImpl;
     std::unique_ptr<OriginImpl> pImpl;

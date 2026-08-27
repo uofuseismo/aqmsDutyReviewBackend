@@ -19,8 +19,15 @@ class DurationMagnitude final : public IMagnitude
 private:
     using StationDurationMagnitudeType = std::vector<StationDurationMagnitude>;
 public:
-    using iterator = typename StationDurationMagnitudeType::iterator;
     using const_iterator = typename StationDurationMagnitudeType::const_iterator;
+    /// @note Iteration is read-only, which is how these objects are
+    ///       actually used: a query builds the vector, it is moved in
+    ///       once with setStationMagnitudes, and from then on the event
+    ///       graph is only read - typically straight into JSON.  Nothing
+    ///       needs to edit a station magnitude in place, so nothing is
+    ///       offered that could.  To change one, take a copy from
+    ///       getStationMagnitudes(), edit it, and hand it back.
+    using iterator = const_iterator;
 public:
     /// @brief Constructor.
     DurationMagnitude();
@@ -53,16 +60,17 @@ public:
     /// @brief Move assignment.
     DurationMagnitude& operator=(DurationMagnitude &&) noexcept;
 
-    iterator begin();
-    const_iterator begin() const;
-    const_iterator cbegin() const;
-    iterator end();
-    const_iterator end() const;
-    const_iterator cend() const;
-    StationDurationMagnitude& at(size_t pos);
-    const StationDurationMagnitude& at(size_t pos) const;
-    StationDurationMagnitude& operator[](size_t pos);
-    const StationDurationMagnitude& operator[](size_t pos) const;
+    /// @name Read-only access to the station magnitudes
+    /// @{
+    [[nodiscard]] const_iterator begin() const;
+    [[nodiscard]] const_iterator cbegin() const;
+    [[nodiscard]] const_iterator end() const;
+    [[nodiscard]] const_iterator cend() const;
+    /// @throws std::out_of_range if pos is not a valid index.
+    [[nodiscard]] const StationDurationMagnitude& at(size_t pos) const;
+    /// @note Not bounds checked; use at() for an index from outside.
+    [[nodiscard]] const StationDurationMagnitude& operator[](size_t pos) const;
+    /// @}
 private:
     class DurationMagnitudeImpl;
     std::unique_ptr<DurationMagnitudeImpl> pImpl;
