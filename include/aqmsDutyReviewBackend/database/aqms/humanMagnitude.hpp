@@ -27,6 +27,10 @@ public:
 
     /// @result By definition if a human assigned it then it must be human reviewed.
     [[nodiscard]] IMagnitude::ReviewStatus getReviewStatus() const noexcept override final;
+    /// @result True, always - for the same reason the status is fixed:
+    ///         a human assigned it, so it is reviewed whether or not
+    ///         anyone called setReviewStatus.
+    [[nodiscard]] bool hasReviewStatus() const noexcept override final;
 
     /// @brief Destructor.
     virtual ~HumanMagnitude();

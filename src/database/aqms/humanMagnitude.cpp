@@ -67,3 +67,10 @@ IMagnitude::ReviewStatus HumanMagnitude::getReviewStatus() const noexcept
 {
     return IMagnitude::ReviewStatus::Human;
 }
+
+/// Always set: the status is fixed by the type, so a caller guarding on
+/// hasReviewStatus() must not be told there is nothing to read.
+bool HumanMagnitude::hasReviewStatus() const noexcept
+{
+    return true;
+}

@@ -73,3 +73,10 @@ IMagnitude::ReviewStatus CentroidMomentTensorMagnitude::getReviewStatus() const 
 {
     return IMagnitude::ReviewStatus::Human;
 }
+
+/// Always set: the status is fixed by the type, so a caller guarding on
+/// hasReviewStatus() must not be told there is nothing to read.
+bool CentroidMomentTensorMagnitude::hasReviewStatus() const noexcept
+{
+    return true;
+}
