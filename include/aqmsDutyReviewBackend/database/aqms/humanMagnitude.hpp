@@ -25,11 +25,19 @@ public:
     /// @result A deep copy of this human magnitude.
     [[nodiscard]] std::unique_ptr<IMagnitude> clone() const final;
 
-    /// @result By definition if a human assigned it then it must be human reviewed.
+    /// @result The review status the database supplied, or Human when it
+    ///         supplied none.
+    /// @note The database owns this, and a set value is reported as-is
+    ///       even when it is odd.  This application is a view of what
+    ///       AQMS holds rather than an authority on it, so an automatic
+    ///       human magnitude comes back automatic - log the oddity where
+    ///       the row is read, do not launder it here.
+    ///
+    ///       The default covers the ordinary case: a human assigned it,
+    ///       so absent anything to the contrary it is human reviewed.
     [[nodiscard]] IMagnitude::ReviewStatus getReviewStatus() const noexcept override final;
-    /// @result True, always - for the same reason the status is fixed:
-    ///         a human assigned it, so it is reviewed whether or not
-    ///         anyone called setReviewStatus.
+    /// @result True, always - the default guarantees there is a status to
+    ///         read, so this never has to be checked before reading one.
     [[nodiscard]] bool hasReviewStatus() const noexcept override final;
 
     /// @brief Destructor.

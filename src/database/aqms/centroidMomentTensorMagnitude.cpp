@@ -71,11 +71,19 @@ std::unique_ptr<IMagnitude> CentroidMomentTensorMagnitude::clone() const
 /// Review status - a human-assigned magnitude is human-reviewed by definition.
 IMagnitude::ReviewStatus CentroidMomentTensorMagnitude::getReviewStatus() const noexcept
 {
+    // Whatever the database said, odd or not - this application reports
+    // AQMS rather than correcting it.  The qualified call is deliberate:
+    // hasReviewStatus() below always answers true, so only the base's
+    // version can say whether a value was actually supplied.
+    if (IMagnitude::hasReviewStatus())
+    {
+        return IMagnitude::getReviewStatus();
+    }
     return IMagnitude::ReviewStatus::Human;
 }
 
-/// Always set: the status is fixed by the type, so a caller guarding on
-/// hasReviewStatus() must not be told there is nothing to read.
+/// Always readable: the default above guarantees a status, so a caller
+/// need never check before reading one.
 bool CentroidMomentTensorMagnitude::hasReviewStatus() const noexcept
 {
     return true;

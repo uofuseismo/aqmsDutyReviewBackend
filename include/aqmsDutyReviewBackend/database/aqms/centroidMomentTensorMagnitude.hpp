@@ -26,14 +26,21 @@ public:
     /// @result A deep copy of this CMT magnitude.
     [[nodiscard]] std::unique_ptr<IMagnitude> clone() const final;
 
-    /// @result These are computed out of band and should always be human reviewed.
+    /// @result The review status the database supplied, or Human when it
+    ///         supplied none.
+    /// @note The database owns this, and a set value is reported as-is
+    ///       even when it is odd.  This application is a view of what
+    ///       AQMS holds rather than an authority on it, so an automatic
+    ///       CMT comes back automatic - log the oddity where the row is
+    ///       read, do not launder it here.
+    ///
+    ///       The default covers the ordinary case: nobody auto-computes a
+    ///       CMT, so a row that says nothing means a person ran another
+    ///       application, decided the answer was good, and wrote the
+    ///       values in.
     [[nodiscard]] IMagnitude::ReviewStatus getReviewStatus() const noexcept override final;
-    /// @result True, always.  Nobody auto-computes a CMT - a person runs
-    ///         another application, decides the answer is good, and writes
-    ///         the values into the database - so the review status is a
-    ///         property of the type rather than something a caller has to
-    ///         set.  Saying otherwise would have a caller who guards on
-    ///         \c hasReviewStatus() skip a value that is always there.
+    /// @result True, always - the default guarantees there is a status to
+    ///         read, so this never has to be checked before reading one.
     [[nodiscard]] bool hasReviewStatus() const noexcept override final;
 
     /// @brief Destructor.

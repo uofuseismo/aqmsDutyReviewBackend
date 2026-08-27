@@ -300,14 +300,22 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Magnitude", "Magnitude")
         REQUIRE(magnitude.getValue() == -1.5);
         REQUIRE_THROWS_AS(magnitude.setValue(11.0001), std::invalid_argument);
     }
-    SECTION("Human magnitude is always human reviewed")
+    SECTION("Human magnitude defaults to human reviewed")
     {
         const HumanMagnitude magnitude;
         REQUIRE(magnitude.getReviewStatus() == IMagnitude::ReviewStatus::Human);
-        // And says so: hasReviewStatus used to report false on a fresh
-        // one, which contradicted the value getReviewStatus was already
-        // returning.
+        // Always readable - the default guarantees a status, so no caller
+        // has to check before reading one.
         REQUIRE(magnitude.hasReviewStatus());
+    }
+    SECTION("A human magnitude reports what the database said")
+    {
+        // An automatic human magnitude is incoherent, and AQMS may still
+        // hold one.  This is a view of AQMS, so it comes back as stored.
+        HumanMagnitude magnitude;
+        magnitude.setReviewStatus(IMagnitude::ReviewStatus::Automatic);
+        REQUIRE(magnitude.getReviewStatus()
+                == IMagnitude::ReviewStatus::Automatic);
     }
     SECTION("Clone preserves derived type through the base pointer")
     {
@@ -1617,25 +1625,49 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::CentroidMomentTensorMagnitude"
         REQUIRE_THROWS_AS(magnitude.getIdentifier(), std::runtime_error);
         REQUIRE_THROWS_AS(magnitude.getValue(), std::runtime_error);
         // Reviewed out of the box, with nothing set: nobody auto-computes
-        // a CMT, so the status comes with the type.
+        // a CMT, so that is the sensible default when a row says nothing.
         REQUIRE(magnitude.hasReviewStatus());
         REQUIRE(magnitude.getReviewStatus() == IMagnitude::ReviewStatus::Human);
     }
-    SECTION("It is always human reviewed")
+    SECTION("The review status defaults to human reviewed")
     {
-        // A person runs another application, decides the answer is good,
-        // and writes the values in - so the review status is a property
-        // of the type rather than something a caller sets.
-        CentroidMomentTensorMagnitude magnitude;
+        // Nobody auto-computes a CMT, so a row that says nothing means a
+        // person ran another application, decided the answer was good,
+        // and wrote the values in.
+        const CentroidMomentTensorMagnitude magnitude;
         REQUIRE(magnitude.hasReviewStatus());
         REQUIRE(magnitude.getReviewStatus() == IMagnitude::ReviewStatus::Human);
-
-        // The setter is inherited and cannot be honoured; both accessors
-        // hold their answer regardless, so a caller guarding on
-        // hasReviewStatus() never skips a value that is really there.
+    }
+    SECTION("The database's answer wins, however odd")
+    {
+        // An automatic CMT should not exist, but if AQMS holds one this
+        // is a view of AQMS and reports it.  The oddity gets logged where
+        // the row is read; it does not get laundered here.
+        CentroidMomentTensorMagnitude magnitude;
         magnitude.setReviewStatus(IMagnitude::ReviewStatus::Automatic);
         REQUIRE(magnitude.hasReviewStatus());
+        REQUIRE(magnitude.getReviewStatus()
+                == IMagnitude::ReviewStatus::Automatic);
+
+        // And back again, so the setter is not one-way.
+        magnitude.setReviewStatus(IMagnitude::ReviewStatus::Human);
         REQUIRE(magnitude.getReviewStatus() == IMagnitude::ReviewStatus::Human);
+    }
+    SECTION("The database's answer survives a copy, move and clone")
+    {
+        CentroidMomentTensorMagnitude magnitude;
+        magnitude.setValue(5.7);
+        magnitude.setReviewStatus(IMagnitude::ReviewStatus::Automatic);
+
+        const CentroidMomentTensorMagnitude copy{magnitude};
+        REQUIRE(copy.getReviewStatus() == IMagnitude::ReviewStatus::Automatic);
+
+        const auto cloned = magnitude.clone();
+        REQUIRE(cloned->getReviewStatus()
+                == IMagnitude::ReviewStatus::Automatic);
+
+        const CentroidMomentTensorMagnitude moved{std::move(magnitude)};
+        REQUIRE(moved.getReviewStatus() == IMagnitude::ReviewStatus::Automatic);
     }
     SECTION("Set and get through the base interface")
     {
