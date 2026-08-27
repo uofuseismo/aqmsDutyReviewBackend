@@ -104,6 +104,15 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/auth/jsonWebToken.hpp
     include/${PROJECT_NAME}/auth/jsonWebTokenOptions.hpp
     include/${PROJECT_NAME}/database/aqms/arrival.hpp
+    include/${PROJECT_NAME}/database/aqms/durationMagnitude.hpp
+    include/${PROJECT_NAME}/database/aqms/event.hpp
+    include/${PROJECT_NAME}/database/aqms/humanMagnitude.hpp
+    include/${PROJECT_NAME}/database/aqms/localMagnitude.hpp
+    include/${PROJECT_NAME}/database/aqms/magnitude.hpp
+    include/${PROJECT_NAME}/database/aqms/origin.hpp
+    include/${PROJECT_NAME}/database/aqms/peakToPeakAmplitude.hpp
+    include/${PROJECT_NAME}/database/aqms/stationDurationMagnitude.hpp
+    include/${PROJECT_NAME}/database/aqms/stationLocalMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/streamIdentifier.hpp
     include/${PROJECT_NAME}/database/credentials.hpp
     include/${PROJECT_NAME}/metricsSingleton.hpp
@@ -117,7 +126,15 @@ set(LIBRARY_SRC
     src/auth/jsonWebToken.cpp
     src/auth/jsonWebTokenOptions.cpp
     src/database/aqms/arrival.cpp
+    src/database/aqms/durationMagnitude.cpp
+    src/database/aqms/event.cpp
+    src/database/aqms/humanMagnitude.cpp
+    src/database/aqms/localMagnitude.cpp
+    src/database/aqms/magnitude.cpp
     src/database/aqms/origin.cpp
+    src/database/aqms/peakToPeakAmplitude.cpp
+    src/database/aqms/stationDurationMagnitude.cpp
+    src/database/aqms/stationLocalMagnitude.cpp
     src/database/aqms/streamIdentifier.cpp
     src/database/credentials.cpp
     src/metricsSingleton.cpp

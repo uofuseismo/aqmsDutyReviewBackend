@@ -14,11 +14,13 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 /// @brief A seismic waveform which is comprised of segments.
 /// @copyright Ben Baker (University of Utah) distributed under the
 ///            MIT NO AI license.
-class Segment
+class Waveform
 {
+private:
+    using SegmentType = std::vector<Segment>;
 public:
-    std::vector::iterator Segment;
-    std::vector::const_iterator Segment;
+    using iterator = typename SegmentType::iterator;
+    using const_iterator = typename SegmentType::const_iterator;
 public:
     /// @brief Constructor.
     Waveform();
@@ -52,6 +54,17 @@ public:
     Waveform &operator=(const Waveform &waveform);
     /// @brief Move assignment.
     Waveform &operator=(Waveform &&waveform) noexcept;
+
+    iterator begin();
+    const_iterator begin() const;
+    const_iterator cbegin() const;
+    iterator end();
+    const_iterator end() const;
+    const_iterator cend() const;
+    Arrival& at(size_t pos);
+    const Arrival& at(size_t pos) const;
+    Arrival& operator[](size_t pos);
+    const Arrival& operator[](size_t pos) const;
 private:
     class WaveformImpl;
     std::unique_ptr<WaveformImpl> pImpl;

@@ -345,6 +345,11 @@ bool Origin::isPreferred() const noexcept
     return pImpl->mPreferred;
 }
 
+size_t Origin::size() const noexcept
+{
+    return pImpl->mArrivals.size();
+}
+
 /// Iterators
 Origin::iterator Origin::begin()
 {

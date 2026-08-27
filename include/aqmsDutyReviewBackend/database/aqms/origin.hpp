@@ -1,9 +1,11 @@
 #ifndef AQMS_DUTY_REVIEW_BACKEND_DATABASE_AQMS_ORIGIN_HPP
 #define AQMS_DUTY_REVIEW_BACKEND_DATABASE_AQMS_ORIGIN_HPP 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <vector>
+
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
  class Arrival;
@@ -12,6 +14,7 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
 /// @class A simplified container for defining the when and where of an event.
+/// @brief An origin defines the when and where of a seismic event.
 /// @copyright Ben Baker (University of Utah) distributed under the
 ///            MIT NO AI license.
 class Origin
@@ -100,6 +103,8 @@ public:
     void setArrivals(std::vector<Arrival> &&arrivals);
     /// @result The arrivals that define this origin.
     [[nodiscard]] std::vector<Arrival> getArrivals() const noexcept;
+    /// @result The number of arrivals.
+    [[nodiscard]] size_t size() const noexcept;
 
     /// @brief Sets the geographic type.
     void setGeographicType(GeographicType type) noexcept;

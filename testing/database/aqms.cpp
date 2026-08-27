@@ -10,19 +10,15 @@
 #include <catch2/catch_approx.hpp>
 #include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/arrival.hpp"
-/*
 #include "aqmsDutyReviewBackend/database/aqms/magnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/localMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/durationMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/humanMagnitude.hpp"
-*/
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
-/*
 #include "aqmsDutyReviewBackend/database/aqms/event.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/peakToPeakAmplitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/stationLocalMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/stationDurationMagnitude.hpp"
-*/
 
 using namespace AQMSDutyReviewBackend::Database::AQMS;
 
@@ -56,7 +52,6 @@ Origin makeValidOrigin(const double latitude = 40.77,
     return origin;
 }
 
-/*
 /// @brief Builds a valid magnitude set: a preferred local magnitude and a
 ///        non-preferred duration magnitude.
 std::vector<std::unique_ptr<IMagnitude>> makeMagnitudes()
@@ -74,7 +69,6 @@ std::vector<std::unique_ptr<IMagnitude>> makeMagnitudes()
     magnitudes.push_back(std::move(duration));
     return magnitudes;
 }
-*/
 
 /// @brief Builds a stream identifier on the given channel of UU.CTU.
 StreamIdentifier makeStream(const std::string &channel)
@@ -87,7 +81,6 @@ StreamIdentifier makeStream(const std::string &channel)
     return streamIdentifier;
 }
 
-/*
 /// @brief Builds a fully-populated peak-to-peak amplitude (millimeters).
 PeakToPeakAmplitude makeAmplitude(const std::string &channel,
                                   const double amplitudeMillimeters)
@@ -102,7 +95,6 @@ PeakToPeakAmplitude makeAmplitude(const std::string &channel,
     return amplitude;
 }
 
-*/
 }
 
 TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::StreamIdentifier", "StreamIdentifier")
@@ -255,7 +247,6 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Arrival", "Arrival")
     }
 }
 
-/*
 TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Magnitude", "Magnitude")
 {
     SECTION("Local magnitude defaults")
@@ -349,7 +340,6 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Magnitude", "Magnitude")
         REQUIRE(moved.getValue() == 2.1);
     }
 }
-*/
 
 TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Origin", "Origin")
 {
@@ -472,7 +462,6 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Origin", "Origin")
     // TODO need iterator test 
 }
 
-/*
 TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event", "Event")
 {
     SECTION("Defaults")
@@ -919,4 +908,3 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::NetworkMagnitudeStations",
         REQUIRE(magnitude.getValue() == 2.9);
     }
 }
-*/
