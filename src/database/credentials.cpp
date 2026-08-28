@@ -5,6 +5,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include "aqmsDutyReviewBackend/database/credentials.hpp"
 
@@ -21,6 +22,7 @@ public:
     std::string mDatabaseName;
     std::string mHost{"localhost"};
     std::optional<std::string> mSchema;
+    std::optional<std::string> mAlias;
     std::string mApplication{"aqmsDutyReviewBackend"};
     std::chrono::milliseconds mTimeOut{std::chrono::seconds{5}};
     uint16_t mPort{5432};
@@ -186,6 +188,29 @@ std::optional<std::string> Credentials::getSchema() const noexcept
     return pImpl->mSchema;
 } 
 
+/// Alias
+void Credentials::setAlias(const std::string &alias)
+{
+    constexpr std::string_view whitespace{" \t\r\n"};
+    const auto begin = alias.find_first_not_of(whitespace);
+    if (begin == std::string::npos)
+    {
+        // An all-blank alias is worse than none: it would tag rows with
+        // whitespace and name nothing in the log, while still suppressing
+        // the database@host fallback.
+        throw std::invalid_argument("Alias has no non-blank characters");
+    }
+    const auto end = alias.find_last_not_of(whitespace);
+    pImpl->mAlias
+        = std::make_optional<std::string> (alias.substr(begin,
+                                                        end - begin + 1));
+}
+
+std::optional<std::string> Credentials::getAlias() const noexcept
+{
+    return pImpl->mAlias;
+}
+
 /// Timeout
 void Credentials::setTimeOut(const std::chrono::milliseconds &timeOut) noexcept
 {
@@ -305,6 +330,12 @@ Credentials Credentials::fromInitializationFile(
     if (schema)
     {
         if (!schema->empty()){result.setSchema(*schema);}
+    }
+
+    auto alias = propertyTree.get_optional<std::string> (section + "alias");
+    if (alias)
+    {
+        if (!alias->empty()){result.setAlias(*alias);}
     }
 
     auto application = propertyTree.get<std::string> (section + "application",

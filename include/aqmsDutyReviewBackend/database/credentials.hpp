@@ -101,6 +101,25 @@ public:
     [[nodiscard]] std::optional<std::string> getSchema() const noexcept;
     /// @}
 
+    /// @name Alias
+    /// @{
+
+    /// @brief Sets a friendly name for this database - e.g., "rtdb1".
+    /// @param[in] alias  The alias.  Surrounding blanks are trimmed.
+    /// @note Worth setting on anything an operator or a frontend will see
+    ///       named: "rtdb1" travels better than
+    ///       "rtdbt@aqmsrtt.seis.utah.edu", and it is what tags a row with
+    ///       the database it came from.
+    /// @warning Aliases must be unique across the databases one
+    ///          application talks to, because that string is what routes
+    ///          follow-up work back to the right machine.  Nothing here
+    ///          can check it - only the caller sees them all.
+    /// @throws std::invalid_argument if the alias is blank.
+    void setAlias(const std::string &alias);
+    /// @result The alias, or nullopt if none was set.
+    [[nodiscard]] std::optional<std::string> getAlias() const noexcept;
+    /// @}
+
     /// @name Application Name
     /// @{
 

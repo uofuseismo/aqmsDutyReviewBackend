@@ -7,6 +7,7 @@
 #include <utility>
 #include <spdlog/logger.h>
 #include <aqmsDutyReviewBackend/auth/authenticator.hpp>
+#include <aqmsDutyReviewBackend/database/drp/userStore.hpp>
 
 namespace AQMSDutyReviewBackend::Auth
 {
@@ -34,27 +35,32 @@ class Database final : public IAuthenticator
 {
 public:
     /// @brief The outcome of an administrative action.
-    /// @note Three outcomes rather than a bool, because the database
-    ///       deliberately distinguishes them and a bool would throw the
-    ///       distinction away: NotAuthorized is a 403 to the frontend and
-    ///       Failed is a 400, and answering 400 to "you may not do that"
-    ///       tells an administrator their input was wrong when it was not.
-    enum class AdminResult
-    {
-        Succeeded,    /*!< The action was carried out. */
-        Failed,       /*!< The action was permitted but did not apply - no
-                           such user, the name is taken, the input was
-                           empty.  The database returned FALSE. */
-        NotAuthorized /*!< The acting user may not do this: they are not an
-                           administrator, they have not activated their
-                           account yet, or the action would remove the last
-                           administrator.  The database raised
-                           insufficient_privilege (SQLSTATE 42501). */
-    };
+    /// @note An alias, not a second enum: the distinction between "you may
+    ///       not" and "that did not work" is the database's, so the store
+    ///       owns the type and this passes it through unchanged.  Two
+    ///       identical enums would need mapping code that could drift.
+    using AdminResult
+        = AQMSDutyReviewBackend::Database::DRP::AdminResult;
 public:
     /// @brief Constructor.
-    /// @param[in] options  The database credentials.
-    /// @param[in] logger   The application logger.
+    /// @param[in] users   Where the user records live.  Shared, because
+    ///                    the routes that list and manage users talk to
+    ///                    the same store without going through here.
+    /// @param[in] logger  The application logger.
+    /// @throws std::invalid_argument if the store is null.
+    /// @note This class is an adapter: it turns the store's records into
+    ///       authentication decisions.  It owns the cryptography - hashing
+    ///       passwords, verifying them, checking signatures - and the
+    ///       store owns the SQL.  Neither does the other's job.
+    Database(std::shared_ptr<AQMSDutyReviewBackend::Database::DRP::UserStore> users,
+             std::shared_ptr<spdlog::logger> logger);
+
+    /// @brief Convenience constructor: builds a client and a user store of
+    ///        its own from the credentials.
+    /// @note Fine when nothing else needs the database.  Once something
+    ///       does - a list-users route, an event store - build the client
+    ///       and the store outside and use the constructor above, so they
+    ///       can be shared rather than hidden in here.
     /// @throws std::invalid_argument if the options carry no credentials.
     /// @throws std::runtime_error if the connection cannot be established.
     Database(const DatabaseOptions &options,
@@ -205,9 +211,6 @@ public:
         const std::string &signature,
         const std::string &publicKey);
     /// @}
-
-    /// @result True indicates the connection is open.
-    [[nodiscard]] bool isConnected() const noexcept;
 
     /// @brief Destructor.
     ~Database() final;

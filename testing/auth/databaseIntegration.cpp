@@ -92,7 +92,6 @@ constexpr const char *ADMIN{"root"};
 TEST_CASE("Auth::Database connects and reads permissions", "[.database]")
 {
     const auto database = makeDatabase();
-    REQUIRE(database->isConnected());
 
     // The bootstrap administrator has to be there, or nothing below can
     // act.

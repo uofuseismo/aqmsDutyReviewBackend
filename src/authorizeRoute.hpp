@@ -11,9 +11,11 @@
 #endif
 #include <spdlog/spdlog.h>
 #include <spdlog/logger.h>
+#include <boost/json/object.hpp>
+#include <boost/json/serialize.hpp>
+#include <boost/json/value.hpp>
 #include <crow/http_request.h>
 #include <crow/http_response.h>
-#include <crow/json.h>
 #include "aqmsDutyReviewBackend/auth/authNZ.hpp"
 #include "aqmsDutyReviewBackend/auth/authenticator.hpp"
 #include "aqmsDutyReviewBackend/auth/authorization.hpp"
@@ -56,25 +58,30 @@ struct RouteAuthorization
 ///       instead of guessing which of "error"/"detail"/"reason" this
 ///       particular route happened to pick.  Routes with more to say add
 ///       fields alongside it; nothing replaces it.
-[[nodiscard]] crow::json::wvalue makeMessageBody(const std::string &message)
+///       boost::json rather than crow::json: this application already
+///       carries boost::json for JSON web tokens and for serializing the
+///       model objects, and a crow response body is a plain std::string,
+///       so nothing is gained by a second JSON library and a conversion
+///       between them.
+[[nodiscard]] boost::json::object makeMessageBody(const std::string &message)
 {
-    crow::json::wvalue body;
+    boost::json::object body;
     body["message"] = message;
     return body;
 }
 
 /// @brief Wraps a body into a JSON response.
 [[nodiscard]] crow::response makeJSONResponse(const int statusCode,
-                                              crow::json::wvalue &&body)
+                                              const boost::json::value &body)
 {
-    crow::response response{statusCode, body.dump()};
+    crow::response response{statusCode, boost::json::serialize(body)};
     response.set_header("Content-Type", "application/json");
     return response;
 }
 
 /// @brief The message-only case, which is most of them.
 /// @note A separate name rather than an overload: a string literal
-///       converts to crow::json::wvalue exactly as readily as to
+///       converts to boost::json::value exactly as readily as to
 ///       std::string, so the two would be ambiguous at every call site
 ///       that passes one.
 [[nodiscard]] crow::response makeMessageResponse(const int statusCode,
@@ -104,11 +111,11 @@ struct RouteAuthorization
 ///       describing work that did not happen.
 [[nodiscard]] crow::response makeDataResponse(const int statusCode,
                                               const std::string &message,
-                                              crow::json::wvalue &&data)
+                                              boost::json::value data)
 {
     auto body = ::makeMessageBody(message);
     body["data"] = std::move(data);
-    return ::makeJSONResponse(statusCode, std::move(body));
+    return ::makeJSONResponse(statusCode, body);
 }
 
 /// @brief Names the scheme the client should authenticate with.
@@ -261,7 +268,7 @@ void setChallenge(crow::response &response,
         if (authResult == Auth::IAuthenticator::Result::Authenticated)
         {
             SPDLOG_LOGGER_INFO(logger, "{} logged in", user);
-            crow::json::wvalue data;
+            boost::json::object data;
             data["jwt"] = std::move(jwt);
             return ::makeDataResponse(200,
                                       "Successfully logged in as " + user
