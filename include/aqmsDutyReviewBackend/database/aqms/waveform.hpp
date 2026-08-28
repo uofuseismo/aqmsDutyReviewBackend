@@ -61,10 +61,10 @@ public:
     iterator end();
     const_iterator end() const;
     const_iterator cend() const;
-    Arrival& at(size_t pos);
-    const Arrival& at(size_t pos) const;
-    Arrival& operator[](size_t pos);
-    const Arrival& operator[](size_t pos) const;
+    Segment& at(size_t pos);
+    const Segment& at(size_t pos) const;
+    Segment& operator[](size_t pos);
+    const Segment& operator[](size_t pos) const;
 private:
     class WaveformImpl;
     std::unique_ptr<WaveformImpl> pImpl;

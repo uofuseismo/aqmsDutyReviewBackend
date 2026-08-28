@@ -32,22 +32,26 @@ public:
 
     /// @brief Sets the start time (UTC) of segment since the epoch (Jan 1 1970).
     /// @param[in] startTime   The segment's start time. 
-    void setStartTime(const std::chrono::nanoseconds startTime) noexcept;
+    void setStartTime(const std::chrono::nanoseconds &startTime) noexcept;
     /// @result The start time (UTC) of the segment since the epoch (Jan 1 1970).
     /// @throws std::runtime_error if \c hasStartTime() is false.
     [[nodiscard]] std::chrono::nanoseconds getStartTime() const; 
     /// @result True indicates the start time was set.
     [[nodiscard]] bool hasStartTime() const noexcept;
+    /// @result throw std::runtime_error if \c hasStartTime() is false,
+    ///         \c hasData() is false, \c hasSamplingRate() is false.
+    [[nodiscard]] std::chrono::nanoseconds getEndTime() const;
  
     /// @brief The samples in this segment.
     /// @param[in] data   The data samples in this waveform's segment.
     /// @note This will be promoted to double precision.
     /// @throws std::invalid_argument if data is empty.
-    void setData(std::vector<U> &&data);
-    void setData(const std::vector<U> &data);
+    template<typename U> void setData(std::vector<U> &&data);
+    template<typename U> void setData(const std::vector<U> &data);
     /// @result The data samples comprising the waveform's segment.
     /// @throws std::runtime_error if \c hasData() is false.
     [[nodiscard]] std::vector<double> getData() const;
+    [[nodiscard]] const std::vector<double> &getDataReference() const;
     /// @result True indicates that the data samples were set.
     [[nodiscard]] bool hasData() const noexcept;
 

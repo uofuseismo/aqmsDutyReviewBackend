@@ -19,6 +19,8 @@
 #include "aqmsDutyReviewBackend/auth/database.hpp"
 #include "aqmsDutyReviewBackend/auth/jsonWebToken.hpp"
 #include "aqmsDutyReviewBackend/auth/authNZ.hpp"
+#include "aqmsDutyReviewBackend/database/client.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/database.hpp"
 #include "aqmsDutyReviewBackend/metricsSingleton.hpp"
 #include "aqmsDutyReviewBackend/version.hpp"
 #include "authorizeRoute.hpp"
@@ -154,6 +156,32 @@ int main(int argc, char *argv[])
         = AQMSDutyReviewBackend::Logger::initialize(programOptions);
     ::CustomLogger customLogger{logger};
 
+    // Initialize the main AQMS database connection.  Persistent: this one
+    // is talked to constantly, and dialling here means bad credentials or
+    // an unreachable host are found at startup rather than on the first
+    // request.
+    auto aqmsClient
+        = std::make_shared<AQMSDutyReviewBackend::Database::Client>
+          (programOptions.aqmsDatabaseCredentials, logger,
+           AQMSDutyReviewBackend::Database::Client::ConnectionPolicy::Persistent);
+
+    // And the ancillary AQMS databases (if they were specified).  OnDemand:
+    // these are touched a few times a week, for alarms, and one of them
+    // being down must not stop this application from starting.
+    std::vector<std::shared_ptr<AQMSDutyReviewBackend::Database::Client>>
+        auxiliaryAQMSClients;
+    for (const auto &credentials : programOptions.auxiliaryAQMSCredentials)
+    {
+        auxiliaryAQMSClients.push_back(
+            std::make_shared<AQMSDutyReviewBackend::Database::Client>
+            (credentials, logger,
+             AQMSDutyReviewBackend::Database::Client::ConnectionPolicy::OnDemand));
+    }
+
+    auto aqmsDatabase
+        = std::make_unique<AQMSDutyReviewBackend::Database::AQMS::Database>
+          (aqmsClient, auxiliaryAQMSClients, logger);
+
     // Initialize the database
     auto drpDatabase
         = std::make_unique<AQMSDutyReviewBackend::Auth::Database>
@@ -164,7 +192,7 @@ int main(int argc, char *argv[])
         = std::make_unique<AQMSDutyReviewBackend::Auth::JSONWebToken>
           (programOptions.jsonWebTokenOptions, logger);
 
-    // Create the authentciator
+    // Create the authenticator
     auto authenticator
         = std::make_unique<AQMSDutyReviewBackend::Auth::AuthNZ>
           (std::move(drpDatabase), std::move(jwtAuthenticator), logger);
@@ -190,16 +218,12 @@ int main(int argc, char *argv[])
     {
         // TODO must authorize user's jwt
         SPDLOG_LOGGER_DEBUG(customLogger.logger,
-                            "Processing version request");
-        crow::response response;
-        response.code = 200;
-        response.set_header("Content-Type", "application/json");
-        auto version = AQMSDutyReviewBackend::Version::getVersion();
-        crow::json::wvalue wSettings;
-        wSettings["backendVersion"] = version;
-        wSettings["stadiaMapKey"] = "super-secret-map-key"; 
-        response.body = wSettings.dump();
-        return response;
+                            "Processing settings request");
+        boost::json::object settings;
+        settings["backendVersion"]
+            = AQMSDutyReviewBackend::Version::getVersion();
+        settings["stadiaMapKey"] = "super-secret-map-key";
+        return ::makeDataResponse(200, "Settings", std::move(settings));
     });
     ///----------------------------------------------------------------------///
     ///                               Login Stuff                            ///
@@ -216,13 +240,8 @@ int main(int argc, char *argv[])
         {
             SPDLOG_LOGGER_ERROR(logger, "User login failed because {}",
                                 e.what());
-            crow::response response;
-            response.code = 500;
-            response.set_header("Content-Type", "application/json");
-            crow::json::wvalue wError;
-            wError["message"] = "Server error - contact developer";
-            response.body = wError.dump();
-            return response;
+            return ::makeMessageResponse(
+                500, "Server error - contact developer");
         }
     });
     ///----------------------------------------------------------------------///
@@ -288,6 +307,90 @@ int main(int argc, char *argv[])
 
         return crow::response(200);
     });
+    CROW_ROUTE(app, "/waveforms/<int>")
+    ([&](const crow::request &request, const int64_t eventIdentifier)
+    {
+        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
+        {
+            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
+            false // Require password
+        };
+        auto authResult = ::authorizeRoute(request,
+                                           *authenticator,
+                                           requirement,
+                                           logger);
+        if (!authResult){return std::move(*authResult.rejection);}
+
+        SPDLOG_LOGGER_DEBUG(customLogger.logger,
+                            "{} requesting waveforms for {}...",
+                            authResult.identity->user,
+                            eventIdentifier);
+
+        return crow::response(200);
+    }); 
+    CROW_ROUTE(app, "/waveforms-hash/<int>")
+    ([&](const crow::request &request, const int64_t eventIdentifier)
+    {
+        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
+        {
+            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
+            false // Require password
+        };
+        auto authResult = ::authorizeRoute(request,
+                                           *authenticator,
+                                           requirement,
+                                           logger);
+        if (!authResult){return std::move(*authResult.rejection);}
+
+        SPDLOG_LOGGER_DEBUG(customLogger.logger,
+                            "{} requesting waveforms hash for {}...",
+                            authResult.identity->user,
+                            eventIdentifier);
+
+        return crow::response(200);
+    });
+    CROW_ROUTE(app, "/station-information")
+    ([&](const crow::request &request)
+    {
+        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
+        {
+            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
+            false // Require password
+        };
+        auto authResult = ::authorizeRoute(request,
+                                           *authenticator,
+                                           requirement,
+                                           logger);
+        if (!authResult){return std::move(*authResult.rejection);}
+
+        SPDLOG_LOGGER_DEBUG(customLogger.logger,      
+                            "{} requesting stations...",
+                            authResult.identity->user);
+
+        return crow::response(200);
+    });
+    CROW_ROUTE(app, "/station-information-hash")
+    ([&](const crow::request &request)
+    {
+        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
+        {
+            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
+            false // Require password
+        };
+        auto authResult = ::authorizeRoute(request,
+                                           *authenticator,
+                                           requirement,
+                                           logger);
+        if (!authResult){return std::move(*authResult.rejection);}
+
+        SPDLOG_LOGGER_DEBUG(customLogger.logger,
+                            "{} requesting stations hash...",
+                            authResult.identity->user);
+
+        return crow::response(200);
+    });
+
+
     ///----------------------------------------------------------------------///
     ///                                 Actions                              ///
     ///----------------------------------------------------------------------///
@@ -333,6 +436,30 @@ int main(int argc, char *argv[])
 
         return crow::response(200);
     });
+    ///----------------------------------------------------------------------///
+    ///                            Administration Stuff                      ///
+    ///----------------------------------------------------------------------///
+    CROW_ROUTE(app, "/actions/admin/list-users")
+    ([&](const crow::request &request)
+    {
+        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
+        {
+            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::Administrator,
+            false // Require password
+        };
+        auto authResult = ::authorizeRoute(request,
+                                           *authenticator,
+                                           requirement,
+                                           logger);
+        if (!authResult){return std::move(*authResult.rejection);}
+
+        SPDLOG_LOGGER_INFO(customLogger.logger,
+                           "Listing users for {}",
+                           authResult.identity->user);
+
+        return crow::response(200);
+    });
+
 
     /// Run app
     try

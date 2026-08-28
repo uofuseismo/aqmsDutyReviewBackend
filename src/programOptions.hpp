@@ -12,9 +12,11 @@
 #endif
 #include "aqmsDutyReviewBackend/auth/databaseOptions.hpp"
 #include "aqmsDutyReviewBackend/auth/jsonWebTokenOptions.hpp"
+/*
 #ifdef WITH_OPENLDAP
 #include "aqmsDutyReviewBackend/auth/openldapOptions.hpp"
 #endif
+*/
 #include "aqmsDutyReviewBackend/database/credentials.hpp"
 #include "otelOptions.hpp"
 
@@ -193,12 +195,14 @@ struct ProgramOptions
                                      PRINT_SUMMARY_INTERVAL_MINUTES);
         printSummaryInterval = std::chrono::minutes {printSummaryIntervalInMinutes};
 */
+/*
 #ifdef WITH_OPENLDAP
         // OpenLDAP 
         openLDAPOptions
             = DRP::Auth::OpenLDAPOptions::fromInitializationFile(
                 iniFile, "OpenLDAP");
 #endif
+*/
         // DRP database
         auto drpDatabaseCredentials
             = DRP::Database::Credentials::fromInitializationFile(
@@ -235,6 +239,36 @@ struct ProgramOptions
             throw std::invalid_argument("AQMS database password not set");
         }
 
+        // Aux databases
+        for (int16_t i = 1; i < std::numeric_limits<int16_t>::max(); ++i)
+        {
+            auto section = "AQMSRemote" + std::to_string(i);
+            if (propertyTree.get_optional<std::string> (section))
+            {
+                auto otherAQMSDatabaseCredentials 
+                   = DRP::Database::Credentials::fromInitializationFile(
+                        iniFile, section);
+                if (!otherAQMSDatabaseCredentials.hasUser())
+                {
+                    throw std::invalid_argument(
+                        section + " does not specify user name");
+                }
+                if (!otherAQMSDatabaseCredentials.hasPassword())
+                { 
+                    throw std::invalid_argument(
+                        section + " does not specify password");
+                }
+                // Kept, not just validated - these were being parsed,
+                // checked, and then dropped on the floor, so a configured
+                // ancillary machine never reached the application.
+                auxiliaryAQMSCredentials.push_back(
+                    std::move(otherAQMSDatabaseCredentials));
+            }
+            else
+            {
+                break;
+            }
+        }
              
         // JWT Auth 
         jsonWebTokenOptions
@@ -295,9 +329,16 @@ struct ProgramOptions
     AQMSDutyReviewBackend::Auth::DatabaseOptions drpDatabaseOptions;
     AQMSDutyReviewBackend::Auth::JSONWebTokenOptions jsonWebTokenOptions;
     AQMSDutyReviewBackend::Database::Credentials aqmsDatabaseCredentials;
+    /// The ancillary AQMS machines, from the [AQMSRemote1], [AQMSRemote2],
+    /// ... sections.  Empty when the real-time system is the same box as
+    /// post-processing, which is a normal deployment and not a problem.
+    std::vector<AQMSDutyReviewBackend::Database::Credentials>
+        auxiliaryAQMSCredentials;
+/*
 #ifdef WITH_OPENLDAP
     AQMSDutyReviewBackend::Auth::OpenLDAPOptions openLDAPOptions;
 #endif
+*/
     AQMSDutyReviewBackend::OTelOptions::HTTPMetrics otelHTTPMetricsOptions;
     AQMSDutyReviewBackend::OTelOptions::HTTPLog otelHTTPLogOptions;
     AQMSDutyReviewBackend::OTelOptions::GRPCMetrics otelGRPCMetricsOptions;
