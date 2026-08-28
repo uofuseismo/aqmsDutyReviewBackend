@@ -1,0 +1,103 @@
+#ifndef AQMS_DUTY_REVIEW_BACKEND_ROUTES_EVENT_ROUTES_HPP
+#define AQMS_DUTY_REVIEW_BACKEND_ROUTES_EVENT_ROUTES_HPP
+#include <cstdint>
+#include <string>
+#include <crow/app.h>
+#include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
+#include "routeContext.hpp"
+
+namespace
+{
+
+/// @brief Registers the event routes.
+/// @note The routes carrying a url parameter still use CROW_ROUTE and do
+///       their own authorization: the macro wants a string literal, and
+///       their handler signature depends on the parameter type, so
+///       ::authorizedRoute cannot express them.  They are the exception,
+///       not the pattern.
+inline void registerEventRoutes(crow::SimpleApp &app,
+                                const RouteContext &context)
+{
+    using Claims = AQMSDutyReviewBackend::Auth::JSONWebToken::Claims;
+
+    ::authorizedRoute(
+        app, "/event-information/locks", ::readOnlyRequirement, context,
+        [&context](const crow::request &,
+                   const Claims &identity) -> crow::response
+        {
+            SPDLOG_LOGGER_INFO(context.logger,
+                               "Getting database locks for {}",
+                               identity.user);
+            // Never cached: a lock's whole purpose is to say who is
+            // working an event right now, and a cached answer would be
+            // exactly the stale one that puts two analysts on one event.
+            const auto locks = context.aqmsDatabase->getLockedEvents();
+            if (!locks)
+            {
+                SPDLOG_LOGGER_ERROR(context.logger,
+                                    "Could not fetch event locks for {}",
+                                    identity.user);
+                return ::makeMessageResponse(
+                    500,
+                    "Could not reach the AQMS database - try again shortly");
+            }
+            return ::makeDataResponse(
+                200,
+                std::to_string(locks->size()) + " locked event(s)",
+                AQMSDutyReviewBackend::Database::AQMS::toJSON(*locks));
+        });
+
+    ::authorizedRoute(
+        app, "/event-information/catalog", ::readOnlyRequirement, context,
+        [&context](const crow::request &,
+                   const Claims &identity) -> crow::response
+        {
+            SPDLOG_LOGGER_DEBUG(context.logger, "{} requesting catalog...",
+                                identity.user);
+            return crow::response(200);
+        });
+
+    ::authorizedRoute(
+        app, "/event-information/catalog-hash", ::readOnlyRequirement,
+        context,
+        [&context](const crow::request &,
+                   const Claims &identity) -> crow::response
+        {
+            SPDLOG_LOGGER_DEBUG(context.logger,
+                                "{} requesting catalog hash...",
+                                identity.user);
+            return crow::response(200);
+        });
+
+    CROW_ROUTE(app, "/waveforms/<int>")
+    ([&context](const crow::request &request,
+                const int64_t eventIdentifier) -> crow::response
+    {
+        auto authorization = ::authorizeRoute(request, *context.authenticator,
+                                              ::readOnlyRequirement,
+                                              context.logger);
+        if (!authorization){return std::move(*authorization.rejection);}
+        SPDLOG_LOGGER_DEBUG(context.logger,
+                            "{} requesting waveforms for {}...",
+                            authorization.identity->user, eventIdentifier);
+        return crow::response(200);
+    });
+
+    CROW_ROUTE(app, "/waveforms-hash/<int>")
+    ([&context](const crow::request &request,
+                const int64_t eventIdentifier) -> crow::response
+    {
+        auto authorization = ::authorizeRoute(request, *context.authenticator,
+                                              ::readOnlyRequirement,
+                                              context.logger);
+        if (!authorization){return std::move(*authorization.rejection);}
+        SPDLOG_LOGGER_DEBUG(context.logger,
+                            "{} requesting waveforms hash for {}...",
+                            authorization.identity->user, eventIdentifier);
+        return crow::response(200);
+    });
+}
+
+}
+#endif

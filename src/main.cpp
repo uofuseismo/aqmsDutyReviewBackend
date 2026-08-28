@@ -32,6 +32,11 @@
 #include "aqmsDutyReviewBackend/version.hpp"
 #include "authorizeRoute.hpp"
 #include "requestBody.hpp"
+#include "routes/routeContext.hpp"
+#include "routes/stationRoutes.hpp"
+#include "routes/eventRoutes.hpp"
+#include "routes/actionRoutes.hpp"
+#include "routes/adminRoutes.hpp"
 #include "programOptions.hpp"
 #include "parseCommandLineOptions.hpp"
 #include "logger.hpp"
@@ -266,23 +271,34 @@ int main(int argc, char *argv[])
         return AQMSDutyReviewBackend::Database::AQMS::toJSON(*stations);
     };
 
+    // Everything the route handlers share, assembled once.  The two raw
+    // pointers are not owned - main owns those objects and outlives
+    // app.run(), which is what makes it safe.
+    const ::RouteContext routeContext
+    {
+        authenticator.get(),
+        aqmsDatabase.get(),
+        users,
+        logger,
+        std::chrono::seconds
+            {programOptions.userManagementOptions.provisionalAccountExpiresAfter},
+        std::chrono::seconds
+            {programOptions.userManagementOptions.passwordResetExpiresAfter}
+    };
+
     crow::logger::setHandler(&customLogger);
     crow::SimpleApp app;
+    // The default route stays here: it is the only one that is neither
+    // authorized nor part of a family.
     CROW_ROUTE(app, "/")
-    ([&]()  
+    ([&]() -> crow::response
     {
-        SPDLOG_LOGGER_DEBUG(customLogger.logger, "Default route"); 
-/*
-        crow::response response;
-        response.code = 200;
-        response.set_header("Content-Type", "application/json");
-        response.body = documentAPI().dump();
-        return response;//crow::response(200);
-*/
+        SPDLOG_LOGGER_DEBUG(customLogger.logger, "Default route");
         return crow::response(200);
     });
+
     CROW_ROUTE(app, "/settings")
-    ([&](const crow::request &request)
+    ([&](const crow::request &request) -> crow::response
     {
         // TODO must authorize user's jwt
         SPDLOG_LOGGER_DEBUG(customLogger.logger,
@@ -293,550 +309,21 @@ int main(int argc, char *argv[])
         settings["stadiaMapKey"] = "super-secret-map-key";
         return ::makeDataResponse(200, "Settings", std::move(settings));
     });
-    ///----------------------------------------------------------------------///
-    ///                               Login Stuff                            ///
-    ///----------------------------------------------------------------------///
+
+    // Login is its own shape: it turns a password into a token, so it
+    // cannot go through the authorization helper that expects one.
     CROW_ROUTE(app, "/auth/login")
-    ([&](const crow::request &request)
+    ([&](const crow::request &request) -> crow::response
     {
-        SPDLOG_LOGGER_DEBUG(customLogger.logger, "Login route");
-        try
-        {
-            return ::userLoginRoute(request, *authenticator, logger);
-        }
-        catch (const std::exception &e)
-        {
-            SPDLOG_LOGGER_ERROR(logger, "User login failed because {}",
-                                e.what());
-            return ::makeMessageResponse(
-                500, "Server error - contact developer");
-        }
-    });
-    ///----------------------------------------------------------------------///
-    ///                                 Queries                              ///
-    ///----------------------------------------------------------------------///
-    CROW_ROUTE(app, "/station-information")
-    ([&](const crow::request &request)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
-            false // Require password
-        };
-        auto authResult = ::authorizeRoute(request,
-                                           *authenticator,
-                                           requirement,
-                                           logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        SPDLOG_LOGGER_INFO(customLogger.logger,
-                           "Getting stations for {}",
-                           authResult.identity->user);
-
-        const auto stations = fetchStationsJSON();
-        if (!stations)
-        {
-            // The query takes no arguments, so the only way it fails is
-            // AQMS being unreachable - this backend's problem to report,
-            // not something the caller can fix by asking differently.
-            SPDLOG_LOGGER_ERROR(customLogger.logger,
-                                "Could not fetch stations for {}",
-                                authResult.identity->user);
-            return ::makeMessageResponse(
-                500, "Could not reach the AQMS database - try again shortly");
-        }
-        return ::makeDataResponse(
-            200,
-            "Found " + std::to_string(stations->as_array().size())
-                     + " station epochs",
-            *stations);
-    });
-    CROW_ROUTE(app, "/event-information/locks")
-    ([&](const crow::request &request)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
-            false // Require password
-        };
-        auto authResult = ::authorizeRoute(request,
-                                           *authenticator,
-                                           requirement,
-                                           logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        SPDLOG_LOGGER_INFO(customLogger.logger,
-                           "Getting database locks for {}",
-                           authResult.identity->user);
-
-        // Never cached: a lock's whole purpose is to say who is working an
-        // event right now, and a cached answer would be exactly the stale
-        // one that puts two analysts on the same event.
-        const auto locks = aqmsDatabase->getLockedEvents();
-        if (!locks)
-        {
-            SPDLOG_LOGGER_ERROR(customLogger.logger,
-                                "Could not fetch event locks for {}",
-                                authResult.identity->user);
-            return ::makeMessageResponse(
-                500, "Could not reach the AQMS database - try again shortly");
-        }
-        return ::makeDataResponse(
-            200,
-            std::to_string(locks->size()) + " locked event(s)",
-            AQMSDutyReviewBackend::Database::AQMS::toJSON(*locks));
-    });
-    CROW_ROUTE(app, "/event-information/catalog")
-    ([&](const crow::request &request)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
-            false // Require password
-        };
-        auto authResult = ::authorizeRoute(request,
-                                           *authenticator,
-                                           requirement,
-                                           logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        SPDLOG_LOGGER_DEBUG(customLogger.logger,
-                            "{} requesting catalog...",
-                            authResult.identity->user);
-
-        return crow::response(200);
-    });
-    CROW_ROUTE(app, "/event-information/catalog-hash")
-    ([&](const crow::request &request)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
-            false // Require password
-        };
-        auto authResult = ::authorizeRoute(request,
-                                           *authenticator,
-                                           requirement,
-                                           logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        SPDLOG_LOGGER_DEBUG(customLogger.logger,
-                            "{} requesting catalog hash...",
-                            authResult.identity->user);
-
-        return crow::response(200);
-    });
-    CROW_ROUTE(app, "/waveforms/<int>")
-    ([&](const crow::request &request, const int64_t eventIdentifier)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
-            false // Require password
-        };
-        auto authResult = ::authorizeRoute(request,
-                                           *authenticator,
-                                           requirement,
-                                           logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        SPDLOG_LOGGER_DEBUG(customLogger.logger,
-                            "{} requesting waveforms for {}...",
-                            authResult.identity->user,
-                            eventIdentifier);
-
-        return crow::response(200);
-    }); 
-    CROW_ROUTE(app, "/waveforms-hash/<int>")
-    ([&](const crow::request &request, const int64_t eventIdentifier)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
-            false // Require password
-        };
-        auto authResult = ::authorizeRoute(request,
-                                           *authenticator,
-                                           requirement,
-                                           logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        SPDLOG_LOGGER_DEBUG(customLogger.logger,
-                            "{} requesting waveforms hash for {}...",
-                            authResult.identity->user,
-                            eventIdentifier);
-
-        return crow::response(200);
-    });
-    CROW_ROUTE(app, "/station-information-hash")
-    ([&](const crow::request &request)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
-            false // Require password
-        };
-        auto authResult = ::authorizeRoute(request,
-                                           *authenticator,
-                                           requirement,
-                                           logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        SPDLOG_LOGGER_DEBUG(customLogger.logger,
-                            "{} requesting stations hash...",
-                            authResult.identity->user);
-
-        const auto stations = fetchStationsJSON();
-        if (!stations)
-        {
-            SPDLOG_LOGGER_ERROR(customLogger.logger,
-                                "Could not fetch stations for {}",
-                                authResult.identity->user);
-            return ::makeMessageResponse(
-                500, "Could not reach the AQMS database - try again shortly");
-        }
-        // Hashed over the same serialization the body route sends, which
-        // is why both go through fetchStationsJSON.  A hash taken over
-        // anything else would either never change or never match.
-        boost::json::object payload;
-        payload["hash"]
-            = AQMSDutyReviewBackend::hash(boost::json::serialize(*stations));
-        return ::makeDataResponse(200, "Station information hash",
-                                  std::move(payload));
+        return ::userLoginRoute(request, *authenticator, logger);
     });
 
-
-    ///----------------------------------------------------------------------///
-    ///                                 Actions                              ///
-    ///----------------------------------------------------------------------///
-    CROW_ROUTE(app, "/actions/accept/<int>")
-    ([&](const crow::request &request, int64_t eventIdentifier)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadWrite,
-            false // Require password
-        };
-        auto authResult = ::authorizeRoute(request,
-                                           *authenticator,
-                                           requirement,
-                                           logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        SPDLOG_LOGGER_INFO(customLogger.logger,
-                           "{} accepting event {}",
-                           authResult.identity->user,
-                           eventIdentifier);
-
-        return crow::response(200);
-    });
-    CROW_ROUTE(app, "/actions/cancel/<int>")
-    ([&](const crow::request &request, int64_t eventIdentifier)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadWrite,
-            false // Require password
-        };                 
-        auto authResult = ::authorizeRoute(request,
-                                           *authenticator,
-                                           requirement,
-                                           logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        SPDLOG_LOGGER_INFO(customLogger.logger,
-                           "{} canceling event {}",
-                           authResult.identity->user,
-                           eventIdentifier);
-
-        return crow::response(200);
-    });
-    ///----------------------------------------------------------------------///
-    ///                            Administration Stuff                      ///
-    ///----------------------------------------------------------------------///
-    ///----------------------------------------------------------------------///
-    ///                            User management                           ///
-    ///----------------------------------------------------------------------///
-    /// Every one of these takes the acting administrator from their token
-    /// and hands it to the database, which checks the authority itself.
-    /// The Administrator requirement below says who may ASK; the actor
-    /// argument says on whose behalf.  Both have to hold, and the database
-    /// is the one that decides.
-    CROW_ROUTE(app, "/actions/admin/add-provisional-user")
-    .methods("POST"_method)
-    ([&](const crow::request &request)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::Administrator,
-            false // Require password
-        };
-        auto authResult = ::authorizeRoute(request, *authenticator,
-                                           requirement, logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        auto body = ::parseRequestData(request);
-        if (!body){return std::move(*body.rejection);}
-
-        const auto user = ::requiredString(*body.data, "user");
-        if (!user){return ::missingField("user");}
-        const auto permissionText = ::requiredString(*body.data, "permission");
-        if (!permissionText){return ::missingField("permission");}
-
-        const auto permission
-            = AQMSDutyReviewBackend::Auth::IAuthenticator::stringToPermissions(
-                  *permissionText);
-        if (permission
-            == AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::None)
-        {
-            // stringToPermissions answers None for anything it does not
-            // recognise, so a typo denies rather than granting something.
-            return ::makeMessageResponse(
-                400, "\"data.permission\" must be read_only, read_write, "
-                     "or admin");
-        }
-
-        // The caller may name the temporary password; if it does not, one
-        // is generated.  Generated is better - a distinct random password
-        // per account is exactly what stops a shared "changeme" spreading
-        // across every unactivated account - so the response returns
-        // whichever was used and the administrator passes it on.
-        auto temporaryPassword = ::requiredString(*body.data,
-                                                  "temporaryPassword");
-        if (!temporaryPassword)
-        {
-            temporaryPassword
-                = AQMSDutyReviewBackend::Auth::generateTemporaryPassword();
-        }
-
-        try
-        {
-            const auto result = users->addProvisionalUser(
-                authResult.identity->user, *user,
-                AQMSDutyReviewBackend::Auth::hashPassword(*temporaryPassword),
-                newAccountLifetime,
-                AQMSDutyReviewBackend::Auth::IAuthenticator
-                    ::permissionsToString(permission));
-            if (result
-                != AQMSDutyReviewBackend::Database::DRP::AdminResult::Succeeded)
-            {
-                return adminResponse(result, "", "Could not add " + *user
-                                   + " - the name may already be taken");
-            }
-            SPDLOG_LOGGER_INFO(customLogger.logger, "{} added {}",
-                               authResult.identity->user, *user);
-            // The password is in the body and not the log, because the log
-            // outlives the credential and this is the one place it legibly
-            // exists.
-            boost::json::object data;
-            data["user"] = *user;
-            data["temporaryPassword"] = *temporaryPassword;
-            return ::makeDataResponse(
-                200,
-                "Added " + *user + ".  Give them this password out of band; "
-                "it expires and must be changed on first login.",
-                std::move(data));
-        }
-        catch (const std::exception &e)
-        {
-            SPDLOG_LOGGER_ERROR(customLogger.logger,
-                                "Could not add {} because {}",
-                                *user, std::string {e.what()});
-            return ::makeMessageResponse(500, "Could not add the user");
-        }
-    });
-
-    CROW_ROUTE(app, "/actions/admin/reset-user-password")
-    .methods("POST"_method)
-    ([&](const crow::request &request)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::Administrator,
-            false // Require password
-        };
-        auto authResult = ::authorizeRoute(request, *authenticator,
-                                           requirement, logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        auto body = ::parseRequestData(request);
-        if (!body){return std::move(*body.rejection);}
-        const auto user = ::requiredString(*body.data, "user");
-        if (!user){return ::missingField("user");}
-
-        // Always generated, never chosen: a reset hands back a credential
-        // the administrator is holding, so it had better be one that
-        // expires and that they did not pick.
-        const auto temporaryPassword
-            = AQMSDutyReviewBackend::Auth::generateTemporaryPassword();
-        try
-        {
-            const auto result = users->resetUserPassword(
-                authResult.identity->user, *user,
-                AQMSDutyReviewBackend::Auth::hashPassword(temporaryPassword),
-                passwordResetLifetime);
-            if (result
-                != AQMSDutyReviewBackend::Database::DRP::AdminResult::Succeeded)
-            {
-                return adminResponse(result, "",
-                                     "Could not reset " + *user
-                                   + " - no such user");
-            }
-            SPDLOG_LOGGER_INFO(customLogger.logger, "{} reset {}",
-                               authResult.identity->user, *user);
-            boost::json::object data;
-            data["user"] = *user;
-            data["temporaryPassword"] = temporaryPassword;
-            return ::makeDataResponse(
-                200,
-                "Reset " + *user + ".  Give them this password out of band; "
-                "it expires and must be changed on their next login.",
-                std::move(data));
-        }
-        catch (const std::exception &e)
-        {
-            SPDLOG_LOGGER_ERROR(customLogger.logger,
-                                "Could not reset {} because {}",
-                                *user, std::string {e.what()});
-            return ::makeMessageResponse(500, "Could not reset the password");
-        }
-    });
-
-    CROW_ROUTE(app, "/actions/admin/set-user-permission")
-    .methods("POST"_method)
-    ([&](const crow::request &request)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::Administrator,
-            false // Require password
-        };
-        auto authResult = ::authorizeRoute(request, *authenticator,
-                                           requirement, logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        auto body = ::parseRequestData(request);
-        if (!body){return std::move(*body.rejection);}
-        const auto user = ::requiredString(*body.data, "user");
-        if (!user){return ::missingField("user");}
-        const auto permissionText = ::requiredString(*body.data, "permission");
-        if (!permissionText){return ::missingField("permission");}
-
-        const auto permission
-            = AQMSDutyReviewBackend::Auth::IAuthenticator::stringToPermissions(
-                  *permissionText);
-        if (permission
-            == AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::None)
-        {
-            return ::makeMessageResponse(
-                400, "\"data.permission\" must be read_only, read_write, "
-                     "or admin");
-        }
-
-        try
-        {
-            const auto result = users->setUserPermission(
-                authResult.identity->user, *user,
-                AQMSDutyReviewBackend::Auth::IAuthenticator
-                    ::permissionsToString(permission));
-            SPDLOG_LOGGER_INFO(customLogger.logger,
-                               "{} set {} to {}", authResult.identity->user,
-                               *user, *permissionText);
-            // Demoting the last administrator comes back NotAuthorized -
-            // the database refuses to leave itself with nobody who can
-            // administer it - so that lands as a 403, not a 400.
-            return adminResponse(result,
-                                 "Set " + *user + " to " + *permissionText,
-                                 "Could not change " + *user
-                               + " - no such user");
-        }
-        catch (const std::exception &e)
-        {
-            SPDLOG_LOGGER_ERROR(customLogger.logger,
-                                "Could not change {} because {}",
-                                *user, std::string {e.what()});
-            return ::makeMessageResponse(500,
-                                         "Could not change the permission");
-        }
-    });
-
-    CROW_ROUTE(app, "/actions/admin/remove-user")
-    .methods("POST"_method)
-    ([&](const crow::request &request)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::Administrator,
-            false // Require password
-        };
-        auto authResult = ::authorizeRoute(request, *authenticator,
-                                           requirement, logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        auto body = ::parseRequestData(request);
-        if (!body){return std::move(*body.rejection);}
-        const auto user = ::requiredString(*body.data, "user");
-        if (!user){return ::missingField("user");}
-
-        try
-        {
-            const auto result
-                = users->removeUser(authResult.identity->user, *user);
-            SPDLOG_LOGGER_INFO(customLogger.logger, "{} removed {}",
-                               authResult.identity->user, *user);
-            // Their keys go with them, and removing the last administrator
-            // is refused by the database rather than permitted.
-            return adminResponse(result, "Removed " + *user,
-                                 "Could not remove " + *user
-                               + " - no such user");
-        }
-        catch (const std::exception &e)
-        {
-            SPDLOG_LOGGER_ERROR(customLogger.logger,
-                                "Could not remove {} because {}",
-                                *user, std::string {e.what()});
-            return ::makeMessageResponse(500, "Could not remove the user");
-        }
-    });
-
-    CROW_ROUTE(app, "/actions/admin/list-users")
-    ([&](const crow::request &request)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::Administrator,
-            false // Require password
-        };
-        auto authResult = ::authorizeRoute(request,
-                                           *authenticator,
-                                           requirement,
-                                           logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        SPDLOG_LOGGER_INFO(customLogger.logger,
-                           "Listing users for {}",
-                           authResult.identity->user);
-
-        // Straight to the store - this is the backend's own database, not
-        // AQMS, and it never goes through the authenticator.
-        try
-        {
-            auto userList = users->listUsers();
-            return ::makeDataResponse(
-                200,
-                std::to_string(userList.size()) + " user(s)",
-                AQMSDutyReviewBackend::Database::DRP::toJSON(userList));
-        }
-        catch (const std::exception &e)
-        {
-            SPDLOG_LOGGER_ERROR(customLogger.logger,
-                                "Could not list users for {} because {}",
-                                authResult.identity->user,
-                                std::string {e.what()});
-            return ::makeMessageResponse(500, "Could not list the users");
-        }
-    });
-
+    // Everything else is grouped by what it is about.  Adding a route
+    // means editing one of these files, not this one.
+    ::registerStationRoutes(app, routeContext);
+    ::registerEventRoutes(app, routeContext);
+    ::registerActionRoutes(app, routeContext);
+    ::registerAdminRoutes(app, routeContext);
 
     /// Run app
     try
