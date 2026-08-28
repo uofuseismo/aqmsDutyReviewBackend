@@ -7,6 +7,7 @@
 #include <stdlib.h> // setenv
 #include <string>
 #include <utility>
+#include <vector>
 #include <spdlog/spdlog.h>
 #include <spdlog/logger.h>
 #include <spdlog/sinks/stdout_color_sinks.h> //NOLINT
@@ -14,13 +15,14 @@
 #include <crow/app.h>
 #include <crow/http_request.h>
 #include <crow/http_response.h>
-#include <crow/json.h>
 #include <crow/logging.h>
 #include "aqmsDutyReviewBackend/auth/database.hpp"
 #include "aqmsDutyReviewBackend/auth/jsonWebToken.hpp"
 #include "aqmsDutyReviewBackend/auth/authNZ.hpp"
 #include "aqmsDutyReviewBackend/database/client.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/database.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/station.hpp"
 #include "aqmsDutyReviewBackend/metricsSingleton.hpp"
 #include "aqmsDutyReviewBackend/version.hpp"
 #include "authorizeRoute.hpp"
@@ -247,6 +249,46 @@ int main(int argc, char *argv[])
     ///----------------------------------------------------------------------///
     ///                                 Queries                              ///
     ///----------------------------------------------------------------------///
+    CROW_ROUTE(app, "/station-information")
+    ([&](const crow::request &request)
+    {
+        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
+        {
+            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
+            false // Require password
+        };
+        auto authResult = ::authorizeRoute(request,
+                                           *authenticator,
+                                           requirement,
+                                           logger);
+        if (!authResult){return std::move(*authResult.rejection);}
+
+        SPDLOG_LOGGER_INFO(customLogger.logger,
+                           "Getting stations for {}",
+                           authResult.identity->user);
+
+        // Straight to the database for now.  This is the seam the cache
+        // goes behind later: the poller prefetches, this asks the cache
+        // and only falls through to here on a miss or a forced refresh.
+        // Nothing above this line has to change when it does.
+        const auto stations = aqmsDatabase->fetchStations();
+        if (!stations)
+        {
+            // The query takes no arguments, so the only way it fails is
+            // AQMS being unreachable - which is this backend's problem to
+            // report, not something the caller can fix by asking
+            // differently.
+            SPDLOG_LOGGER_ERROR(customLogger.logger,
+                                "Could not fetch stations for {}",
+                                authResult.identity->user);
+            return ::makeMessageResponse(
+                500, "Could not reach the AQMS database - try again shortly");
+        }
+        return ::makeDataResponse(
+            200,
+            "Found " + std::to_string(stations->size()) + " station epochs",
+            AQMSDutyReviewBackend::Database::AQMS::toJSON(*stations));
+    });
     CROW_ROUTE(app, "/event-information/locks")
     ([&](const crow::request &request)
     {
@@ -346,26 +388,6 @@ int main(int argc, char *argv[])
                             "{} requesting waveforms hash for {}...",
                             authResult.identity->user,
                             eventIdentifier);
-
-        return crow::response(200);
-    });
-    CROW_ROUTE(app, "/station-information")
-    ([&](const crow::request &request)
-    {
-        constexpr AQMSDutyReviewBackend::Auth::Requirement requirement
-        {
-            AQMSDutyReviewBackend::Auth::IAuthenticator::Permissions::ReadOnly,
-            false // Require password
-        };
-        auto authResult = ::authorizeRoute(request,
-                                           *authenticator,
-                                           requirement,
-                                           logger);
-        if (!authResult){return std::move(*authResult.rejection);}
-
-        SPDLOG_LOGGER_DEBUG(customLogger.logger,      
-                            "{} requesting stations...",
-                            authResult.identity->user);
 
         return crow::response(200);
     });

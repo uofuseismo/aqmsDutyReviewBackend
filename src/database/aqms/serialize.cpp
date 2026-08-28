@@ -59,10 +59,11 @@ AQMSDutyReviewBackend::Database::AQMS::toJSON(
             item["onDate"] = onDate.count();
             item["offDate"] = offDate.count();
         }
-        if (station.hasLoadTime())
-        {
-            item["loadTime"] = station.getLoadTime().count();
-        }
+        // loadTime is deliberately absent.  It is lddate, and it exists so
+        // the poller can ask for only the rows that changed since it last
+        // looked.  The frontend lifts the network and station off this,
+        // asks where that station was when the event happened, and plots
+        // it - none of which the load date bears on.
         result.push_back(std::move(item));
     }
     return result;
