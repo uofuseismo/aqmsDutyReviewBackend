@@ -24,6 +24,63 @@
 namespace
 {
 
+/// @brief Site policy for how long provisional credentials live.
+/// @note These are policy rather than mechanism, which is why they are
+///       configured and not compiled in: how long somebody gets to turn up
+///       and activate an account is an operational decision, and it
+///       differs between a lab and a 24-hour operations room.
+struct UserManagementOptions
+{
+    static UserManagementOptions
+        parseInitializationFile(boost::property_tree::ptree &propertyTree,
+                                const std::string &sectionIn = "UserManagement")
+    {
+        auto section = sectionIn;
+        if (section.empty()){section = "UserManagement";}
+        if (section.back() != '.'){section.append(".");}
+
+        UserManagementOptions result;
+
+        auto newAccountHours
+            = propertyTree.get<int>
+              (section + "provisionalAccountExpiresAfterNHours",
+               static_cast<int> (result.provisionalAccountExpiresAfter.count()));
+        if (newAccountHours <= 0)
+        {
+            // A non-positive lifetime creates an account that is already
+            // expired: the database refuses the interval, and the operator
+            // is left wondering why hiring somebody failed.
+            throw std::invalid_argument(
+                "provisionalAccountExpiresAfterNHours must be positive");
+        }
+        result.provisionalAccountExpiresAfter
+            = std::chrono::hours {newAccountHours};
+
+        auto resetHours
+            = propertyTree.get<int>
+              (section + "passwordResetExpiresAfterNHours",
+               static_cast<int> (result.passwordResetExpiresAfter.count()));
+        if (resetHours <= 0)
+        {
+            throw std::invalid_argument(
+                "passwordResetExpiresAfterNHours must be positive");
+        }
+        result.passwordResetExpiresAfter = std::chrono::hours {resetHours};
+
+        return result;
+    }
+
+    /// How long a newly created account's temporary password stays usable.
+    /// A week, by default - long enough to survive somebody starting on a
+    /// Friday.
+    std::chrono::hours provisionalAccountExpiresAfter{24*7};
+    /// How long a reset password stays usable.  A day, by default: a reset
+    /// is answering somebody who is locked out right now, and the window
+    /// during which an administrator holds a working credential for
+    /// somebody else's account should be short.
+    std::chrono::hours passwordResetExpiresAfter{24};
+};
+
 struct CrowOptions
 {
     static CrowOptions 
@@ -226,6 +283,10 @@ struct ProgramOptions
         crowOptions
             = CrowOptions::parseInitializationFile(propertyTree, "Crow");
 
+        userManagementOptions
+            = UserManagementOptions::parseInitializationFile(propertyTree,
+                                                             "UserManagement");
+
         // AQMS database
         aqmsDatabaseCredentials
             = DRP::Database::Credentials::fromInitializationFile(
@@ -339,6 +400,7 @@ struct ProgramOptions
 
     std::string applicationName{APPLICATION_NAME};
     CrowOptions crowOptions;
+    UserManagementOptions userManagementOptions;
     AQMSDutyReviewBackend::Auth::DatabaseOptions drpDatabaseOptions;
     AQMSDutyReviewBackend::Auth::JSONWebTokenOptions jsonWebTokenOptions;
     AQMSDutyReviewBackend::Database::Credentials aqmsDatabaseCredentials;
