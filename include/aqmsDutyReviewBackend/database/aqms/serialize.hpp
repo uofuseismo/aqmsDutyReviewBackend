@@ -44,6 +44,10 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 ///       plot somewhere in the Gulf of Guinea.
 /// @note Longitude is in [0, 360), matching what Origin uses, so the two
 ///       can be compared without one being negative and the other not.
+/// @note The load date is not emitted.  It is bookkeeping for the poller's
+///       incremental query and the frontend has no use for it: it takes
+///       the network and station, asks where that station was when the
+///       event happened, and plots it.
 /// @note An empty vector serializes to [] and not to null.
 [[nodiscard]] boost::json::value toJSON(const std::vector<Station> &stations);
 }

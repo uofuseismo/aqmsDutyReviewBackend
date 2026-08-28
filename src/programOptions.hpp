@@ -258,11 +258,24 @@ struct ProgramOptions
                     throw std::invalid_argument(
                         section + " does not specify password");
                 }
+                // This will throw
+                auto connectionString
+                    = otherAQMSDatabaseCredentials.getConnectionString();
+                for (const auto &credentials : auxiliaryAQMSCredentials)
+                {
+                    if (credentials.getConnectionString() == connectionString)
+                    {
+                        throw std::invalid_argument("Duplicate connection for "
+                                                  + section);
+                    }
+                }
                 // Kept, not just validated - these were being parsed,
                 // checked, and then dropped on the floor, so a configured
                 // ancillary machine never reached the application.
+                //NOLINTBEGIN(performance-inefficient-vector-operation)
                 auxiliaryAQMSCredentials.push_back(
                     std::move(otherAQMSDatabaseCredentials));
+                //NOLINTEND(performance-inefficient-vector-operation)
             }
             else
             {
