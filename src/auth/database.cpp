@@ -16,6 +16,7 @@
 #include "aqmsDutyReviewBackend/auth/database.hpp"
 #include "aqmsDutyReviewBackend/auth/databaseOptions.hpp"
 #include "aqmsDutyReviewBackend/auth/authenticator.hpp"
+#include "aqmsDutyReviewBackend/auth/password.hpp"
 #include "aqmsDutyReviewBackend/database/client.hpp"
 #include "aqmsDutyReviewBackend/database/credentials.hpp"
 #include "aqmsDutyReviewBackend/database/drp/userStore.hpp"
@@ -25,32 +26,6 @@ namespace DRP = AQMSDutyReviewBackend::Database::DRP;
 
 namespace
 {
-
-/// The argon2 cost parameters.  Used for hashing AND for deciding whether a
-/// stored hash needs re-hashing - comparing against different ones makes
-/// every login look stale and pays for a full hash and a write each time.
-constexpr unsigned long long OPERATIONS_LIMIT{crypto_pwhash_OPSLIMIT_MODERATE};
-constexpr std::size_t MEMORY_LIMIT{crypto_pwhash_MEMLIMIT_MODERATE};
-
-/// @brief Hashes a password for storage.
-[[nodiscard]] std::string hashPassword(const std::string &password)
-{
-    std::string hashedPassword;
-    hashedPassword.resize(crypto_pwhash_STRBYTES);
-    if (crypto_pwhash_str(hashedPassword.data(),
-                          password.c_str(),
-                          password.length(),
-                          ::OPERATIONS_LIMIT,
-                          ::MEMORY_LIMIT) != 0)
-    {
-        throw std::runtime_error("Out of memory");
-    }
-    // crypto_pwhash_str wrote a NUL-terminated C string into a maximum-size
-    // buffer; the encoded hash is shorter, so truncate at the first NUL -
-    // postgres rejects TEXT with embedded NULs.
-    hashedPassword.resize(std::strlen(hashedPassword.c_str()));
-    return hashedPassword;
-}
 
 /// @brief Renders a permissions level for the users.permission column.
 /// @throws std::invalid_argument if the level is None - the database's CHECK
@@ -191,13 +166,14 @@ public:
         // If the cost parameters have moved on since this hash was made,
         // re-hash at the current ones.
         if (crypto_pwhash_str_needs_rehash(hashedPassword->c_str(),
-                                           ::OPERATIONS_LIMIT,
-                                           ::MEMORY_LIMIT) != 0)
+                                           crypto_pwhash_OPSLIMIT_MODERATE,
+                                           crypto_pwhash_MEMLIMIT_MODERATE)
+            != 0)
         {
             SPDLOG_LOGGER_INFO(mLogger, "Rehashing password for {}", user);
             try
             {
-                if (!mUsers->updatePassword(user, ::hashPassword(password)))
+                if (!mUsers->updatePassword(user, AQMSDutyReviewBackend::Auth::hashPassword(password)))
                 {
                     SPDLOG_LOGGER_WARN(mLogger,
                                        "Password rehash did not update {}",
@@ -289,7 +265,7 @@ Database::AdminResult Database::addUser(
 {
     const auto &[user, password] = userNameAndPassword;
     if (password.empty()){throw std::invalid_argument("Password is empty");}
-    return pImpl->mUsers->addUser(actor, user, ::hashPassword(password),
+    return pImpl->mUsers->addUser(actor, user, AQMSDutyReviewBackend::Auth::hashPassword(password),
                                   ::toStorablePermission(permissions));
 }
 
@@ -303,7 +279,7 @@ Database::AdminResult Database::addProvisionalUser(
     const auto &[user, password] = userNameAndPassword;
     if (password.empty()){throw std::invalid_argument("Password is empty");}
     return pImpl->mUsers->addProvisionalUser(
-        actor, user, ::hashPassword(password), validFor,
+        actor, user, AQMSDutyReviewBackend::Auth::hashPassword(password), validFor,
         ::toStorablePermission(permissions));
 }
 
@@ -326,7 +302,7 @@ Database::AdminResult Database::resetUserPassword(
     const auto &[user, password] = userNameAndPassword;
     if (password.empty()){throw std::invalid_argument("Password is empty");}
     return pImpl->mUsers->resetUserPassword(actor, user,
-                                            ::hashPassword(password),
+                                            AQMSDutyReviewBackend::Auth::hashPassword(password),
                                             validFor);
 }
 
@@ -344,7 +320,7 @@ bool Database::updatePassword(
     const auto &[user, password] = userNameAndPassword;
     if (user.empty()){throw std::invalid_argument("User is empty");}
     if (password.empty()){throw std::invalid_argument("Password is empty");}
-    return pImpl->mUsers->updatePassword(user, ::hashPassword(password));
+    return pImpl->mUsers->updatePassword(user, AQMSDutyReviewBackend::Auth::hashPassword(password));
 }
 
 /// Sweep the expired provisional accounts

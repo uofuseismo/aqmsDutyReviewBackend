@@ -101,6 +101,7 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/auth/authorization.hpp
     include/${PROJECT_NAME}/auth/database.hpp
     include/${PROJECT_NAME}/auth/databaseOptions.hpp
+    include/${PROJECT_NAME}/auth/password.hpp
     include/${PROJECT_NAME}/auth/jsonWebToken.hpp
     include/${PROJECT_NAME}/auth/jsonWebTokenOptions.hpp
     include/${PROJECT_NAME}/database/aqms/aqms.hpp
@@ -124,8 +125,10 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/database/aqms/stationLocalMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/streamIdentifier.hpp
     include/${PROJECT_NAME}/database/client.hpp
+    include/${PROJECT_NAME}/database/drp/serialize.hpp
     include/${PROJECT_NAME}/database/drp/userStore.hpp
     include/${PROJECT_NAME}/database/credentials.hpp
+    include/${PROJECT_NAME}/hash.hpp
     include/${PROJECT_NAME}/metricsSingleton.hpp
     include/${PROJECT_NAME}/version.hpp)
 set(LIBRARY_SRC
@@ -134,6 +137,7 @@ set(LIBRARY_SRC
     src/auth/authorization.cpp
     src/auth/database.cpp
     src/auth/databaseOptions.cpp 
+    src/auth/password.cpp
     src/auth/jsonWebToken.cpp
     src/auth/jsonWebTokenOptions.cpp
     src/database/aqms/aqms.cpp
@@ -159,8 +163,10 @@ set(LIBRARY_SRC
     src/database/aqms/streamIdentifier.cpp
     src/database/aqms/waveform.cpp
     src/database/client.cpp
+    src/database/drp/serialize.cpp
     src/database/drp/userStore.cpp
     src/database/credentials.cpp
+    src/hash.cpp
     src/metricsSingleton.cpp
     src/version.cpp)
 if (${OpenLDAP_FOUND})
