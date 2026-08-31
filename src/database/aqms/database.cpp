@@ -10,8 +10,10 @@
 #include <spdlog/sinks/stdout_color_sinks.h> //NOLINT
 #include "aqmsDutyReviewBackend/database/aqms/database.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/eventLockQueries.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/queries/eventQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/stationQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/station.hpp"
 #include "aqmsDutyReviewBackend/database/client.hpp"
 
@@ -88,6 +90,31 @@ auto Database::fetchStations() const
         // caller asking for something impossible.
         SPDLOG_LOGGER_ERROR(pImpl->mLogger,
                             "Could not fetch stations from {} because {}",
+                            pImpl->mMainClient->getName(),
+                            std::string {e.what()});
+        return std::unexpected(QueryError::ConnectionFailed);
+    }
+}
+
+/// Catalog
+auto Database::getCatalog(const std::chrono::seconds &duration) const
+    -> std::expected<std::vector<EventSummary>, QueryError>
+{
+    if (duration.count() <= 0)
+    {
+        // The caller asked for a window with no time in it, which is a bad
+        // request and not a database problem.
+        return std::unexpected(QueryError::InvalidArgument);
+    }
+    try
+    {
+        return queryEventSummaries(*pImpl->mMainClient, duration,
+                                   pImpl->mLogger);
+    }
+    catch (const std::exception &e)
+    {
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Could not fetch the catalog from {} because {}",
                             pImpl->mMainClient->getName(),
                             std::string {e.what()});
         return std::unexpected(QueryError::ConnectionFailed);

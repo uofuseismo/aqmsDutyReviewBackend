@@ -50,6 +50,15 @@ public:
     /// @result True indicates the event identifier was set.
     [[nodiscard]] bool hasIdentifier() const noexcept;
 
+    /// @brief Sets the event version number.
+    /// @throws std::invalid_argument if the version is negative - AQMS
+    ///         counts up from zero as an event is revised, so a negative
+    ///         one is a mistake and not an older version.
+    void setVersion(int version);
+    /// @result The event version number.
+    /// @note By default this is 0.
+    [[nodiscard]] int getVersion() const noexcept; 
+
     /// @brief Sets the origins.
     /// @note All origins must have required fields (e.g., latitude, longitude,
     ///       depth, time) and one and only one origin must be the preferred origin.

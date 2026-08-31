@@ -6,7 +6,9 @@
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
  class EventLock;
+ class EventSummary;
  class Station;
+ class SubnetTrigger;
 }
 
 /// @file serialize.hpp
@@ -35,6 +37,25 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 /// @note An empty vector serializes to [] and not to null, so a frontend
 ///       can iterate the result without checking it first.
 [[nodiscard]] boost::json::value toJSON(const std::vector<EventLock> &locks);
+
+/// @brief Serializes the catalog.
+/// @result A JSON array of event summary objects.
+/// @note Only the fields a summary actually has are emitted.  Nearly every
+///       column behind these is nullable or comes through an outer join,
+///       so a missing key means AQMS had nothing to say - not zero.
+/// @note Depth is in meters and the origin time in nanoseconds since the
+///       epoch, UTC, as the model holds them.
+/// @note An empty vector serializes to [] and not to null.
+[[nodiscard]] boost::json::value toJSON(
+    const std::vector<EventSummary> &events);
+
+/// @brief Serializes the subnet triggers.
+/// @result A JSON array of {eventIdentifier, time, originSource} objects.
+/// @note No position and no magnitude, because a trigger has neither.
+///       What it has is a real time and the machine that raised it.
+/// @note An empty vector serializes to [] and not to null.
+[[nodiscard]] boost::json::value toJSON(
+    const std::vector<SubnetTrigger> &triggers);
 
 /// @brief Serializes the stations.
 /// @result A JSON array of station objects.

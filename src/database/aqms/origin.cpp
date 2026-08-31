@@ -4,8 +4,10 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
@@ -18,14 +20,19 @@ namespace
 {
 constexpr double minimumLatitude{-90};
 constexpr double maximumLatitude{90};
-constexpr double minimumDepth{-8600};
-constexpr double maximumDepth{800000};
+// Exactly AQMS's ORIGIN04 constraint - depth between -10 and 1000 km -
+// converted to meters.  Neither end is reachable by a real earthquake, but
+// a value the database is willing to store must be a value this can read,
+// or one odd row costs the analyst their whole catalog.
+constexpr double minimumDepth{-10000};
+constexpr double maximumDepth{1000000};
 }
 
 class Origin::OriginImpl
 {
 public:
     std::vector<Arrival> mArrivals;
+    std::optional<std::string> mCredit;
     std::chrono::nanoseconds mTime{0};
     int64_t mIdentifier{0};
     double mLatitude{0};
@@ -343,6 +350,31 @@ void Origin::setNotPreferred() noexcept
 bool Origin::isPreferred() const noexcept
 {
     return pImpl->mPreferred;
+}
+
+/// Credit
+void Origin::setCredit(const std::string &credit)
+{
+    // A blank credit is no credit.  Leaving it as an empty string would
+    // have getCredit() report somebody computed this origin and then name
+    // nobody - and AQMS's subsource column, which this comes from, is
+    // legitimately empty for an automatic location.
+    constexpr std::string_view whitespace{" \t\r\n"};
+    const auto begin = credit.find_first_not_of(whitespace);
+    if (begin == std::string::npos)
+    {
+        pImpl->mCredit = std::nullopt;
+        return;
+    }
+    const auto end = credit.find_last_not_of(whitespace);
+    pImpl->mCredit
+        = std::make_optional<std::string> (credit.substr(begin,
+                                                         end - begin + 1));
+}
+
+std::optional<std::string> Origin::getCredit() const noexcept
+{
+    return pImpl->mCredit;
 }
 
 size_t Origin::size() const noexcept

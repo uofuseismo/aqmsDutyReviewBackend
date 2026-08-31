@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace AQMSDutyReviewBackend::Database::AQMS
@@ -92,8 +94,9 @@ public:
     [[nodiscard]] bool hasLongitude() const noexcept;
 
     /// @brief Sets the depth in meters.
-    /// @throws std::invalid_argument if the depth is less than -8600 m or 
-    ///         greater than 800000 m.
+    /// @throws std::invalid_argument if the depth is less than -10000 m or 
+    ///         greater than 1000000 m - AQMS's own bounds on origin.depth,
+    ///         so anything the database will store this will read.
     void setDepth(double depth);
     /// @result The depth in meters.
     /// @throws std::runtime_error if \c hasDepth() is false.
@@ -142,6 +145,18 @@ public:
     /// @result True indicates this origin is the preferred origin.
     /// @note By default this is true in this application.
     [[nodiscard]] bool isPreferred() const noexcept;
+
+    /// @brief The person who computed this origin.
+    /// @param[in] credit   The credit goes to this person - e.g., tflynn.
+    /// @note Surrounding blanks are trimmed, and a credit that is blank or
+    ///       all blanks clears it rather than being stored.  The column
+    ///       this comes from is legitimately empty for an automatic
+    ///       location, and an empty string would have getCredit() report
+    ///       that somebody computed the origin while naming nobody.
+    void setCredit(const std::string &credit);
+    /// @result The person who computed the origin, or nullopt if nobody
+    ///         is credited.
+    [[nodiscard]] std::optional<std::string> getCredit() const noexcept;  
 
     /// @brief Destructor.
     ~Origin();

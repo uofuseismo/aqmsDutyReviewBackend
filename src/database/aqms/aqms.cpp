@@ -655,11 +655,11 @@ AQMS::~AQMS() = default;
 std::vector<Event>
 AQMS::getEvents(const std::chrono::nanoseconds &startTime) const
 {
-     auto endTime
-         = std::chrono::duration_cast<std::chrono::nanoseconds>
-           ((std::chrono::high_resolution_clock::now()).time_since_epoch());
-     endTime = std::max(endTime, startTime + std::chrono::nanoseconds {1});
-     return getEvents(std::pair {startTime, endTime}); 
+    auto endTime
+        = std::chrono::duration_cast<std::chrono::nanoseconds>
+          ((std::chrono::high_resolution_clock::now()).time_since_epoch());
+    endTime = std::max(endTime, startTime + std::chrono::nanoseconds {1});
+    return getEvents(std::pair {startTime, endTime}); 
 }
 
 

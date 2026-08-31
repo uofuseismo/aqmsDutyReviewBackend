@@ -4,6 +4,7 @@
 #include <string>
 #include <crow/app.h>
 #include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
 #include "routeContext.hpp"
 
@@ -53,9 +54,23 @@ inline void registerEventRoutes(crow::SimpleApp &app,
         [&context](const crow::request &,
                    const Claims &identity) -> crow::response
         {
-            SPDLOG_LOGGER_DEBUG(context.logger, "{} requesting catalog...",
-                                identity.user);
-            return crow::response(200);
+            SPDLOG_LOGGER_INFO(context.logger, "{} requesting catalog",
+                               identity.user);
+            const auto catalog
+                = context.aqmsDatabase->getCatalog(context.catalogDuration);
+            if (!catalog)
+            {
+                SPDLOG_LOGGER_ERROR(context.logger,
+                                    "Could not fetch the catalog for {}",
+                                    identity.user);
+                return ::makeMessageResponse(
+                    500,
+                    "Could not reach the AQMS database - try again shortly");
+            }
+            return ::makeDataResponse(
+                200,
+                "Found " + std::to_string(catalog->size()) + " event(s)",
+                AQMSDutyReviewBackend::Database::AQMS::toJSON(*catalog));
         });
 
     ::authorizedRoute(
