@@ -43,6 +43,8 @@ struct RouteContext
     std::chrono::seconds newAccountLifetime{std::chrono::hours {24*7}};
     /// How long a reset password stays usable.
     std::chrono::seconds passwordResetLifetime{std::chrono::hours {24}};
+    /// How far back the catalog reaches.
+    std::chrono::seconds catalogDuration{std::chrono::hours {24*14}};
 };
 
 /// @brief Registers a route that only an authorized caller reaches.

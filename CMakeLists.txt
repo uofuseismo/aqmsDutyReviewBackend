@@ -111,18 +111,21 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/database/aqms/durationMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/event.hpp
     include/${PROJECT_NAME}/database/aqms/eventLock.hpp
+    include/${PROJECT_NAME}/database/aqms/eventSummary.hpp
     include/${PROJECT_NAME}/database/aqms/humanMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/localMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/magnitude.hpp
     include/${PROJECT_NAME}/database/aqms/origin.hpp
     include/${PROJECT_NAME}/database/aqms/queries/alarmQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/eventLockQueries.hpp
+    include/${PROJECT_NAME}/database/aqms/queries/eventQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/stationQueries.hpp
     include/${PROJECT_NAME}/database/aqms/serialize.hpp
     include/${PROJECT_NAME}/database/aqms/station.hpp
     include/${PROJECT_NAME}/database/aqms/peakToPeakAmplitude.hpp
     include/${PROJECT_NAME}/database/aqms/stationDurationMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/stationLocalMagnitude.hpp
+    include/${PROJECT_NAME}/database/aqms/subnetTrigger.hpp
     include/${PROJECT_NAME}/database/aqms/streamIdentifier.hpp
     include/${PROJECT_NAME}/database/client.hpp
     include/${PROJECT_NAME}/database/drp/serialize.hpp
@@ -147,12 +150,14 @@ set(LIBRARY_SRC
     src/database/aqms/durationMagnitude.cpp
     src/database/aqms/event.cpp
     src/database/aqms/eventLock.cpp
+    src/database/aqms/eventSummary.cpp
     src/database/aqms/humanMagnitude.cpp
     src/database/aqms/localMagnitude.cpp
     src/database/aqms/magnitude.cpp
     src/database/aqms/origin.cpp
     src/database/aqms/queries/alarmQueries.cpp
     src/database/aqms/queries/eventLockQueries.cpp
+    src/database/aqms/queries/eventQueries.cpp
     src/database/aqms/queries/stationQueries.cpp
     src/database/aqms/serialize.cpp
     src/database/aqms/station.cpp
@@ -160,6 +165,7 @@ set(LIBRARY_SRC
     src/database/aqms/segment.cpp
     src/database/aqms/stationDurationMagnitude.cpp
     src/database/aqms/stationLocalMagnitude.cpp
+    src/database/aqms/subnetTrigger.cpp
     src/database/aqms/streamIdentifier.cpp
     src/database/aqms/waveform.cpp
     src/database/client.cpp

@@ -19,6 +19,7 @@ namespace AQMSDutyReviewBackend::Database::AQMS
  struct AlarmAction;
  class Event;
  class EventLock;
+ class EventSummary;
  class Station;
  class StreamIdentifier;
  class Waveform;
@@ -87,9 +88,13 @@ public:
     /// @brief Generates a catalog between now and now - duration.
     /// @note This will change after an action is performed as the event
     ///       state will change.
-    /// @warning Declared but not yet implemented - calling it will not
-    ///          link.
-    [[nodiscard]] auto getCatalog(const std::chrono::seconds &duration = std::chrono::weeks {2}) const -> std::expected<std::vector<Event>, QueryError>;
+    /// @note EventSummary and not Event: this is the flattened row a
+    ///       catalog needs - one line per event with its preferred origin
+    ///       and preferred magnitude - not the whole graph of origins,
+    ///       arrivals, and station magnitudes underneath it.
+    /// @note A row that cannot be read is skipped rather than failing the
+    ///       whole catalog, and logged.
+    [[nodiscard]] auto getCatalog(const std::chrono::seconds &duration = std::chrono::weeks {2}) const -> std::expected<std::vector<EventSummary>, QueryError>;
 
     /// @brief Fetches the alarms for an event from every database.
     /// @note An event picks up alarms on more than one machine over its

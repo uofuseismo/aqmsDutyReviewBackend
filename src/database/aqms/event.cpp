@@ -39,12 +39,16 @@ public:
     EventImpl(EventImpl &&impl) noexcept = default;
     /// The magnitudes are held by unique_ptr (move-only) so the copy must
     /// clone each element to preserve value semantics for Event.
+    /// @warning Every member is named here by hand.  A member added above
+    ///          and not added here is silently dropped by every copy - so
+    ///          adding one means editing this too.
     EventImpl& operator=(const EventImpl &impl)
     {
         if (&impl == this){return *this;}
         mOrigins = impl.mOrigins;
         mMagnitudes = cloneMagnitudes(impl.mMagnitudes);
         mIdentifier = impl.mIdentifier;
+        mVersion = impl.mVersion;
         mEventType = impl.mEventType;
         mHasIdentifier = impl.mHasIdentifier;
         mHasEventType = impl.mHasEventType;
@@ -56,6 +60,7 @@ public:
     std::vector<Origin> mOrigins;
     std::vector<std::unique_ptr<IMagnitude>> mMagnitudes;
     int64_t mIdentifier{0};
+    int mVersion{0};
     EventType mEventType{EventType::Unknown};
     bool mHasIdentifier{false};
     bool mHasEventType{false};
@@ -304,6 +309,23 @@ const IMagnitude &Event::preferredMagnitude() const &
     // setMagnitudes guarantees exactly one preferred magnitude, so this
     // is unreachable in practice.
     throw std::runtime_error("No preferred magnitude");
+}
+
+/// Version
+void Event::setVersion(const int version)
+{
+    // AQMS counts versions up from zero as an event is revised, so a
+    // negative one is not an older version - it is a mistake.
+    if (version < 0)
+    {
+        throw std::invalid_argument("Version cannot be negative");
+    }
+    pImpl->mVersion = version;
+}
+
+int Event::getVersion() const noexcept
+{
+    return pImpl->mVersion;
 }
 
 /// Event type
