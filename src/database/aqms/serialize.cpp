@@ -12,6 +12,9 @@
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/station.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/subnetTrigger.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/waveform.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/segment.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
 
 using namespace AQMSDutyReviewBackend::Database::AQMS;
 
@@ -172,6 +175,64 @@ AQMSDutyReviewBackend::Database::AQMS::toJSON(
             item["user"] = lock.getUser();
         }
         result.push_back(std::move(item));
+    }
+    return result;
+}
+
+boost::json::value
+AQMSDutyReviewBackend::Database::AQMS::toJSON(const Waveform &waveform)
+{
+    boost::json::object result;
+    if (waveform.hasStreamIdentifier())
+    {
+        const auto streamIdentifier = waveform.getStreamIdentifier();
+        if (streamIdentifier.hasNetwork())
+        {
+            result["network"] = streamIdentifier.getNetwork();
+        }
+        if (streamIdentifier.hasStation())
+        {
+            result["station"] = streamIdentifier.getStation();
+        }
+        if (streamIdentifier.hasChannel())
+        {
+            result["channel"] = streamIdentifier.getChannel();
+        }
+        // A location code is legitimately blank - "--" in SEED - so an
+        // empty string here is a value and not an absence.
+        if (streamIdentifier.hasLocationCode())
+        {
+            result["locationCode"] = streamIdentifier.getLocationCode();
+        }
+    }
+    boost::json::array segments;
+    segments.reserve(waveform.size());
+    for (const auto &segment : waveform)
+    {
+        boost::json::object item;
+        // Nanoseconds since the epoch, UTC, as the model holds it.
+        item["startTime"] = segment.getStartTime().count();
+        item["samplingRate"] = segment.getSamplingRate();
+        const auto &data = segment.getDataReference();
+        boost::json::array samples;
+        samples.reserve(data.size());
+        for (const auto sample : data){samples.push_back(sample);}
+        item["data"] = std::move(samples);
+        segments.push_back(std::move(item));
+    }
+    result["segments"] = std::move(segments);
+    return result;
+}
+
+boost::json::value
+AQMSDutyReviewBackend::Database::AQMS::toJSON(
+    const std::vector<Waveform> &waveforms)
+{
+    boost::json::array result;
+    result.reserve(waveforms.size());
+    for (const auto &waveform : waveforms)
+    {
+        result.push_back(toJSON(waveform));
     }
     return result;
 }

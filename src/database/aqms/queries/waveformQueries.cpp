@@ -1,14 +1,23 @@
+#include <iostream>
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <limits>
+#include <optional>
+#include <tuple>
+#include <exception>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 #include <pqxx/pqxx>
+#include <spdlog/spdlog.h>
+#include <spdlog/logger.h>
 #include <libmseed.h>
 #include "aqmsDutyReviewBackend/database/aqms/queries/waveformQueries.hpp"
 #include "aqmsDutyReviewBackend/database/client.hpp"
@@ -37,7 +46,7 @@ std::string hexToASCII(const std::string &hex, //const auto &hex, //const std::s
     else
     {   
         ascii.resize(outputSize);
-        length = 2*outputSize; 
+        length = 2*ascii.size(); //outputSize; 
     }   
     const auto hexData = reinterpret_cast<const char *> (hex.data());
     // TODO can I just allocate 2 off the bet and use SSO?
@@ -52,11 +61,12 @@ std::string hexToASCII(const std::string &hex, //const auto &hex, //const std::s
         constexpr int base{16};
         if (doul)
         {
-            ascii[j] = std::stoul(part, nullptr, base);
+            ascii[j] = static_cast<char> (std::stoul(part, nullptr, base));
         }
         else
         {
-            ascii[j] = std::stoi(part.c_str(), nullptr, base);
+            ascii[j]
+                = static_cast<char> (std::stoi(part.c_str(), nullptr, base));
         }
         // Add this char to final ASCII string
         j = j + 1;
@@ -68,8 +78,8 @@ std::string hexToASCII(const std::string &hex, //const auto &hex, //const std::s
 ///        particular network/station/channel/location code.
 Waveform unpack(std::string &data,
                 const size_t nBytes,
-                const int8_t verbose,
-                const bool purgeTrailingZeros)
+                const bool purgeTrailingZeros,
+                const int8_t verbose)
 {
     std::vector<Segment> segments;
     auto bufferSize = static_cast<uint64_t> (nBytes);
@@ -104,10 +114,10 @@ Waveform unpack(std::string &data,
                                        stationWork.data(), stationWork.size(),
                                        locationWork.data(), locationWork.size(),
                                        channelWork.data(), channelWork.size());
-            std::string network{networkWork.data()};
-            std::string station{stationWork.data()};
-            std::string channel{channelWork.data()};
-            std::string location{locationWork.data()};
+            const std::string network{networkWork.data()};
+            const std::string station{stationWork.data()};
+            const std::string channel{channelWork.data()};
+            const std::string location{locationWork.data()};
             if (returnCode == MS_NOERROR)
             {
                 if (!streamIdentifier.hasNetwork())
@@ -276,26 +286,215 @@ wave.get_waveform_blob(p_evid  event.evid%TYPE,
                        p_startTime DOUBLE PRECISION, // nullable
                        p_endTime DOUBLE PRECISION); / nullable
 
+/// FileRoot - these are the file roots
+SELECT datetime_on, datetime_off, fileroot FROM waveroots WHERE status = 'A' ORDER BY datetime_on ASC
+
+/// FileRoots looks like and this changes slowly - in fact it could be hard coded for now:
+ datetime_on | datetime_off |             fileroot             
+-------------+--------------+----------------------------------
+ -2209000000 |   1640995200 | /home/aqms/data/wavearchive/
+  1640995200 |   1672531200 | /home/aqms/data/wavearchive/2022
+  1672531200 |   1704067200 | /home/aqms/data/wavearchive/2023
+  1704067200 |   1735689600 | /home/aqms/data/wavearchive/2024
+  1735689600 |   1767225600 | /home/aqms/data/wavearchive/2025
+  1767225600 |   1798761600 | /home/aqms/data/wavearchive/2026
+  1798761600 |   1830297600 | /home/aqms/data/wavearchive/2027
+  1830297600 |   1861920000 | /home/aqms/data/wavearchive/2028
+  1861920000 |   1893456000 | /home/aqms/data/wavearchive/2029
+  1893456000 |   1924992000 | /home/aqms/data/wavearchive/2030
+  1924992000 |   1956528000 | /home/aqms/data/wavearchive/2031
+  1956528000 |  32504000000 | /home/aqms/data/wavearchive/2032
+
+/// Get filename and size
+SELECT filename.dfile, filename.nbytes FROM AssocWaE 
+   INNER JOIN waveform ON waveform.wfid = AssocWaE.wfid
+      INNER JOIN filename ON filename.fileid = waveform.fileid 
+WHERE AssocWaE.evid = $1 AND
+      waveform.net = $2 AND waveform.sta = $3 AND
+      waveform.seedchan = $4 AND waveform.location = $5 LIMIT 1
+
+/// Note, you have to add the fileroot to the filename.dfile so that filename is:
+/// fileName = std::filesystem::path {fileRoot} /
+///            std::filesystem::path {std::to_string(eventIdentifier)} /
+///            std::filesystem::path {fileName};
+
+/// Waveform blob (argument 1 is the filename and argument 2 is the size - see get filename and size)
+returns bytea
+SELECT encode(wave.get_waveform_blob($1, 0, $2, 0, 4070908800), 'hex')
+
  */
 
-/// @note get_waveform_blob, and the time bounds are bound parameters.  The
-///       earlier text named get_waveform_glob and inlined the bounds while
-///       still binding $6 and $7, so the placeholders and the arguments
-///       disagreed about how many there were.
-constexpr std::string_view WAVEFORM_QUERY
+/// Step one: which file holds this event's data for this stream, and how
+/// big is it.
+///
+/// @note The origin time comes back with the file, because the file root
+///       is chosen by it: the roots are windowed by time, so the right one
+///       is the one that was active when the event happened - not the one
+///       active now, which would send an event from 2024 looking under the
+///       2026 root and find nothing.
+///
+/// @note TrueTime.getEpoch, not origin.datetime raw.  origin.datetime is a
+///       true time and waveroots.datetime_on/off are plain epoch seconds -
+///       they differ by the leap seconds, which only matters within half a
+///       minute of a root boundary, but that is a New Year's Day outage
+///       nobody would enjoy diagnosing.
+///
+/// @note Joined through event.prefor rather than on origin.evid.  An event
+///       has one origin row per location attempt, so joining on evid would
+///       return a relocated event once per relocation and LIMIT 1 would
+///       pick an arbitrary one.
+constexpr std::string_view WAVEFORM_FILE_QUERY
 {
 R"""(
-SELECT encode(wave.get_waveform_blob($1, $2, $3, $4, $5, $6, $7), 'hex');
+SELECT filename.dfile,
+       filename.nbytes,
+       TrueTime.getEpoch(origin.datetime, 'NOMINAL') as origin_time
+  FROM AssocWaE
+ INNER JOIN waveform ON waveform.wfid = AssocWaE.wfid
+ INNER JOIN filename ON filename.fileid = waveform.fileid
+ INNER JOIN event    ON event.evid = AssocWaE.evid
+ INNER JOIN origin   ON origin.orid = event.prefor
+ WHERE AssocWaE.evid = $1
+   AND waveform.net = $2 AND waveform.sta = $3
+   AND waveform.seedchan = $4 AND waveform.location = $5
+ LIMIT 1;
 )"""
 };
 
+/// Step two: where the archive lived at that time.
+///
+/// @note Changes on the order of once a year, so this could be a table in
+///       the source.  It is queried instead because a hard-coded copy is a
+///       silent wrong answer the day somebody adds a root, and the cost is
+///       one small read of a dozen rows.
+constexpr std::string_view WAVEFORM_ROOT_QUERY
+{
+R"""(
+SELECT datetime_on, datetime_off, fileroot
+  FROM waveroots
+ WHERE status = 'A'
+ ORDER BY datetime_on ASC;
+)"""
+};
+
+/// Step three: the bytes.
+///
+/// @note The arguments are (file name, offset, length, start time, end
+///       time) - not the event and stream.  Those were used to find the
+///       file; this reads it.
+constexpr std::string_view WAVEFORM_BLOB_QUERY
+{
+R"""(
+SELECT encode(wave.get_waveform_blob($1, 0, $2, 0, 4070908800), 'hex');
+)"""
+};
+
+}
+
+FileRoots
+AQMSDutyReviewBackend::Database::AQMS::getFileRoots(const DB::Client &client)
+{
+    std::vector<FileRoot> fileRoots;
+    client.execute(
+        [&](pqxx::connection &connection)
+        {
+            pqxx::work transaction(connection);
+            // Assigned at the end, not accumulated: the client re-runs
+            // this after re-dialling a dropped connection, and a roots
+            // list appended to twice would have every root duplicated.
+            std::vector<FileRoot> roots;
+            for (const auto &row : transaction.exec(::WAVEFORM_ROOT_QUERY))
+            {
+                FileRoot root;
+                // The columns are double precision epoch seconds and the
+                // schema has them NOT NULL, so the null arms are only
+                // belt and braces against the query changing.  An open
+                // ended window is seconds::max(), which is why the bounds
+                // are never promoted to nanoseconds - that would overflow.
+                if (!row.at(0).is_null())
+                {
+                    root.onTime = std::chrono::seconds
+                        {static_cast<int64_t>
+                            (std::llround(row.at(0).as<double> ()))};
+                }
+                else
+                {
+                    root.onTime = std::chrono::seconds::min();
+                }
+                if (!row.at(1).is_null())
+                {
+                    root.offTime = std::chrono::seconds
+                        {static_cast<int64_t>
+                            (std::llround(row.at(1).as<double> ()))};
+                }
+                else
+                {
+                    root.offTime = std::chrono::seconds::max();
+                }
+                root.fileRoot
+                    = std::filesystem::path {row.at(2).as<std::string> ()};
+                roots.push_back(std::move(root));
+            }
+            transaction.commit();
+            fileRoots = std::move(roots);
+        },
+        ::WAVEFORM_ROOT_QUERY);
+    // The query orders by datetime_on, but the search below relies on it
+    // rather than assuming it, and a root out of order would otherwise be
+    // a silently wrong path.
+    std::sort(fileRoots.begin(), fileRoots.end(),
+              [](const FileRoot &lhs, const FileRoot &rhs)
+              {
+                  return lhs.onTime < rhs.onTime;
+              });
+    return FileRoots {std::move(fileRoots)};
+}
+
+std::filesystem::path
+AQMSDutyReviewBackend::Database::AQMS::getFileRoot(
+    const std::chrono::nanoseconds &originTime,
+    FileRoots &fileRoots,
+    const DB::Client &client)
+{
+    // floor, not a cast: the earliest root opens in 1899 and truncating a
+    // negative count rounds toward zero, which lands a pre-1970 origin in
+    // the window after the one it belongs to.  Comparing seconds against
+    // seconds also keeps the open ended seconds::max() from overflowing,
+    // which promoting the bounds to nanoseconds would do.
+    const auto seconds
+        = std::chrono::floor<std::chrono::seconds> (originTime);
+
+    const auto search = [&seconds](const std::vector<FileRoot> &roots)
+        -> std::optional<std::filesystem::path>
+    {
+        for (const auto &root : roots)
+        {
+            if (seconds >= root.onTime && seconds < root.offTime)
+            {
+                return root.fileRoot;
+            }
+        }
+        return std::nullopt;
+    };
+
+    if (auto root = search(fileRoots.fileRoots)){return *root;}
+
+    // Not covered by what is held.  Usually that means this process has
+    // been up since before somebody added the next root, so re-read and
+    // look again before giving up.
+    fileRoots = getFileRoots(client);
+    if (auto root = search(fileRoots.fileRoots)){return *root;}
+
+    throw std::runtime_error("No active file root covering epoch time "
+                           + std::to_string(seconds.count()));
 }
 
 Waveform
 AQMSDutyReviewBackend::Database::AQMS::queryWaveform(
     const DB::Client &client,
     const int64_t eventIdentifier,
-    const StreamIdentifier &streamIdentifier)
+    const StreamIdentifier &streamIdentifier,
+    FileRoots &fileRoots)
 {
     /// These will throw (but will be upper case with no blanks unless
     /// it's the location code)
@@ -303,27 +502,90 @@ AQMSDutyReviewBackend::Database::AQMS::queryWaveform(
     const auto station = streamIdentifier.getStation();
     const auto channel = streamIdentifier.getChannel();
     const auto locationCode = streamIdentifier.getLocationCode();
-    /// Query - goal is to keep the query fast so we can release that
-    /// transaction
-    constexpr double startTime{0};        // Give me the entire waveform
-    constexpr double endTime{4070908800}; // Give me the entire waveform
-    const pqxx::params queryParameters{eventIdentifier,
-                                       network, station, channel,
-                                       locationCode,
-                                       startTime, endTime};
+
+    auto stationName = network;
+    stationName.append(".").append(station).append(".").append(channel);
+    if (!locationCode.empty() && locationCode != "  ")
+    {
+        stationName.append(".").append(locationCode);
+    }
+
+    // Two queries, not three: which file holds the bytes, then the bytes.
+    // Where the archive lived is answered from the roots we already hold.
+    //
+    // That does mean the file and the root are no longer read in one
+    // transaction, so an archive re-rooted in the instant between the two
+    // would be missed.  Roots turn over about once a year and the refresh
+    // in getFileRoot catches it on the next call, which is the trade this
+    // cache is: twelve rows re-read per waveform, or a stale root for one
+    // request a year.
+    std::string dataFile;
+    int64_t nBytes{0};
+    double originTime{0};
+    client.execute(
+        [&](pqxx::connection &connection)
+        {
+            pqxx::work transaction(connection);
+            // Assigned at the end, not accumulated: the client re-runs
+            // this after re-dialling a dropped connection.
+            std::string file;
+            int64_t bytes{0};
+            double time{0};
+
+            const pqxx::params fileParameters{eventIdentifier,
+                                              network, station, channel,
+                                              locationCode};
+            const auto fileResult
+                = transaction.exec(::WAVEFORM_FILE_QUERY, fileParameters);
+            if (!fileResult.empty())
+            {
+                const auto row = fileResult.one_row();
+                if (!row.at(0).is_null() && !row.at(1).is_null())
+                {
+                    file = row.at(0).as<std::string> ();
+                    bytes = row.at(1).as<int64_t> ();
+                    if (!row.at(2).is_null())
+                    {
+                        time = row.at(2).as<double> ();
+                    }
+                }
+            }
+            transaction.commit();
+            dataFile = std::move(file);
+            nBytes = bytes;
+            originTime = time;
+        },
+        ::WAVEFORM_FILE_QUERY);
+
+    if (dataFile.empty())
+    {
+        throw std::runtime_error("No waveform file for " + stationName);
+    }
+
+    const auto originTimeNanoSeconds
+        = std::chrono::nanoseconds
+          {static_cast<int64_t> (std::llround(originTime*1.e9))};
+    const auto fileRoot
+        = getFileRoot(originTimeNanoSeconds, fileRoots, client);
+
+    // fileRoot / eventIdentifier / dfile
+    const auto fileName
+        = (fileRoot
+         / std::filesystem::path {std::to_string(eventIdentifier)}
+         / std::filesystem::path {dataFile}).string();
+
     std::string hexadecimalData;
     client.execute(
         [&](pqxx::connection &connection)
         {
             pqxx::work transaction(connection);
-            const auto queryResult
-                = transaction.exec(::WAVEFORM_QUERY, queryParameters);
-            // Assigned, not appended: the client re-runs this after
-            // re-dialling a dropped connection.
+            const pqxx::params blobParameters{fileName, nBytes};
+            const auto blobResult
+                = transaction.exec(::WAVEFORM_BLOB_QUERY, blobParameters);
             std::string blob;
-            if (!queryResult.empty())
+            if (!blobResult.empty())
             {
-                const auto row = queryResult.one_row();
+                const auto row = blobResult.one_row();
                 if (!row.at(0).is_null())
                 {
                     blob = row.at(0).as<std::string> ();
@@ -332,24 +594,46 @@ AQMSDutyReviewBackend::Database::AQMS::queryWaveform(
             transaction.commit();
             hexadecimalData = std::move(blob);
         },
-        ::WAVEFORM_QUERY);
-    // Unpack it
-    if (!hexadecimalData.empty())
+        ::WAVEFORM_BLOB_QUERY);
+
+    if (hexadecimalData.empty())
     {
-        // encode(..., 'hex') gives two characters per byte, so the miniSEED
-        // is half the length of what came back - it does not have to be
-        // counted separately.
-        auto miniSEED = ::hexToASCII(hexadecimalData);
-        constexpr int8_t verbose{0};
-        constexpr bool purgeTrailingZeros{true};
-        return ::unpack(miniSEED, miniSEED.size(), verbose,
-                        purgeTrailingZeros);
+        throw std::runtime_error("No data in " + fileName + " for "
+                               + stationName);
     }
-    auto stationName = network;
-    stationName.append(".").append(station).append(".").append(channel);
-    if (!locationCode.empty() && locationCode != "  ")
-    {
-        stationName.append(".").append(locationCode);
-    }
-    throw std::runtime_error("No data for " + stationName);
+    // encode(..., 'hex') gives two characters per byte, so the miniSEED is
+    // half the length of what came back - it does not have to be counted
+    // separately.
+    auto miniSEED = ::hexToASCII(hexadecimalData);
+    constexpr int8_t verbose{0};
+    constexpr bool purgeTrailingZeros{true};
+    return ::unpack(miniSEED, miniSEED.size(), verbose, purgeTrailingZeros);
 }
+
+std::vector<Waveform>
+AQMSDutyReviewBackend::Database::AQMS::queryWaveforms(
+    const DB::Client &client,
+    const int64_t eventIdentifier,
+    const std::vector<StreamIdentifier> &streamIdentifiers,
+    FileRoots &fileRoots,
+    spdlog::logger *logger)
+{
+    std::vector<Waveform> waveforms;
+    waveforms.reserve(streamIdentifiers.size());
+    // TODO dream of dreams do a big query - array of strings - then unpack 
+    for (const auto &streamIdentifier : streamIdentifiers)
+    {
+        try
+        {
+            auto waveform = queryWaveform(client, eventIdentifier,
+                                          streamIdentifier, fileRoots);
+            waveforms.push_back(std::move(waveform));
+        }
+        catch (const std::exception &e)
+        {
+            SPDLOG_LOGGER_WARN(logger, "Failed to get waveform because: {}", e.what());
+        }
+    }
+    return waveforms;
+}
+

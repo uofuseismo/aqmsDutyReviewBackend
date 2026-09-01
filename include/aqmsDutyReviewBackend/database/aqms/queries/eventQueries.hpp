@@ -22,6 +22,7 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 /// @param[in] client    A client connected to an AQMS database.
 /// @param[in] duration  How far back to look from now.
 /// @param[in] logger    Where a row that cannot be read is recorded.
+///                      Borrowed, not owned, and must not be null.
 /// @result The event summaries, most recent origin time first.
 /// @note A row that cannot be read is skipped rather than failing the
 ///       whole catalog.  AQMS's own constraints are looser than this
@@ -36,12 +37,13 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 [[nodiscard]] std::vector<EventSummary> queryEventSummaries(
     const Client &client,
     const std::chrono::seconds &duration,
-    const std::shared_ptr<spdlog::logger> &logger);
+    spdlog::logger *logger);
 
 /// @brief The subnet triggers, newest first.
 /// @param[in] client    A client connected to an AQMS database.
 /// @param[in] duration  How far back to look from now.
 /// @param[in] logger    Where a row that cannot be read is recorded.
+///                      Borrowed, not owned, and must not be null.
 /// @result The triggers, most recent first.
 /// @note SubnetTrigger and not EventSummary.  A trigger has no location,
 ///       no magnitude, and nobody credited with it; carrying it as an
@@ -57,6 +59,6 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 [[nodiscard]] std::vector<SubnetTrigger> querySubnetTriggers(
     const Client &client,
     const std::chrono::seconds &duration,
-    const std::shared_ptr<spdlog::logger> &logger);
+    spdlog::logger *logger);
 }
 #endif

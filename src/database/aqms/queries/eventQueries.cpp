@@ -381,7 +381,7 @@ enum Column : int
 ///       schema; everything else is checked before it is read.
 [[nodiscard]] EventSummary readEventSummary(
     const pqxx::row_ref &row,
-    const std::shared_ptr<spdlog::logger> &logger)
+    spdlog::logger *logger)
 {
     EventSummary eventSummary;
     eventSummary.setIdentifier(row.at(Column::EventIdentifier)
@@ -499,7 +499,7 @@ namespace
 [[nodiscard]] std::vector<EventSummary> queryEventsInTimeRange(
     const DB::Client &client,
     const std::chrono::seconds &duration,
-    const std::shared_ptr<spdlog::logger> &logger,
+    spdlog::logger *logger,
     const std::string_view predicate)
 {
     if (duration.count() <= 0)
@@ -559,7 +559,7 @@ std::vector<EventSummary>
 AQMSDutyReviewBackend::Database::AQMS::queryEventSummaries(
     const DB::Client &client,
     const std::chrono::seconds &duration,
-    const std::shared_ptr<spdlog::logger> &logger)
+    spdlog::logger *logger)
 {
     return ::queryEventsInTimeRange(client, duration, logger,
                                     ::NOT_SUBNET_TRIGGER);
@@ -569,7 +569,7 @@ std::vector<SubnetTrigger>
 AQMSDutyReviewBackend::Database::AQMS::querySubnetTriggers(
     const DB::Client &client,
     const std::chrono::seconds &duration,
-    const std::shared_ptr<spdlog::logger> &logger)
+    spdlog::logger *logger)
 {
     if (duration.count() <= 0)
     {

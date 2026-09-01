@@ -1,20 +1,30 @@
+#include <chrono>
+#include <cstdint>
 #include <exception>
 #include <expected>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
+#include <pqxx/pqxx>
 #include <spdlog/spdlog.h>
 #include <spdlog/logger.h>
 #include <spdlog/sinks/stdout_color_sinks.h> //NOLINT
 #include "aqmsDutyReviewBackend/database/aqms/database.hpp"
-#include "aqmsDutyReviewBackend/database/aqms/queries/eventLockQueries.hpp"
-#include "aqmsDutyReviewBackend/database/aqms/queries/eventQueries.hpp"
-#include "aqmsDutyReviewBackend/database/aqms/queries/stationQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/waveform.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/station.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/waveform.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/queries/eventLockQueries.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/queries/eventQueries.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/queries/waveformQueries.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/queries/stationQueries.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/queries/waveformQueries.hpp"
 #include "aqmsDutyReviewBackend/database/client.hpp"
 
 using namespace AQMSDutyReviewBackend::Database::AQMS;
@@ -49,11 +59,39 @@ public:
             }
             // NOLINTEND(misc-include-cleaner)
         }
+        // The archive roots, read once here rather than on every waveform
+        // fetch.  Deliberately not fatal: a database that is not up yet is
+        // a reason to start anyway and pick them up on first use, not a
+        // reason to refuse to boot.  getFileRoot refreshes an empty list
+        // the first time it fails to find a root in it.
+        try
+        {
+            mFileRoots = getFileRoots(*mMainClient);
+            SPDLOG_LOGGER_INFO(mLogger, "Loaded {} archive file root(s)",
+                               mFileRoots.fileRoots.size());
+        }
+        catch (const std::exception &e)
+        {
+            SPDLOG_LOGGER_WARN(mLogger,
+                               "Could not preload the archive file roots "
+                               "because {} - they will be read on demand",
+                               std::string {e.what()});
+        }
     }
 
     std::shared_ptr<DB::Client> mMainClient;
     std::vector<std::shared_ptr<DB::Client>> mAuxiliaryClients;
     std::shared_ptr<spdlog::logger> mLogger{nullptr};
+    /// @note Written through a const fetchWaveforms - a unique_ptr yields a
+    ///       non-const pImpl through a const method.  That is the point
+    ///       here, not an oversight: the roots are a cache, so refreshing
+    ///       them does not change what the database says.
+    FileRoots mFileRoots;
+    /// @brief Guards mFileRoots, which getFileRoot rewrites on a miss.
+    ///        It lives here rather than inside FileRoots so that FileRoots
+    ///        stays a copyable aggregate; this class is held behind a
+    ///        pImpl and was never going to be copied anyway.
+    mutable std::mutex mFileRootsMutex;
 };
 
 /// Constructor
@@ -108,8 +146,10 @@ auto Database::getCatalog(const std::chrono::seconds &duration) const
     }
     try
     {
+        // The logger is borrowed for the call, not retained, so .get()
+        // rather than the shared_ptr itself.
         return queryEventSummaries(*pImpl->mMainClient, duration,
-                                   pImpl->mLogger);
+                                   pImpl->mLogger.get());
     }
     catch (const std::exception &e)
     {
@@ -133,6 +173,55 @@ auto Database::getLockedEvents() const
     {
         SPDLOG_LOGGER_ERROR(pImpl->mLogger,
                             "Could not fetch event locks from {} because {}",
+                            pImpl->mMainClient->getName(),
+                            std::string {e.what()});
+        return std::unexpected(QueryError::ConnectionFailed);
+    }
+}
+
+/// Waveforms
+auto Database::fetchWaveforms(
+    const int64_t eventIdentifier,
+    const std::vector<StreamIdentifier> &identifiers) const
+    -> std::expected<std::vector<Waveform>, QueryError>
+{
+    if (identifiers.empty())
+    {
+        // Nothing was asked for, which is the caller's mistake and not a
+        // database problem.
+        return std::unexpected(QueryError::InvalidArgument);
+    }
+    try
+    {
+        // The per-stream skipping lives in queryWaveforms: a station that
+        // was not running is an ordinary answer, and losing the channels
+        // that did come back would be the wrong trade.
+        //
+        // The lock spans the whole call because the roots are read deep
+        // inside it, once per stream.  That serializes waveform fetches,
+        // which costs nothing today: Client::execute takes its own mutex,
+        // so every query through this one connection was already serial.
+        // Splitting this finer only pays off alongside a connection pool.
+        const std::scoped_lock lock{pImpl->mFileRootsMutex};
+        return queryWaveforms(*pImpl->mMainClient, eventIdentifier,
+                              identifiers, pImpl->mFileRoots,
+                              pImpl->mLogger.get());
+    }
+    catch (const pqxx::sql_error &e)
+    {
+        // NOT skipped.  A function the database refuses to run is a fault,
+        // and reporting it as "no waveform data" would have an analyst
+        // seeing an empty plot while the real reason sits in the log.
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Waveform query refused by {} because {}",
+                            pImpl->mMainClient->getName(),
+                            std::string {e.what()});
+        return std::unexpected(QueryError::QueryFailed);
+    }
+    catch (const std::exception &e)
+    {
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Could not fetch waveforms from {} because {}",
                             pImpl->mMainClient->getName(),
                             std::string {e.what()});
         return std::unexpected(QueryError::ConnectionFailed);

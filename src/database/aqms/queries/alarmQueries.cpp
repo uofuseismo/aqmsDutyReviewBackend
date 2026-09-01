@@ -98,7 +98,7 @@ std::vector<AlarmAction>
 AQMSDutyReviewBackend::Database::AQMS::queryAlarmActions(
     const std::span<const std::shared_ptr<DB::Client>> clients,
     const std::int64_t eventIdentifier,
-    const std::shared_ptr<spdlog::logger> &logger)
+    spdlog::logger *logger)
 {
     std::vector<AlarmAction> result;
     for (const auto &client : clients)

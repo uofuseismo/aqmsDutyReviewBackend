@@ -85,20 +85,6 @@ inline void registerEventRoutes(crow::SimpleApp &app,
             return crow::response(200);
         });
 
-    CROW_ROUTE(app, "/waveforms/<int>")
-    ([&context](const crow::request &request,
-                const int64_t eventIdentifier) -> crow::response
-    {
-        auto authorization = ::authorizeRoute(request, *context.authenticator,
-                                              ::readOnlyRequirement,
-                                              context.logger);
-        if (!authorization){return std::move(*authorization.rejection);}
-        SPDLOG_LOGGER_DEBUG(context.logger,
-                            "{} requesting waveforms for {}...",
-                            authorization.identity->user, eventIdentifier);
-        return crow::response(200);
-    });
-
     CROW_ROUTE(app, "/waveforms-hash/<int>")
     ([&context](const crow::request &request,
                 const int64_t eventIdentifier) -> crow::response

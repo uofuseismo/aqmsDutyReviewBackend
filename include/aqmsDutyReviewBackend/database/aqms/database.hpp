@@ -20,6 +20,7 @@ namespace AQMSDutyReviewBackend::Database::AQMS
  class Event;
  class EventLock;
  class EventSummary;
+ class StreamIdentifier;
  class Station;
  class StreamIdentifier;
  class Waveform;
@@ -50,7 +51,14 @@ public:
     enum class QueryError
     {
         ConnectionFailed,   /*!< The database connection could not be formed. */
-        InvalidArgument     /*!< The query parameters were invalid. */
+        InvalidArgument,    /*!< The query parameters were invalid. */
+        QueryFailed         /*!< The database was reached and refused the
+                                 query - a missing function, a bad
+                                 signature, a permission.  Distinct from
+                                 ConnectionFailed because the database is
+                                 up and answering, and distinct from an
+                                 empty result because an empty result is
+                                 an answer. */
     };
 public:
     /// @brief Constructor.
@@ -118,9 +126,21 @@ public:
     [[nodiscard]] auto getLockedEvents() const -> std::expected<std::vector<EventLock>, QueryError>;
 
     /// @brief Fetches the waveforms for an event.
-    /// @warning Declared but not yet implemented.
+    /// @warning Declared but not yet implemented - there is no query yet
+    ///          that lists which streams an event has, so the caller has
+    ///          to say.  Use the overload below.
     [[nodiscard]] auto fetchWaveforms(int64_t eventIdentifier) const -> std::expected<std::vector<Waveform>, QueryError>;
     /// @brief Fetches the waveforms for an event - for specific streams.
+    /// @param[in] eventIdentifier  The event.
+    /// @param[in] identifiers      The streams to fetch.
+    /// @result A waveform per stream that has data.
+    /// @note A stream AQMS holds no data for is skipped, not fatal.  Asking
+    ///       for ten channels and getting eight back is the ordinary case -
+    ///       a station may not have been running - and failing the request
+    ///       would cost the analyst the eight that did come.  Each skip is
+    ///       logged.
+    /// @note Streams are fetched one at a time, so this is as many round
+    ///       trips as it is streams.  Ask for the channels you will draw.
     [[nodiscard]] auto fetchWaveforms(int64_t eventIdentifier, const std::vector<StreamIdentifier> &identifiers) const -> std::expected<std::vector<Waveform>, QueryError>;
     /// @}
 
