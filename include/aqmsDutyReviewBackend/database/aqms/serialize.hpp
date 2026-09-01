@@ -9,6 +9,7 @@ namespace AQMSDutyReviewBackend::Database::AQMS
  class EventSummary;
  class Station;
  class SubnetTrigger;
+ class Waveform;
 }
 
 /// @file serialize.hpp
@@ -48,6 +49,32 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 /// @note An empty vector serializes to [] and not to null.
 [[nodiscard]] boost::json::value toJSON(
     const std::vector<EventSummary> &events);
+
+/// @brief Serializes a waveform.
+/// @result An object carrying the stream and its segments:
+///         {network, station, channel, locationCode,
+///          segments: [{startTime, samplingRate, data: [...]}]}
+/// @note A segment gives its start time and sampling rate rather than a
+///       time per sample.  The samples are evenly spaced by definition, so
+///       a time array would be the same information at many times the
+///       size - and these are already the heaviest thing this backend
+///       sends.
+/// @note Segments are in start-time order and already merged, so a break
+///       between two of them is a real gap in the record rather than a
+///       miniSEED packet boundary.  A client should draw them as separate
+///       traces and not join them.
+/// @warning This carries every sample.  A few minutes of 100 sps data is
+///          tens of thousands of numbers per channel, and JSON stores each
+///          as text - so a waveform response is orders of magnitude larger
+///          than any other in this API.  Ask for the streams you are going
+///          to draw.
+[[nodiscard]] boost::json::value toJSON(const Waveform &waveform);
+
+/// @brief Serializes several waveforms.
+/// @result A JSON array of waveform objects.
+/// @note An empty vector serializes to [] and not to null.
+[[nodiscard]] boost::json::value toJSON(
+    const std::vector<Waveform> &waveforms);
 
 /// @brief Serializes the subnet triggers.
 /// @result A JSON array of {eventIdentifier, time, originSource} objects.

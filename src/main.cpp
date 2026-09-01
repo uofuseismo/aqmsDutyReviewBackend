@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstdlib>
 #include <cstdint>
 #include <exception>
@@ -12,6 +13,7 @@
 #include <spdlog/logger.h>
 #include <spdlog/sinks/stdout_color_sinks.h> //NOLINT
 #include <boost/algorithm/string/trim.hpp>
+#include <boost/json/value.hpp>
 #include <crow/app.h>
 #include <crow/http_request.h>
 #include <crow/http_response.h>
@@ -32,11 +34,12 @@
 #include "aqmsDutyReviewBackend/version.hpp"
 #include "authorizeRoute.hpp"
 #include "requestBody.hpp"
-#include "routes/routeContext.hpp"
-#include "routes/stationRoutes.hpp"
-#include "routes/eventRoutes.hpp"
 #include "routes/actionRoutes.hpp"
 #include "routes/adminRoutes.hpp"
+#include "routes/eventRoutes.hpp"
+#include "routes/routeContext.hpp"
+#include "routes/stationRoutes.hpp"
+#include "routes/waveformRoutes.hpp"
 #include "programOptions.hpp"
 #include "parseCommandLineOptions.hpp"
 #include "logger.hpp"
@@ -324,6 +327,7 @@ int main(int argc, char *argv[])
     ::registerEventRoutes(app, routeContext);
     ::registerActionRoutes(app, routeContext);
     ::registerAdminRoutes(app, routeContext);
+    ::registerWaveformRoutes(app, routeContext);
 
     /// Run app
     try

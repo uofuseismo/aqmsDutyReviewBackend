@@ -81,6 +81,7 @@ struct AlarmAction
 ///                             them.
 /// @param[in] eventIdentifier  The event.
 /// @param[in] logger           Where a skipped database is recorded.
+///                             Borrowed, not owned, and must not be null.
 /// @result The rows from every database that answered, concatenated in
 ///         client order and each tagged with the database it came from.
 /// @note A database that cannot be reached is skipped, not fatal.  The
@@ -101,6 +102,6 @@ struct AlarmAction
 [[nodiscard]] std::vector<AlarmAction> queryAlarmActions(
     std::span<const std::shared_ptr<Client>> clients,
     std::int64_t eventIdentifier,
-    const std::shared_ptr<spdlog::logger> &logger);
+    spdlog::logger *logger);
 }
 #endif
