@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 #include <vector>
 #include "aqmsDutyReviewBackend/database/aqms/segment.hpp"
@@ -84,6 +85,12 @@ void Segment::setSamplingRate(const double samplingRate)
         throw std::invalid_argument("Sampling rate must be positive");
     }
     pImpl->mSamplingRate = samplingRate;
+    // The end time depends on all three of start time, sampling rate, and
+    // sample count, so every one of them has to refresh it.  Refreshing it
+    // from setStartTime alone made the answer depend on the order the
+    // setters happened to be called in - and the natural order, rate then
+    // time then data, is the one that leaves it unset.
+    pImpl->updateEndTime();
 }
 
 double Segment::getSamplingRate() const
@@ -135,6 +142,25 @@ void Segment::setData(const std::vector<U> &data)
     if (data.empty()){throw std::invalid_argument("Data is empty");}
     pImpl->mData.resize(data.size());
     std::copy(data.begin(), data.end(), pImpl->mData.begin());
+    pImpl->updateEndTime();
+}
+
+template<typename U>
+void Segment::setData(std::vector<U> &&data)
+{
+    if (data.empty()){throw std::invalid_argument("Data is empty");}
+    if constexpr (std::is_same_v<U, double>)
+    {
+        // Already the storage type, so the whole point of the rvalue
+        // overload is that this does not copy.
+        pImpl->mData = std::move(data);
+    }
+    else
+    {
+        pImpl->mData.resize(data.size());
+        std::copy(data.begin(), data.end(), pImpl->mData.begin());
+    }
+    pImpl->updateEndTime();
 }
 
 std::vector<double> Segment::getData() const
@@ -162,3 +188,8 @@ template void Segment::setData(const std::vector<double> &data);
 template void Segment::setData(const std::vector<float> &data);
 template void Segment::setData(const std::vector<int32_t> &data);
 template void Segment::setData(const std::vector<int64_t> &data);
+
+template void Segment::setData(std::vector<double> &&data);
+template void Segment::setData(std::vector<float> &&data);
+template void Segment::setData(std::vector<int32_t> &&data);
+template void Segment::setData(std::vector<int64_t> &&data);

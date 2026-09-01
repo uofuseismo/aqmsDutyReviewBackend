@@ -120,6 +120,7 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/database/aqms/queries/eventLockQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/eventQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/stationQueries.hpp
+    include/${PROJECT_NAME}/database/aqms/queries/waveformQueries.hpp
     include/${PROJECT_NAME}/database/aqms/serialize.hpp
     include/${PROJECT_NAME}/database/aqms/station.hpp
     include/${PROJECT_NAME}/database/aqms/peakToPeakAmplitude.hpp
@@ -159,6 +160,7 @@ set(LIBRARY_SRC
     src/database/aqms/queries/eventLockQueries.cpp
     src/database/aqms/queries/eventQueries.cpp
     src/database/aqms/queries/stationQueries.cpp
+    src/database/aqms/queries/waveformQueries.cpp
     src/database/aqms/serialize.cpp
     src/database/aqms/station.cpp
     src/database/aqms/peakToPeakAmplitude.cpp

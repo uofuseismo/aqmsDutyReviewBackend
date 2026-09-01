@@ -1,6 +1,7 @@
 #ifndef AQMS_DUTY_REVIEW_BACKEND_DATABASE_AQMS_WAVEFORM_HPP
 #define AQMS_DUTY_REVIEW_BACKEND_DATABASE_AQMS_WAVEFORM_HPP
 #include <chrono>
+#include <cstddef>
 #include <memory>
 #include <vector>
 namespace AQMSDutyReviewBackend::Database::AQMS
@@ -19,8 +20,14 @@ class Waveform
 private:
     using SegmentType = std::vector<Segment>;
 public:
-    using iterator = typename SegmentType::iterator;
     using const_iterator = typename SegmentType::const_iterator;
+    /// @note Iteration is read-only, as it is for Origin and the
+    ///       magnitudes: a query builds the segments, setSegments sorts
+    ///       and merges them once, and from then on a waveform is only
+    ///       read.  A mutable iterator would let a caller move a segment's
+    ///       start time afterwards and leave the ordering setSegments
+    ///       established quietly wrong.
+    using iterator = const_iterator;
 public:
     /// @brief Constructor.
     Waveform();
@@ -45,8 +52,14 @@ public:
     ///                    successive waveform segments.
     /// @note The segments will be sorted in increasing order on 
     ///       start time.
-    /// @throws std::invalid_argument if any segment
+    /// @throws std::invalid_argument if the segments are empty, or if any
+    ///         of them is missing its sampling rate, start time, or data.
     void setSegments(std::vector<Segment> &&segments, bool merge);
+    /// @result The segments.
+    /// @note Prefer iterating - this copies every sample.
+    [[nodiscard]] std::vector<Segment> getSegments() const;
+    /// @result True indicates the segments were set.
+    [[nodiscard]] bool hasSegments() const noexcept;
     
     /// @brief Destructor.
     ~Waveform();
@@ -55,16 +68,21 @@ public:
     /// @brief Move assignment.
     Waveform &operator=(Waveform &&waveform) noexcept;
 
-    iterator begin();
-    const_iterator begin() const;
-    const_iterator cbegin() const;
-    iterator end();
-    const_iterator end() const;
-    const_iterator cend() const;
-    Segment& at(size_t pos);
-    const Segment& at(size_t pos) const;
-    Segment& operator[](size_t pos);
-    const Segment& operator[](size_t pos) const;
+    /// @name Read-only access to the segments
+    /// @{
+    [[nodiscard]] const_iterator begin() const;
+    [[nodiscard]] const_iterator cbegin() const;
+    [[nodiscard]] const_iterator end() const;
+    [[nodiscard]] const_iterator cend() const;
+    /// @throws std::out_of_range if pos is not a valid index.
+    [[nodiscard]] const Segment& at(size_t pos) const;
+    /// @note Not bounds checked; use at() for an index from outside.
+    [[nodiscard]] const Segment& operator[](size_t pos) const;
+    /// @result The number of segments.
+    [[nodiscard]] size_t size() const noexcept;
+    /// @result True indicates there are no segments.
+    [[nodiscard]] bool empty() const noexcept;
+    /// @}
 private:
     class WaveformImpl;
     std::unique_ptr<WaveformImpl> pImpl;
