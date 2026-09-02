@@ -4,6 +4,7 @@
 #include <exception>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <stdlib.h> // setenv
 #include <string>
@@ -12,7 +13,8 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/logger.h>
 #include <spdlog/sinks/stdout_color_sinks.h> //NOLINT
-#include <boost/algorithm/string/trim.hpp>
+//#include <boost/algorithm/string/trim.hpp>
+#include <boost/json/object.hpp>
 #include <boost/json/value.hpp>
 #include <crow/app.h>
 #include <crow/http_request.h>
@@ -24,12 +26,12 @@
 #include "aqmsDutyReviewBackend/database/client.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/database.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
-#include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
-#include "aqmsDutyReviewBackend/database/aqms/station.hpp"
+//#include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
+//#include "aqmsDutyReviewBackend/database/aqms/station.hpp"
 #include "aqmsDutyReviewBackend/database/drp/serialize.hpp"
-#include "aqmsDutyReviewBackend/database/drp/userStore.hpp"
-#include "aqmsDutyReviewBackend/auth/password.hpp"
-#include "aqmsDutyReviewBackend/hash.hpp"
+//#include "aqmsDutyReviewBackend/database/drp/userStore.hpp"
+//#include "aqmsDutyReviewBackend/auth/password.hpp"
+//#include "aqmsDutyReviewBackend/hash.hpp"
 #include "aqmsDutyReviewBackend/metricsSingleton.hpp"
 #include "aqmsDutyReviewBackend/version.hpp"
 #include "authorizeRoute.hpp"
@@ -186,6 +188,8 @@ int main(int argc, char *argv[])
     // being down must not stop this application from starting.
     std::vector<std::shared_ptr<AQMSDutyReviewBackend::Database::Client>>
         auxiliaryAQMSClients;
+    auxiliaryAQMSClients.reserve(
+        programOptions.auxiliaryAQMSCredentials.size());
     for (const auto &credentials : programOptions.auxiliaryAQMSCredentials)
     {
         auxiliaryAQMSClients.push_back(
@@ -312,8 +316,15 @@ int main(int argc, char *argv[])
         settings["stadiaMapKey"] = programOptions.stadiaMapsAPIKey;
         auto primaryDatabase
             = programOptions.aqmsDatabaseCredentials.getAlias();
-        settings["primaryDatabase"]
-            = primaryDatabase.empty() ? "Unknown" : primaryDatabase;
+        if (primaryDatabase)
+        {
+            settings["primaryDatabase"]
+                = primaryDatabase->empty() ? "Unknown" : *primaryDatabase;
+        }
+        else
+        {
+            settings["primaryDatabase"] = "Unknown";
+        }
         return ::makeDataResponse(200, "Settings", std::move(settings));
     });
 
