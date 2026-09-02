@@ -274,23 +274,42 @@ Origin::GeographicType toGeographicType(const std::string &gtype)
 
 /// This is the high-level catalog.
 ///
+/// Every join hangs off a PREFERRED key on event, because every table it
+/// reaches holds many rows per event and the catalog wants one.
+///
 /// The origin join is on event.prefor = origin.orid - the PREFERRED
 /// origin - and not on evid.  An event has one row in origin per location
 /// attempt, so joining on evid returns a relocated event once per
 /// relocation, and a catalog quietly grows duplicates of exactly the
 /// events an analyst has been working hardest on.
 ///
+/// The magnitude join is on event.prefmag = NetMag.magid for the same
+/// reason, and deliberately does not go through EventPrefMag.  That table
+/// is keyed (evid, magtype) - it records the preferred magnitude OF EACH
+/// TYPE - so joining it on evid alone returns an event once per magnitude
+/// type it has, and an event with both a local and a duration magnitude
+/// arrives twice.  event.prefmag names the one magnitude the database
+/// considers preferred, which is the single number a duty screen shows.
+///
 /// Every join is a LEFT OUTER JOIN because an event need not have a
 /// preferred magnitude, and the credit table need not have a row for the
 /// origin - but the WHERE clause tests origin.datetime, which no null
 /// origin can satisfy, so an event without an origin is dropped.  That is
 /// deliberate: an event with no origin has no time or place to show.
+/// A null event.prefmag matches no magid, so an event that has no
+/// magnitude still arrives - with null magnitude columns, which
+/// readEventSummary leaves unset and the serializer omits.
 ///
-/// The credit join carries tname = 'origin' in its ON clause rather than
-/// in the WHERE.  credit's primary key is (id, tname), so without it an
-/// origin credited under several tnames would return the event once per
-/// row; and putting it in the WHERE instead would quietly turn the outer
-/// join inner and drop every event that has no credit at all.
+/// The credit join asks who located the event.  AQMS also credits
+/// magnitudes, under a different tname, but the question a duty analyst
+/// is asking of this screen is who located the thing, so origin is the
+/// only tname wanted here.
+///
+/// That tname = 'origin' rides in the ON clause rather than the WHERE.
+/// credit's primary key is (id, tname), so without it an origin credited
+/// under several tnames would return the event once per row; and putting
+/// it in the WHERE instead would quietly turn the outer join inner and
+/// drop every event that has no credit at all.
 ///
 /// Subnet triggers are excluded.  They are an Earthworm artifact rather
 /// than something that happened, so they are noise on a duty review
@@ -318,12 +337,10 @@ SELECT event.evid as event_identifier,
 FROM event
 LEFT OUTER JOIN origin
   ON event.prefor = origin.orid
-  LEFT OUTER JOIN EventPrefMag
-    ON event.evid = EventPrefMag.evid
-    LEFT OUTER JOIN NetMag
-      ON EventPrefMag.magid = NetMag.magid
-      LEFT OUTER JOIN credit
-      ON event.prefor = credit.id AND credit.tname = 'origin'
+  LEFT OUTER JOIN NetMag
+    ON event.prefmag = NetMag.magid
+    LEFT OUTER JOIN credit
+    ON event.prefor = credit.id AND credit.tname = 'origin'
 WHERE origin.datetime BETWEEN TrueTime.nominal2truef($1) AND TrueTime.nominal2Truef($2)
 )"""
 };
