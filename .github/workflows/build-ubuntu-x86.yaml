@@ -59,6 +59,9 @@ jobs:
           echo "" >> ~/.conan2/profiles/default
           echo "[conf]" >> ~/.conan2/profiles/default
           echo "tools.cmake.cmaketoolchain:generator=Ninja" >> ~/.conan2/profiles/default
+          echo "tools.build:cflags=[\"-mach=x86-64-v2\"]" >> ~/.conan2/profiles/default
+          echo "tools.build:cxxflags=[\"-march=x86-64-v2\"]" >> ~/.conan2/profiles/default
+          tail -n 10 ~/.conan2/profiles/default
 
       - name: Prepare build environment
         uses: ./.github/actions/prepare-build-environment
@@ -105,7 +108,7 @@ jobs:
 
       - name: Install Conan dependencies
         working-directory: ${{github.workspace}}
-        run: "conan install . --build=missing -s:a build_type=${{env.BUILD_TYPE}} -s:a compiler=clang -s:a compiler.version=20 -s:a compiler.cppstd=23 compiler.arch=x86-64-v2 -s:a compiler.libcxx=libstdc++11 --output-folder ."
+        run: "conan install . --build=missing -s:a build_type=${{env.BUILD_TYPE}} -s:a compiler=clang -s:a compiler.version=20 -s:a compiler.cppstd=23 -s:a compiler.libcxx=libstdc++11 --output-folder ."
 
       - name: Configure preset and build
         working-directory: ${{github.workspace}}
