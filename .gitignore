@@ -5,3 +5,4 @@ drp.ini
 build
 runIt.sh
 files.zip
+.claude/settings.local.json

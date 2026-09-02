@@ -24,6 +24,18 @@
 namespace
 {
 
+std::optional<std::string>
+    getStringEnvironmentVariable(const std::string &variable)
+{
+    auto value = std::getenv(variable.c_str());
+    if (value)
+    {
+        std::string result{value};
+        return std::make_optional<std::string> (result);
+    }
+    return std::nullopt;
+}
+
 /// @brief Site policy for how long provisional credentials live.
 /// @note These are policy rather than mechanism, which is why they are
 ///       configured and not compiled in: how long somebody gets to turn up
@@ -246,6 +258,17 @@ struct ProgramOptions
         verbosity
             = propertyTree.get<int> ("General.verbosity", verbosity);
 
+        stadiaMapsAPIKey
+            = propertyTree.get<std::string> ("General.stadiaMapsAPIKey",
+                                             stadiaMapsAPIKey);
+        if (!stadiaMapsAPIKey.empty())
+        {
+            auto apiKey = ::getStringEnvironmentVariable("STADIA_MAPS_API_KEY");
+            if (apiKey != std::nullopt)
+            {
+                stadiaMapsAPIKey = *apiKey;
+            }
+        } 
 /*
         auto printSummaryIntervalInMinutes
             = propertyTree.get<int> ("General.printSummaryIntervalInMinutes",
@@ -399,6 +422,7 @@ struct ProgramOptions
     }
 
     std::string applicationName{APPLICATION_NAME};
+    std::string stadiaMapsAPIKey;
     CrowOptions crowOptions;
     UserManagementOptions userManagementOptions;
     AQMSDutyReviewBackend::Auth::DatabaseOptions drpDatabaseOptions;

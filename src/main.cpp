@@ -309,7 +309,11 @@ int main(int argc, char *argv[])
         boost::json::object settings;
         settings["backendVersion"]
             = AQMSDutyReviewBackend::Version::getVersion();
-        settings["stadiaMapKey"] = "super-secret-map-key";
+        settings["stadiaMapKey"] = programOptions.stadiaMapsAPIKey;
+        auto primaryDatabase
+            = programOptions.aqmsDatabaseCredentials.getAlias();
+        settings["primaryDatabase"]
+            = primaryDatabase.empty() ? "Unknown" : primaryDatabase;
         return ::makeDataResponse(200, "Settings", std::move(settings));
     });
 
