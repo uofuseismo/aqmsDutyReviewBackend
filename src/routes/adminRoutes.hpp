@@ -94,7 +94,8 @@ inline void registerAdminRoutes(crow::SimpleApp &app,
             {
                 const auto result = context.users->addProvisionalUser(
                     identity.user, *user,
-                    AQMSDutyReviewBackend::Auth::hashPassword(*temporaryPassword),
+                    AQMSDutyReviewBackend::Auth::hashPassword(
+                        *temporaryPassword, context.passwordHashingCost),
                     context.newAccountLifetime,
                     AQMSDutyReviewBackend::Auth::IAuthenticator
                         ::permissionsToString(permission));
@@ -147,7 +148,8 @@ inline void registerAdminRoutes(crow::SimpleApp &app,
             {
                 const auto result = context.users->resetUserPassword(
                     identity.user, *user,
-                    AQMSDutyReviewBackend::Auth::hashPassword(temporaryPassword),
+                    AQMSDutyReviewBackend::Auth::hashPassword(
+                        temporaryPassword, context.passwordHashingCost),
                     context.passwordResetLifetime);
                 if (result
                     != AQMSDutyReviewBackend::Database::DRP::AdminResult::Succeeded)

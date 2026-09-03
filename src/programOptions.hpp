@@ -109,6 +109,43 @@ struct UserManagementOptions
               (section + "passwordNewAndOldMustBeDifferent",
                result.passwordPolicy.newAndOldPasswordMustBeDifferent);
 
+        // Argon2's cost.  The default is libsodium's INTERACTIVE preset;
+        // MODERATE is 3 passes and 256 MiB, SENSITIVE 4 and 1 GiB.
+        //
+        // memoryLimit is allocated for the whole of every hash AND every
+        // password verification, so the number that matters to a container
+        // is this times the logins that can land at once - not this.  A
+        // pod sized for one hash will be killed by three.
+        const auto operationsLimit
+            = propertyTree.get<int>
+              (section + "passwordHashingOperationsLimit",
+               static_cast<int>
+               (result.passwordHashingCost.operationsLimit));
+        if (operationsLimit < 1)
+        {
+            // libsodium refuses anything below 1 outright, and would fail
+            // every hash at run time rather than at startup.
+            throw std::invalid_argument(
+                "passwordHashingOperationsLimit must be positive");
+        }
+        result.passwordHashingCost.operationsLimit
+            = static_cast<unsigned long long> (operationsLimit);
+
+        // Megabytes rather than bytes: this is the number an operator is
+        // reading off a container memory limit.
+        const auto memoryLimitMB
+            = propertyTree.get<int>
+              (section + "passwordHashingMemoryLimitMB",
+               static_cast<int>
+               (result.passwordHashingCost.memoryLimit/(1024*1024)));
+        if (memoryLimitMB < 1)
+        {
+            throw std::invalid_argument(
+                "passwordHashingMemoryLimitMB must be positive");
+        }
+        result.passwordHashingCost.memoryLimit
+            = static_cast<std::size_t> (memoryLimitMB)*1024*1024;
+
         return result;
     }
 
@@ -126,6 +163,9 @@ struct UserManagementOptions
     /// before the user submits, and enforced on the way in regardless -
     /// the published copy is a courtesy, not the check.
     AQMSDutyReviewBackend::Auth::PasswordPolicy passwordPolicy;
+    /// What hashing a password costs.  Configured because the memory half
+    /// of it is what a container gets killed over.
+    AQMSDutyReviewBackend::Auth::PasswordHashingCost passwordHashingCost;
 };
 
 struct CrowOptions

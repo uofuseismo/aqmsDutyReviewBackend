@@ -68,9 +68,11 @@ class Database::DatabaseImpl
 {
 public:
     DatabaseImpl(std::shared_ptr<DRP::UserStore> users,
-                 std::shared_ptr<spdlog::logger> logger) :
+                 std::shared_ptr<spdlog::logger> logger,
+                 const AQMSDutyReviewBackend::Auth::PasswordHashingCost &cost) :
         mUsers(std::move(users)),
-        mLogger(std::move(logger))
+        mLogger(std::move(logger)),
+        mHashingCost(cost)
     {
         if (mUsers == nullptr)
         {
@@ -164,16 +166,19 @@ public:
                                user);
         }
         // If the cost parameters have moved on since this hash was made,
-        // re-hash at the current ones.
-        if (crypto_pwhash_str_needs_rehash(hashedPassword->c_str(),
-                                           crypto_pwhash_OPSLIMIT_MODERATE,
-                                           crypto_pwhash_MEMLIMIT_MODERATE)
-            != 0)
+        // re-hash at the current ones.  Both sides of this read
+        // mHashingCost: asking about one cost while hashing at another
+        // makes every login rehash, forever.
+        if (AQMSDutyReviewBackend::Auth::passwordNeedsRehash(*hashedPassword,
+                                                             mHashingCost))
         {
             SPDLOG_LOGGER_INFO(mLogger, "Rehashing password for {}", user);
             try
             {
-                if (!mUsers->updatePassword(user, AQMSDutyReviewBackend::Auth::hashPassword(password)))
+                if (!mUsers->updatePassword(
+                        user,
+                        AQMSDutyReviewBackend::Auth::hashPassword(
+                            password, mHashingCost)))
                 {
                     SPDLOG_LOGGER_WARN(mLogger,
                                        "Password rehash did not update {}",
@@ -194,23 +199,30 @@ public:
 
     std::shared_ptr<DRP::UserStore> mUsers;
     std::shared_ptr<spdlog::logger> mLogger{nullptr};
+    /// What this spends hashing a password.  One copy, read by every hash
+    /// AND by the needs-rehash check, so the two cannot disagree.
+    AQMSDutyReviewBackend::Auth::PasswordHashingCost mHashingCost;
 };
 
 /// Constructor - injected
 Database::Database(std::shared_ptr<DRP::UserStore> users,
-                   std::shared_ptr<spdlog::logger> logger) :
-    pImpl(std::make_unique<DatabaseImpl> (std::move(users), std::move(logger)))
+                   std::shared_ptr<spdlog::logger> logger,
+                   const PasswordHashingCost &cost) :
+    pImpl(std::make_unique<DatabaseImpl> (std::move(users), std::move(logger),
+                                          cost))
 {
 }
 
 /// Constructor - convenience, builds its own client and store
 Database::Database(const DatabaseOptions &options,
-                   std::shared_ptr<spdlog::logger> logger) :
+                   std::shared_ptr<spdlog::logger> logger,
+                   const PasswordHashingCost &cost) :
     Database(std::make_shared<DRP::UserStore>
              (std::make_shared<AQMSDutyReviewBackend::Database::Client>
               (options.getCredentials(), logger),
               logger),
-             logger)
+             logger,
+             cost)
 {
 }
 
@@ -265,7 +277,7 @@ Database::AdminResult Database::addUser(
 {
     const auto &[user, password] = userNameAndPassword;
     if (password.empty()){throw std::invalid_argument("Password is empty");}
-    return pImpl->mUsers->addUser(actor, user, AQMSDutyReviewBackend::Auth::hashPassword(password),
+    return pImpl->mUsers->addUser(actor, user, AQMSDutyReviewBackend::Auth::hashPassword(password, pImpl->mHashingCost),
                                   ::toStorablePermission(permissions));
 }
 
@@ -279,7 +291,7 @@ Database::AdminResult Database::addProvisionalUser(
     const auto &[user, password] = userNameAndPassword;
     if (password.empty()){throw std::invalid_argument("Password is empty");}
     return pImpl->mUsers->addProvisionalUser(
-        actor, user, AQMSDutyReviewBackend::Auth::hashPassword(password), validFor,
+        actor, user, AQMSDutyReviewBackend::Auth::hashPassword(password, pImpl->mHashingCost), validFor,
         ::toStorablePermission(permissions));
 }
 
@@ -302,7 +314,7 @@ Database::AdminResult Database::resetUserPassword(
     const auto &[user, password] = userNameAndPassword;
     if (password.empty()){throw std::invalid_argument("Password is empty");}
     return pImpl->mUsers->resetUserPassword(actor, user,
-                                            AQMSDutyReviewBackend::Auth::hashPassword(password),
+                                            AQMSDutyReviewBackend::Auth::hashPassword(password, pImpl->mHashingCost),
                                             validFor);
 }
 
@@ -320,7 +332,7 @@ bool Database::updatePassword(
     const auto &[user, password] = userNameAndPassword;
     if (user.empty()){throw std::invalid_argument("User is empty");}
     if (password.empty()){throw std::invalid_argument("Password is empty");}
-    return pImpl->mUsers->updatePassword(user, AQMSDutyReviewBackend::Auth::hashPassword(password));
+    return pImpl->mUsers->updatePassword(user, AQMSDutyReviewBackend::Auth::hashPassword(password, pImpl->mHashingCost));
 }
 
 /// Sweep the expired provisional accounts

@@ -50,6 +50,11 @@ struct RouteContext
     /// Grouped with the two lifetimes above because all three come from
     /// [UserManagement] and main initializes this aggregate positionally.
     AQMSDutyReviewBackend::Auth::PasswordPolicy passwordPolicy;
+    /// What the routes spend hashing a password.  The same value the
+    /// authenticator was built with - a route hashing at one cost while
+    /// the authenticator judges staleness at another would make every
+    /// subsequent login rehash.
+    AQMSDutyReviewBackend::Auth::PasswordHashingCost passwordHashingCost;
     /// How far back the catalog reaches.
     std::chrono::seconds catalogDuration{std::chrono::hours {24*14}};
 };

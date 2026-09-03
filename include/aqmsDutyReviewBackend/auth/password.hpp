@@ -39,6 +39,31 @@ struct PasswordPolicy
     bool newAndOldPasswordMustBeDifferent{true};
 };
 
+/// @brief What hashing a password costs.
+/// @note Mechanism, not policy - which is why it is a separate type from
+///       PasswordPolicy.  Nothing about a hash's cost says whether a
+///       password is acceptable; it says what the server is willing to
+///       spend to store one.
+/// @note These are libsodium's INTERACTIVE parameters: 64 MiB and two
+///       passes.  Argon2 is memory-hard on purpose, so memoryLimit is
+///       allocated for the DURATION of every hash and every verification.
+///       That is per concurrent operation, not per process: a handful of
+///       simultaneous logins at libsodium's MODERATE preset is a gigabyte
+///       of resident memory arriving at once, which is enough to have a
+///       container killed.  Raise these only against a memory limit that
+///       can absorb the peak.
+/// @note Spelled as literals rather than the crypto_pwhash_* macros so
+///       that libsodium stays out of this header and off the library's
+///       public interface.  password.cpp static_asserts that they still
+///       agree with libsodium, so the two cannot drift silently.
+struct PasswordHashingCost
+{
+    /// The argon2 operations limit - how many passes.
+    unsigned long long operationsLimit{2};
+    /// The argon2 memory limit, in bytes.  64 MiB.
+    std::size_t memoryLimit{67108864};
+};
+
 /// @brief Checks a password against the policy.
 /// @param[in] password  The plain-text password to judge.
 /// @param[in] policy    What it is judged against.
@@ -57,14 +82,32 @@ struct PasswordPolicy
 
 /// @brief Hashes a password for storage.
 /// @param[in] password  The plain-text password.
+/// @param[in] cost      What to spend hashing it.
 /// @result The encoded argon2 hash, safe to put in a TEXT column.
 /// @note Plain text never reaches the database - this is what stands
-///       between the two.  The cost parameters are fixed here so that
-///       hashing and the "does this need re-hashing" check cannot drift
-///       apart; when they do, every login pays for a full hash and a
-///       write.
+///       between the two.
+/// @note The encoded hash records the parameters it was made with, so
+///       verifying an old password keeps working after the cost is
+///       changed.  What must not happen is hashing at one cost while
+///       passwordNeedsRehash asks about another: every login would then
+///       find its own fresh hash stale, pay for a second hash and a
+///       database write, and find it stale again next time.  Pass the two
+///       the same PasswordHashingCost.
 /// @throws std::runtime_error if there is not enough memory to hash.
-[[nodiscard]] std::string hashPassword(const std::string &password);
+[[nodiscard]] std::string hashPassword(const std::string &password,
+                                       const PasswordHashingCost &cost);
+
+/// @brief Asks whether a stored hash was made at a different cost.
+/// @param[in] encodedHash  The hash as it came out of the database.
+/// @param[in] cost         What the server spends on a hash today.
+/// @result True if re-hashing this password at \c cost would change it -
+///         which is also true of a hash libsodium cannot parse at all.
+/// @note The counterpart to hashPassword, and here rather than at the
+///       call site so that the two read the same parameters.  Handing
+///       these different costs is not a small mistake: it makes every
+///       login rehash forever.
+[[nodiscard]] bool passwordNeedsRehash(const std::string &encodedHash,
+                                       const PasswordHashingCost &cost);
 
 /// @brief Generates a throwaway password for a new or reset account.
 /// @result A random password.

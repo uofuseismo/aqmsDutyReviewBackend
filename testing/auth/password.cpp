@@ -1,3 +1,4 @@
+#include <cstring>
 #include <optional>
 #include <string>
 #include <catch2/catch_test_macros.hpp>
@@ -94,6 +95,82 @@ TEST_CASE("Auth::passwordPolicyProblem ignores the reuse rule", "[password]")
             == passwordPolicyProblem("correct horse battery", permissive));
     REQUIRE(passwordPolicyProblem("tooshort", strict)
             == passwordPolicyProblem("tooshort", permissive));
+}
+
+/// A deliberately cheap cost, so the suite is not paying 64 MiB and a
+/// couple of argon2 passes per assertion.  These are libsodium's minimums;
+/// nothing here is testing that the parameters are strong, only that the
+/// same ones are used consistently.
+[[nodiscard]] PasswordHashingCost cheapCost()
+{
+    PasswordHashingCost cost;
+    cost.operationsLimit = 1;
+    cost.memoryLimit = 8192;
+    return cost;
+}
+
+/// The default is libsodium's INTERACTIVE preset, not MODERATE.  Argon2
+/// holds memoryLimit for the whole of every hash and every verification,
+/// so this number times the concurrent logins is what a container has to
+/// survive.
+TEST_CASE("Auth::PasswordHashingCost defaults to INTERACTIVE", "[password]")
+{
+    const PasswordHashingCost cost;
+    REQUIRE(cost.operationsLimit == 2);
+    REQUIRE(cost.memoryLimit == 64*1024*1024);
+}
+
+/// The invariant that matters: hashing and the staleness check have to
+/// read the same parameters.  When they do not, a login rehashes its own
+/// fresh hash, and does it again on the next login, forever - a second
+/// argon2 run and a database write on every single authentication.
+TEST_CASE("Auth::passwordNeedsRehash agrees with hashPassword", "[password]")
+{
+    const auto cost = ::cheapCost();
+    const auto hashed = hashPassword("correct horse battery", cost);
+
+    SECTION("a hash just made at this cost is not stale")
+    {
+        REQUIRE(!passwordNeedsRehash(hashed, cost));
+    }
+    SECTION("re-checking does not change the answer")
+    {
+        // The forever-rehash loop would show up here.
+        REQUIRE(!passwordNeedsRehash(hashed, cost));
+        REQUIRE(!passwordNeedsRehash(hashPassword("correct horse battery",
+                                                  cost),
+                                     cost));
+    }
+    SECTION("a different operations limit is stale")
+    {
+        auto raised = cost;
+        raised.operationsLimit = cost.operationsLimit + 1;
+        REQUIRE(passwordNeedsRehash(hashed, raised));
+    }
+    SECTION("a different memory limit is stale")
+    {
+        auto raised = cost;
+        raised.memoryLimit = cost.memoryLimit*2;
+        REQUIRE(passwordNeedsRehash(hashed, raised));
+    }
+    SECTION("something that is not a hash is stale rather than a crash")
+    {
+        REQUIRE(passwordNeedsRehash("not an argon2 hash", cost));
+        REQUIRE(passwordNeedsRehash("", cost));
+    }
+}
+
+/// Two hashes of the same password differ - argon2 salts each one - and
+/// neither carries a NUL that postgres would reject.
+TEST_CASE("Auth::hashPassword is salted and storable", "[password]")
+{
+    const auto cost = ::cheapCost();
+    const auto first = hashPassword("correct horse battery", cost);
+    const auto second = hashPassword("correct horse battery", cost);
+    REQUIRE(first != second);
+    REQUIRE(!first.empty());
+    REQUIRE(first.find('\0') == std::string::npos);
+    REQUIRE(first.size() == std::strlen(first.c_str()));
 }
 
 /// The generated passwords are deliberately NOT policy-checked, but they

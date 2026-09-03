@@ -13,11 +13,19 @@
 namespace
 {
 
-/// The argon2 cost parameters.  Used for hashing AND for deciding whether a
-/// stored hash needs re-hashing - comparing against different ones makes
-/// every login look stale and pays for a full hash and a write each time.
-constexpr unsigned long long OPERATIONS_LIMIT{crypto_pwhash_OPSLIMIT_MODERATE};
-constexpr std::size_t MEMORY_LIMIT{crypto_pwhash_MEMLIMIT_MODERATE};
+/// PasswordHashingCost spells its defaults as literals so that libsodium
+/// stays out of the public header.  These are the same numbers, checked
+/// here where libsodium is actually visible, so a libsodium that redefined
+/// its presets would break the build rather than quietly change what the
+/// defaults mean.
+static_assert(AQMSDutyReviewBackend::Auth::PasswordHashingCost {}
+                  .operationsLimit == crypto_pwhash_OPSLIMIT_INTERACTIVE,
+              "Default operations limit is no longer libsodium's "
+              "INTERACTIVE preset");
+static_assert(AQMSDutyReviewBackend::Auth::PasswordHashingCost {}
+                  .memoryLimit == crypto_pwhash_MEMLIMIT_INTERACTIVE,
+              "Default memory limit is no longer libsodium's INTERACTIVE "
+              "preset");
 
 /// Deliberately missing O, 0, l, I, and 1 - a provisional password is read
 /// out loud or typed from a note more often than it is copied and pasted.
@@ -84,16 +92,19 @@ AQMSDutyReviewBackend::Auth::passwordPolicyProblem(
 }
 
 std::string AQMSDutyReviewBackend::Auth::hashPassword(
-    const std::string &password)
+    const std::string &password, const PasswordHashingCost &cost)
 {
     std::string hashedPassword;
     hashedPassword.resize(crypto_pwhash_STRBYTES);
     if (crypto_pwhash_str(hashedPassword.data(),
                           password.c_str(),
                           password.length(),
-                          ::OPERATIONS_LIMIT,
-                          ::MEMORY_LIMIT) != 0)
+                          cost.operationsLimit,
+                          cost.memoryLimit) != 0)
     {
+        // crypto_pwhash_str fails when it cannot get memoryLimit bytes.
+        // Under a container memory limit that is a live possibility rather
+        // than a theoretical one, and it is why the cost is configurable.
         throw std::runtime_error("Out of memory");
     }
     // crypto_pwhash_str wrote a NUL-terminated C string into a maximum-size
@@ -101,6 +112,18 @@ std::string AQMSDutyReviewBackend::Auth::hashPassword(
     // postgres rejects TEXT with embedded NULs.
     hashedPassword.resize(std::strlen(hashedPassword.c_str()));
     return hashedPassword;
+}
+
+bool AQMSDutyReviewBackend::Auth::passwordNeedsRehash(
+    const std::string &encodedHash, const PasswordHashingCost &cost)
+{
+    // Non-zero covers two cases libsodium keeps separate: 1 for a hash made
+    // at different parameters, -1 for one it cannot parse.  Both want the
+    // same answer here.  An unparseable hash cannot be verified against
+    // either, so the caller only reaches this after a successful verify.
+    return crypto_pwhash_str_needs_rehash(encodedHash.c_str(),
+                                          cost.operationsLimit,
+                                          cost.memoryLimit) != 0;
 }
 
 std::string AQMSDutyReviewBackend::Auth::generateTemporaryPassword()
