@@ -16,6 +16,10 @@ TEST_CASE("Auth::passwordPolicyProblem default policy", "[password]")
     REQUIRE(policy.minimumLength == 12);
     REQUIRE(!policy.requiresNumber);
     REQUIRE(!policy.requiresSpecialCharacter);
+    // On, unlike the two above.  A provisional password has been seen by
+    // whoever passed it along, so re-entering it at the change prompt
+    // leaves the account as exposed as it was.
+    REQUIRE(policy.newAndOldPasswordMustBeDifferent);
 
     SECTION("a long enough password passes")
     {
@@ -74,6 +78,22 @@ TEST_CASE("Auth::passwordPolicyProblem requiresSpecialCharacter",
         REQUIRE(passwordPolicyProblem("two words here", policy)
                 == std::nullopt);
     }
+}
+
+/// The reuse rule is not something passwordPolicyProblem can enforce - it
+/// is handed a password and no history - so turning it off must not change
+/// what that function says.  The change-password route is what reads it.
+TEST_CASE("Auth::passwordPolicyProblem ignores the reuse rule", "[password]")
+{
+    PasswordPolicy permissive;
+    permissive.newAndOldPasswordMustBeDifferent = false;
+    PasswordPolicy strict;
+    strict.newAndOldPasswordMustBeDifferent = true;
+
+    REQUIRE(passwordPolicyProblem("correct horse battery", strict)
+            == passwordPolicyProblem("correct horse battery", permissive));
+    REQUIRE(passwordPolicyProblem("tooshort", strict)
+            == passwordPolicyProblem("tooshort", permissive));
 }
 
 /// The generated passwords are deliberately NOT policy-checked, but they
