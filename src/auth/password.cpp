@@ -48,11 +48,23 @@ std::optional<std::string>
 AQMSDutyReviewBackend::Auth::passwordPolicyProblem(
     const std::string &password, const PasswordPolicy &policy)
 {
-    // Length in bytes, not characters.  The two differ only for non-ASCII
-    // input, and they differ in the safe direction: a multi-byte character
-    // counts as more than one, so nothing shorter than the minimum is ever
-    // accepted.  Counting code points would mean deciding an encoding this
-    // layer has no business deciding.
+    // Length in bytes, not characters.  Counting code points would mean
+    // deciding an encoding this layer has no business deciding, and for
+    // ASCII - which is what these passwords are in practice - the two
+    // counts are the same number.
+    //
+    // Where they part company, bytes over-count: a multi-byte character
+    // is worth more than one, so this accepts some passwords that are
+    // fewer than minimumLength CHARACTERS long.  That is the direction to
+    // err in.  The minimum is a proxy for entropy rather than a literal
+    // character budget, and a password made of multi-byte characters has
+    // no less of it than an ASCII one of the same byte length.  What this
+    // never does is under-count: nothing shorter than minimumLength bytes
+    // is hashed.
+    //
+    // The message below says "characters" anyway, because that is the
+    // word a person putting in a password understands, and the two only
+    // disagree for input nobody is expected to type.
     if (password.size() < policy.minimumLength)
     {
         return "Password must be at least "
