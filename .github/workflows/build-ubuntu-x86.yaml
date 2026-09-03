@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distro: [ubuntu-26.04]
+        distro: [ubuntu-24.04]
         arch: [x86]
         BUILD_TARGET: [Release]
     name: Build for ${{ matrix.distro }} ${{ matrix.arch }}
@@ -59,9 +59,9 @@ jobs:
           echo "" >> ~/.conan2/profiles/default
           echo "[conf]" >> ~/.conan2/profiles/default
           echo "tools.cmake.cmaketoolchain:generator=Ninja" >> ~/.conan2/profiles/default
-          echo "tools.build:cflags=[\"-mach=x86-64-v2\"]" >> ~/.conan2/profiles/default
-          echo "tools.build:cxxflags=[\"-march=x86-64-v2\"]" >> ~/.conan2/profiles/default
-          tail -n 10 ~/.conan2/profiles/default
+          #echo "tools.build:cflags=[\"-mach=x86-64-v2\"]" >> ~/.conan2/profiles/default
+          #echo "tools.build:cxxflags=[\"-march=x86-64-v2\"]" >> ~/.conan2/profiles/default
+          #tail -n 10 ~/.conan2/profiles/default
 
       - name: Prepare build environment
         uses: ./.github/actions/prepare-build-environment
@@ -127,7 +127,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distro: [ubuntu-26.04]
+        distro: [ubuntu-24.04]
         arch: [x86]
     name: Test on ${{ matrix.distro }} ${{ matrix.arch }}
 
@@ -175,7 +175,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distro: [ubuntu-26.04]
+        distro: [ubuntu-24.04]
         arch: [x86]
         BUILD_TARGET: [Release]
     name: Package for ${{ matrix.distro }} ${{ matrix.arch }}
@@ -209,7 +209,7 @@ jobs:
           cp artifacts/*tar.gz ./
           version=$(ls *tar.gz | sed 's/aqmsDutyReviewBackend-//g' | sed 's/-Linux.tar.gz//g')
           echo "Will build container version ${version}"
-          buildah bud -t ${CONTAINER_NAME}:${version} -t ${CONTAINER_NAME}:latest -f ./Dockerfile.u26
+          buildah bud -t ${CONTAINER_NAME}:${version} -t ${CONTAINER_NAME}:latest -f ./Dockerfile.u24
           buildah tag ${CONTAINER_NAME}:${version} quay.io/uuss/${QUAY_DIRECTORY}:${version}
           buildah push quay.io/uuss/${QUAY_DIRECTORY}:${version}
 
