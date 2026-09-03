@@ -1,9 +1,46 @@
 #ifndef AQMS_DUTY_REVIEW_BACKEND_AUTH_PASSWORD_HPP
 #define AQMS_DUTY_REVIEW_BACKEND_AUTH_PASSWORD_HPP
+#include <cstddef>
+#include <optional>
 #include <string>
 
 namespace AQMSDutyReviewBackend::Auth
 {
+/// @brief What a password must look like to be accepted.
+/// @note Policy, not mechanism - so it is configured rather than compiled
+///       in, and lives with the other UserManagement settings.  It is
+///       enforced here and nowhere else: the database is never shown a
+///       plain-text password, so it could not check this even if it
+///       wanted to, and a CHECK constraint could not say WHY it refused.
+struct PasswordPolicy
+{
+    /// The shortest acceptable password.  Length is the requirement that
+    /// actually buys entropy; the two flags below are here because sites
+    /// ask for them, not because they are worth much next to this.
+    std::size_t minimumLength{12};
+    /// Whether the password must contain a digit.
+    bool requiresNumber{false};
+    /// Whether the password must contain something neither letter nor
+    /// digit.
+    bool requiresSpecialCharacter{false};
+};
+
+/// @brief Checks a password against the policy.
+/// @param[in] password  The plain-text password to judge.
+/// @param[in] policy    What it is judged against.
+/// @result Nullopt if the password is acceptable, otherwise a sentence
+///         saying what is wrong with it - ready to hand back as the
+///         "message" of a 400.
+/// @note Returns the reason rather than a bool because the caller cannot
+///       reconstruct one: the point of publishing the policy is that a
+///       person can fix their password, and "rejected" does not tell them
+///       how.
+/// @note Judges only what it is given.  Passwords this application
+///       GENERATES do not come through here - see the note on
+///       generateTemporaryPassword.
+[[nodiscard]] std::optional<std::string> passwordPolicyProblem(
+    const std::string &password, const PasswordPolicy &policy);
+
 /// @brief Hashes a password for storage.
 /// @param[in] password  The plain-text password.
 /// @result The encoded argon2 hash, safe to put in a TEXT column.
@@ -25,6 +62,15 @@ namespace AQMSDutyReviewBackend::Auth
 /// @note The alphabet omits characters that are read wrongly down a
 ///       telephone - no O or 0, no l, I, or 1 - because that is how these
 ///       actually reach the person they belong to.
+/// @note DELIBERATELY not checked against PasswordPolicy.  The alphabet
+///       here is letters and digits only, so a policy requiring a special
+///       character would reject every password this ever produced, and
+///       one requiring a digit would reject about one in twelve.  That
+///       would be the wrong thing to fix: at 16 characters from a
+///       56-character alphabet these carry ~93 bits of entropy, which is
+///       far past anything a composition rule buys, and they are
+///       short-lived by construction.  The policy exists to stop a PERSON
+///       choosing "password1"; it has no business judging 93 random bits.
 [[nodiscard]] std::string generateTemporaryPassword();
 }
 #endif

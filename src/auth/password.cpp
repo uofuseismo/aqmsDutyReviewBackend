@@ -1,5 +1,8 @@
+#include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstring>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -24,6 +27,48 @@ constexpr std::string_view ALPHABET{
 /// Long enough that the missing characters cost nothing.
 constexpr std::size_t PASSWORD_LENGTH{16};
 
+/// @brief std::isalnum without the undefined behaviour.
+/// @note The <cctype> predicates take an int that must be representable as
+///       unsigned char.  A password is bytes, and on a signed-char
+///       platform a UTF-8 continuation byte arrives negative, which is
+///       undefined - so the cast is not decoration.
+[[nodiscard]] bool isAlphanumeric(const char character) noexcept
+{
+    return std::isalnum(static_cast<unsigned char> (character)) != 0;
+}
+
+[[nodiscard]] bool isDigit(const char character) noexcept
+{
+    return std::isdigit(static_cast<unsigned char> (character)) != 0;
+}
+
+}
+
+std::optional<std::string>
+AQMSDutyReviewBackend::Auth::passwordPolicyProblem(
+    const std::string &password, const PasswordPolicy &policy)
+{
+    // Length in bytes, not characters.  The two differ only for non-ASCII
+    // input, and they differ in the safe direction: a multi-byte character
+    // counts as more than one, so nothing shorter than the minimum is ever
+    // accepted.  Counting code points would mean deciding an encoding this
+    // layer has no business deciding.
+    if (password.size() < policy.minimumLength)
+    {
+        return "Password must be at least "
+             + std::to_string(policy.minimumLength) + " characters";
+    }
+    if (policy.requiresNumber &&
+        std::none_of(password.begin(), password.end(), ::isDigit))
+    {
+        return "Password must contain a number";
+    }
+    if (policy.requiresSpecialCharacter &&
+        std::all_of(password.begin(), password.end(), ::isAlphanumeric))
+    {
+        return "Password must contain a special character";
+    }
+    return std::nullopt;
 }
 
 std::string AQMSDutyReviewBackend::Auth::hashPassword(

@@ -67,10 +67,14 @@ inline void registerEventRoutes(crow::SimpleApp &app,
                     500,
                     "Could not reach the AQMS database - try again shortly");
             }
+            // The hash travels with the catalog rather than being
+            // recomputed here, so /catalog-hash cannot drift from it.
+            auto jsonCatalog
+                = AQMSDutyReviewBackend::Database::AQMS::toJSON(*catalog).first;
             return ::makeDataResponse(
                 200,
                 "Found " + std::to_string(catalog->size()) + " event(s)",
-                AQMSDutyReviewBackend::Database::AQMS::toJSON(*catalog));
+                std::move(jsonCatalog));
         });
 
     ::authorizedRoute(
@@ -82,7 +86,25 @@ inline void registerEventRoutes(crow::SimpleApp &app,
             SPDLOG_LOGGER_DEBUG(context.logger,
                                 "{} requesting catalog hash...",
                                 identity.user);
-            return crow::response(200);
+            // TODO should be reading from db
+            const auto catalog
+                = context.aqmsDatabase->getCatalog(context.catalogDuration);
+            if (!catalog)
+            {
+                SPDLOG_LOGGER_ERROR(context.logger,
+                                    "Could not fetch the catalog for {}",
+                                    identity.user);
+                return ::makeMessageResponse(
+                    500,
+                    "Could not reach the AQMS database - try again shortly");
+            }
+            // The hash comes back with the catalog, so this and /catalog
+            // cannot disagree about what the client is comparing.
+            auto hash
+                = AQMSDutyReviewBackend::Database::AQMS::toJSON(*catalog).second;
+            boost::json::object payload;
+            payload["hash"] = std::move(hash);
+            return ::makeDataResponse(200, "Catalog hash", std::move(payload));
         });
 
     CROW_ROUTE(app, "/waveforms-hash/<int>")

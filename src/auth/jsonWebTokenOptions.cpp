@@ -194,21 +194,48 @@ JSONWebTokenOptions JSONWebTokenOptions::fromInitializationFile(
 
     if (result.getAlgorithm() != JSONWebTokenOptions::Algorithm::Unsigned)
     {
-        auto publicKeyFile
-           = propertyTree.get<std::string> (section + "jwtPublicKeyFile");
-        auto privateKeyFile
-           = propertyTree.get<std::string> (section + "jwtPrivateKeyFile");
-        if (!std::filesystem::exists(publicKeyFile))
+        auto publicKey
+           = propertyTree.get_optional<std::string> (section + "jwtPublicKey");
+        auto privateKey
+           = propertyTree.get_optional<std::string> (section + "jwtPrivateKey");
+        if (publicKey && privateKey)
         {
-            throw std::invalid_argument("Public key file does not exist");
+            if (publicKey->empty())
+            {
+                throw std::invalid_argument("jwtPublicKey is empty");
+            }
+            if (privateKey->empty())
+            {
+                throw std::invalid_argument("jwtPrivateKey is empty");
+            }
+            auto publicKeyText
+                 = "-----BEGIN PUBLIC KEY-----\n"
+                 + *publicKey + "\n"
+                 + "-----END PUBLIC KEY-----";
+            auto privateKeyText
+                 = "\n-----BEGIN PRIVATE KEY-----\n"
+                 + *privateKey + "\n"
+                 + "-----END PRIVATE KEY-----";
+            result.setKeyPair(std::pair {publicKeyText, privateKeyText});
         }
-        if (!std::filesystem::exists(privateKeyFile))
+        else
         {
-            throw std::invalid_argument("Private key file does not exist"); 
+            auto publicKeyFile
+                = propertyTree.get<std::string> (section + "jwtPublicKeyFile");
+            auto privateKeyFile
+                = propertyTree.get<std::string> (section + "jwtPrivateKeyFile");
+            if (!std::filesystem::exists(publicKeyFile))
+            {
+                throw std::invalid_argument("Public key file does not exist");
+            }
+            if (!std::filesystem::exists(privateKeyFile))
+            {
+                throw std::invalid_argument("Private key file does not exist"); 
+            }
+            auto publicKeyText = ::loadStringFromFile(publicKeyFile);
+            auto privateKeyText = ::loadStringFromFile(privateKeyFile); 
+            result.setKeyPair(std::pair {publicKeyText, privateKeyText});
         }
-        auto publicKeyText = ::loadStringFromFile(publicKeyFile);
-        auto privateKeyText = ::loadStringFromFile(privateKeyFile); 
-        result.setKeyPair(std::pair {publicKeyText, privateKeyText});
     }
     return result;
 }

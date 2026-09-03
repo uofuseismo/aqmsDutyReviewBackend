@@ -12,6 +12,7 @@
 #include "aqmsDutyReviewBackend/auth/authNZ.hpp"
 #include "aqmsDutyReviewBackend/auth/authenticator.hpp"
 #include "aqmsDutyReviewBackend/auth/jsonWebToken.hpp"
+#include "aqmsDutyReviewBackend/auth/password.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/database.hpp"
 #include "aqmsDutyReviewBackend/database/drp/userStore.hpp"
 #include "authorizeRoute.hpp"
@@ -43,6 +44,12 @@ struct RouteContext
     std::chrono::seconds newAccountLifetime{std::chrono::hours {24*7}};
     /// How long a reset password stays usable.
     std::chrono::seconds passwordResetLifetime{std::chrono::hours {24}};
+    /// What a user-chosen password must look like.  Enforced by the
+    /// change-password route and published by the requirements route, so
+    /// the frontend and the backend cannot disagree about the rules.
+    /// Grouped with the two lifetimes above because all three come from
+    /// [UserManagement] and main initializes this aggregate positionally.
+    AQMSDutyReviewBackend::Auth::PasswordPolicy passwordPolicy;
     /// How far back the catalog reaches.
     std::chrono::seconds catalogDuration{std::chrono::hours {24*14}};
 };
