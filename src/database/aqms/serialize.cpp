@@ -3,6 +3,7 @@
 #include <vector>
 #include <boost/json/array.hpp>
 #include <boost/json/object.hpp>
+#include <boost/json/serialize.hpp>
 #include <boost/json/value.hpp>
 #include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
@@ -15,6 +16,7 @@
 #include "aqmsDutyReviewBackend/database/aqms/waveform.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/segment.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
+#include "aqmsDutyReviewBackend/hash.hpp"
 
 using namespace AQMSDutyReviewBackend::Database::AQMS;
 
@@ -84,12 +86,12 @@ namespace
 
 }
 
-boost::json::value
+std::pair<boost::json::object, std::string>
 AQMSDutyReviewBackend::Database::AQMS::toJSON(
     const std::vector<EventSummary> &events)
 {
-    boost::json::array result;
-    result.reserve(events.size());
+    boost::json::array eventsJSON;
+    eventsJSON.reserve(events.size());
     for (const auto &event : events)
     {
         boost::json::object item;
@@ -149,9 +151,15 @@ AQMSDutyReviewBackend::Database::AQMS::toJSON(
         {
             item["magnitudeType"] = ::toString(*type);
         }
-        result.push_back(std::move(item));
+        eventsJSON.push_back(std::move(item));
     }
-    return result;
+    boost::json::object result;
+    result["events"] = std::move(eventsJSON);
+    // Hash what the client will compare - the events - before the hash
+    // itself is part of the object, since a hash cannot cover itself.
+    auto hash = AQMSDutyReviewBackend::hash(boost::json::serialize(result));
+    result["hash"] = hash;
+    return std::pair {std::move(result), std::move(hash)};
 }
 
 boost::json::value

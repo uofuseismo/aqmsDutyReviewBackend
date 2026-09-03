@@ -1,6 +1,9 @@
 #ifndef AQMS_DUTY_REVIEW_BACKEND_DATABASE_AQMS_SERIALIZE_HPP
 #define AQMS_DUTY_REVIEW_BACKEND_DATABASE_AQMS_SERIALIZE_HPP
+#include <string>
+#include <utility>
 #include <vector>
+#include <boost/json/object.hpp>
 #include <boost/json/value.hpp>
 
 namespace AQMSDutyReviewBackend::Database::AQMS
@@ -39,15 +42,25 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 ///       can iterate the result without checking it first.
 [[nodiscard]] boost::json::value toJSON(const std::vector<EventLock> &locks);
 
-/// @brief Serializes the catalog.
-/// @result A JSON array of event summary objects.
+/// @brief Serializes the catalog and hashes it.
+/// @result The pair {catalog, hash}.  The catalog is
+///         {events: [...], hash: "..."} and the hash is that same hash on
+///         its own, so a caller wanting only the hash need not serialize
+///         the events to get one.
+/// @note The hash comes back with the catalog rather than being something
+///       a caller computes, because two callers computing it separately is
+///       two chances to hash different bytes - and a frontend comparing a
+///       hash from one endpoint with a body from another would then
+///       re-download a catalog that had not changed.
+/// @note The hash covers the serialized events, not the object that
+///       carries it: a hash cannot cover itself.
 /// @note Only the fields a summary actually has are emitted.  Nearly every
 ///       column behind these is nullable or comes through an outer join,
 ///       so a missing key means AQMS had nothing to say - not zero.
 /// @note Depth is in meters and the origin time in nanoseconds since the
 ///       epoch, UTC, as the model holds them.
 /// @note An empty vector serializes to [] and not to null.
-[[nodiscard]] boost::json::value toJSON(
+[[nodiscard]] std::pair<boost::json::object, std::string> toJSON(
     const std::vector<EventSummary> &events);
 
 /// @brief Serializes a waveform.

@@ -452,12 +452,50 @@ $$ LANGUAGE plpgsql;
 --- one column that must never go there is simply not selectable.
 --- provisional_until is included so an operator can see who is pending
 --- and how long they have left.
+---
+--- The timestamps come out as TEXT in RFC 3339, UTC, whole seconds:
+---
+---     2026-09-02T20:43:26Z
+---
+--- rather than as TIMESTAMPTZ.  A TIMESTAMPTZ is rendered by the
+--- SESSION - DateStyle picks the shape and TimeZone picks the offset -
+--- so the same instant leaves this function as
+--- '2026-09-02 14:43:26.753472-06' in Utah in September, '...-07' in
+--- January, and something else entirely on a server set to DateStyle
+--- SQL.  The wire format of an API should not be a server setting.
+---
+--- The exact spelling matters to the browser.  Javascript's Date parses
+--- the space-separated Postgres form only by falling into its lenient
+--- non-standard path; the same string with a 'T' is REJECTED, because
+--- that makes it look like ECMAScript's specified format, which demands
+--- a two-part '+HH:MM' offset that Postgres' '-06' is not.  'Z' is in
+--- the strict grammar and needs no offset at all.
+---
+--- Whole seconds because nothing here is timed that finely, and because
+--- Date truncates to milliseconds regardless.  The columns keep their
+--- microseconds; only this projection drops them.
+---
+--- to_char(NULL, ...) is NULL, so provisional_until and last_login stay
+--- absent rather than becoming the string 'NULL'.
+---
+--- The DROP is required, not tidiness: this function used to return
+--- TIMESTAMPTZ, and CREATE OR REPLACE cannot change a return type.
+--- Dropping it also drops its SECURITY DEFINER setting and its GRANT,
+--- which grantPrivileges.sql re-applies on the next create.sh run.
+DROP FUNCTION IF EXISTS list_users();
 CREATE OR REPLACE FUNCTION list_users()
-RETURNS TABLE(name TEXT, permission TEXT, provisional_until TIMESTAMPTZ,
-              created TIMESTAMPTZ, password_updated TIMESTAMPTZ,
-              last_login TIMESTAMPTZ) AS $$
-    SELECT u.name, u.permission, u.provisional_until, u.created,
-           u.password_updated, u.last_login
+RETURNS TABLE(name TEXT, permission TEXT, provisional_until TEXT,
+              created TEXT, password_updated TEXT,
+              last_login TEXT) AS $$
+    SELECT u.name, u.permission,
+           to_char(u.provisional_until AT TIME ZONE 'UTC',
+                   'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+           to_char(u.created AT TIME ZONE 'UTC',
+                   'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+           to_char(u.password_updated AT TIME ZONE 'UTC',
+                   'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+           to_char(u.last_login AT TIME ZONE 'UTC',
+                   'YYYY-MM-DD"T"HH24:MI:SS"Z"')
       FROM users u
      ORDER BY u.name;
 $$ LANGUAGE sql;
@@ -586,12 +624,28 @@ $$ LANGUAGE plpgsql;
 --- Lists a user's keys and their states.  The frontend's 'manage my
 --- keys' page is built from this.  Public keys are public, so every
 --- column here is safe to hand to the client.
+---
+--- The timestamps are TEXT in the same RFC 3339 UTC form list_users()
+--- uses - see the long note there for why a TIMESTAMPTZ is the wrong
+--- thing to put on a wire.  Two functions feeding one frontend should
+--- not disagree about what a time looks like.
+---
+--- The DROP is required for the same reason as list_users(): the return
+--- type changed, and CREATE OR REPLACE cannot do that.
+DROP FUNCTION IF EXISTS list_user_keys(TEXT);
 CREATE OR REPLACE FUNCTION list_user_keys(p_name TEXT)
-RETURNS TABLE(key_name TEXT, algorithm TEXT, created TIMESTAMPTZ,
-              expires TIMESTAMPTZ, revoked TIMESTAMPTZ,
-              last_used TIMESTAMPTZ) AS $$
-    SELECT k.key_name, k.algorithm, k.created, k.expires, k.revoked,
-           k.last_used
+RETURNS TABLE(key_name TEXT, algorithm TEXT, created TEXT,
+              expires TEXT, revoked TEXT,
+              last_used TEXT) AS $$
+    SELECT k.key_name, k.algorithm,
+           to_char(k.created   AT TIME ZONE 'UTC',
+                   'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+           to_char(k.expires   AT TIME ZONE 'UTC',
+                   'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+           to_char(k.revoked   AT TIME ZONE 'UTC',
+                   'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+           to_char(k.last_used AT TIME ZONE 'UTC',
+                   'YYYY-MM-DD"T"HH24:MI:SS"Z"')
       FROM user_keys k
       JOIN users u ON u.user_id = k.user_id
      WHERE u.name = lower(trim(p_name))

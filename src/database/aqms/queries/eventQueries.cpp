@@ -353,6 +353,12 @@ constexpr std::string_view NOT_SUBNET_TRIGGER{"  AND event.etype <> 'st'"};
 /// is no preferred magnitude, nobody is credited with it, and the position
 /// columns hold placeholders.  Selecting them only to discard them would
 /// be three joins bought for nothing.
+///
+/// Ordered like the catalog, evid tiebreaker included - see ORDER_BY_TIME
+/// for why datetime alone is not enough.  Nothing hashes this today, but
+/// triggers tie on origin time far more readily than located events do,
+/// and two callers of the same table disagreeing about order is its own
+/// small surprise.
 constexpr std::string_view SUBNET_TRIGGER_QUERY
 {
 R"""(
@@ -364,11 +370,23 @@ INNER JOIN origin
   ON event.prefor = origin.orid
 WHERE origin.datetime BETWEEN TrueTime.nominal2truef($1) AND TrueTime.nominal2Truef($2)
   AND event.etype = 'st'
- ORDER BY origin.datetime DESC;
+ ORDER BY origin.datetime DESC, event.evid DESC;
 )"""
 };
 
-constexpr std::string_view ORDER_BY_TIME{"\n ORDER BY origin.datetime DESC;"};
+/// Most recent first, and evid to break a tie.  The tiebreaker is not
+/// cosmetic: the catalog body is hashed so a frontend can tell whether it
+/// needs to re-download, and datetime alone is not a total order.  Postgres
+/// says nothing about the relative order of rows whose sort keys tie, and
+/// the sort is not stable, so a plan change - an index scan instead of a
+/// sequential one, a different worker count, a sort that spills - could
+/// swap two events sharing an origin time, change the hash, and make every
+/// client re-download a catalog that had not changed.  evid is the event
+/// primary key, so this is a total order.
+constexpr std::string_view ORDER_BY_TIME
+{
+    "\n ORDER BY origin.datetime DESC, event.evid DESC;"
+};
 
 /// The column positions, named so a change to the SELECT above cannot
 /// silently swap two of them - which is exactly what makes a gap turn up

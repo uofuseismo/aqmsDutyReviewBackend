@@ -33,9 +33,11 @@ enum class AdminResult
 };
 
 /// @brief One row of \c listUsers.
-/// @note The timestamps stay as the strings PostgreSQL rendered.  They are
+/// @note The timestamps stay as the strings list_users() rendered - RFC
+///       3339, UTC, whole seconds, e.g. "2026-09-02T20:43:26Z".  They are
 ///       on their way to JSON, so parsing them into time_points here would
-///       only be undone at the boundary.
+///       only be undone at the boundary.  The format is the SQL function's
+///       to decide, and it is documented there; do not reformat them here.
 struct UserRecord
 {
     std::string name;

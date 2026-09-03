@@ -29,7 +29,7 @@
 //#include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
 //#include "aqmsDutyReviewBackend/database/aqms/station.hpp"
 #include "aqmsDutyReviewBackend/database/drp/serialize.hpp"
-//#include "aqmsDutyReviewBackend/database/drp/userStore.hpp"
+#include "aqmsDutyReviewBackend/database/drp/userStore.hpp"
 //#include "aqmsDutyReviewBackend/auth/password.hpp"
 //#include "aqmsDutyReviewBackend/hash.hpp"
 #include "aqmsDutyReviewBackend/metricsSingleton.hpp"
@@ -41,6 +41,7 @@
 #include "routes/eventRoutes.hpp"
 #include "routes/routeContext.hpp"
 #include "routes/stationRoutes.hpp"
+#include "routes/userRoutes.hpp"
 #include "routes/waveformRoutes.hpp"
 #include "programOptions.hpp"
 #include "parseCommandLineOptions.hpp"
@@ -290,7 +291,8 @@ int main(int argc, char *argv[])
         std::chrono::seconds
             {programOptions.userManagementOptions.provisionalAccountExpiresAfter},
         std::chrono::seconds
-            {programOptions.userManagementOptions.passwordResetExpiresAfter}
+            {programOptions.userManagementOptions.passwordResetExpiresAfter},
+        programOptions.userManagementOptions.passwordPolicy
     };
 
     crow::logger::setHandler(&customLogger);
@@ -342,6 +344,7 @@ int main(int argc, char *argv[])
     ::registerEventRoutes(app, routeContext);
     ::registerActionRoutes(app, routeContext);
     ::registerAdminRoutes(app, routeContext);
+    ::registerUserRoutes(app, routeContext);
     ::registerWaveformRoutes(app, routeContext);
 
     /// Run app

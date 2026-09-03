@@ -1,6 +1,7 @@
 #ifndef PROGRAM_OPTIONS_HPP
 #define PROGRAM_OPTIONS_HPP
 #include <cctype>
+#include <cstddef>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
@@ -12,6 +13,7 @@
 #endif
 #include "aqmsDutyReviewBackend/auth/databaseOptions.hpp"
 #include "aqmsDutyReviewBackend/auth/jsonWebTokenOptions.hpp"
+#include "aqmsDutyReviewBackend/auth/password.hpp"
 /*
 #ifdef WITH_OPENLDAP
 #include "aqmsDutyReviewBackend/auth/openldapOptions.hpp"
@@ -79,6 +81,30 @@ struct UserManagementOptions
         }
         result.passwordResetExpiresAfter = std::chrono::hours {resetHours};
 
+        const auto minimumLength
+            = propertyTree.get<int>
+              (section + "passwordMinimumLength",
+               static_cast<int> (result.passwordPolicy.minimumLength));
+        if (minimumLength < 1)
+        {
+            // Zero would accept the empty password, which the database
+            // then stores a perfectly good hash of.  Nothing downstream
+            // would notice.
+            throw std::invalid_argument(
+                "passwordMinimumLength must be positive");
+        }
+        result.passwordPolicy.minimumLength
+            = static_cast<std::size_t> (minimumLength);
+
+        result.passwordPolicy.requiresNumber
+            = propertyTree.get<bool>
+              (section + "passwordRequiresNumber",
+               result.passwordPolicy.requiresNumber);
+        result.passwordPolicy.requiresSpecialCharacter
+            = propertyTree.get<bool>
+              (section + "passwordRequiresSpecialCharacter",
+               result.passwordPolicy.requiresSpecialCharacter);
+
         return result;
     }
 
@@ -91,6 +117,11 @@ struct UserManagementOptions
     /// during which an administrator holds a working credential for
     /// somebody else's account should be short.
     std::chrono::hours passwordResetExpiresAfter{24};
+    /// What a user-chosen password must look like.  Published by
+    /// /actions/user/password-requirements so the frontend can say so
+    /// before the user submits, and enforced on the way in regardless -
+    /// the published copy is a courtesy, not the check.
+    AQMSDutyReviewBackend::Auth::PasswordPolicy passwordPolicy;
 };
 
 struct CrowOptions

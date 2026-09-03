@@ -278,11 +278,13 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
    message("Will build unit tests")
    set(TEST_SRC
        testing/database/aqms.cpp
+       testing/database/serialize.cpp
        testing/database/credentials.cpp
        testing/auth/authenticator.cpp
        testing/auth/authNZ.cpp
        testing/auth/authorization.cpp
-       testing/auth/jsonWebToken.cpp)
+       testing/auth/jsonWebToken.cpp
+       testing/auth/password.cpp)
    if (${OpenLDAP_FOUND})
        set(TEST_SRC
            ${TEST_SRC} 
