@@ -213,9 +213,14 @@ int main(int argc, char *argv[])
     auto users
         = std::make_shared<AQMSDutyReviewBackend::Database::DRP::UserStore>
           (drpClient, logger);
+    // The hashing cost goes in here and into the route context below from
+    // the same option, because the authenticator judges a stored hash
+    // stale against what it holds: give the two different numbers and
+    // every login rehashes.
     auto drpDatabase
-        = std::make_unique<AQMSDutyReviewBackend::Auth::Database> (users,
-                                                                   logger);
+        = std::make_unique<AQMSDutyReviewBackend::Auth::Database>
+          (users, logger,
+           programOptions.userManagementOptions.passwordHashingCost);
 
     // Initialize the JWT
     auto jwtAuthenticator
@@ -292,7 +297,8 @@ int main(int argc, char *argv[])
             {programOptions.userManagementOptions.provisionalAccountExpiresAfter},
         std::chrono::seconds
             {programOptions.userManagementOptions.passwordResetExpiresAfter},
-        programOptions.userManagementOptions.passwordPolicy
+        programOptions.userManagementOptions.passwordPolicy,
+        programOptions.userManagementOptions.passwordHashingCost
     };
 
     crow::logger::setHandler(&customLogger);

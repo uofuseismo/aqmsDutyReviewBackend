@@ -122,7 +122,8 @@ inline void registerUserRoutes(crow::SimpleApp &app,
                 if (!context.users->updatePassword(
                         identity.user,
                         AQMSDutyReviewBackend::Auth::hashPassword(
-                            *newPassword)))
+                            *newPassword,
+                            context.passwordHashingCost)))
                 {
                     // updatePassword answers FALSE for an account whose
                     // provisional deadline has already passed - the one

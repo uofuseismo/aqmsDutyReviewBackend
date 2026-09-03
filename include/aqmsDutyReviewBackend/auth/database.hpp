@@ -7,6 +7,7 @@
 #include <utility>
 #include <spdlog/logger.h>
 #include <aqmsDutyReviewBackend/auth/authenticator.hpp>
+#include <aqmsDutyReviewBackend/auth/password.hpp>
 #include <aqmsDutyReviewBackend/database/drp/userStore.hpp>
 
 namespace AQMSDutyReviewBackend::Auth
@@ -52,8 +53,14 @@ public:
     ///       authentication decisions.  It owns the cryptography - hashing
     ///       passwords, verifying them, checking signatures - and the
     ///       store owns the SQL.  Neither does the other's job.
+    /// @param[in] cost    What to spend hashing a password.  Defaults to
+    ///                    libsodium's INTERACTIVE preset - 64 MiB per
+    ///                    concurrent hash.  Read both when hashing and
+    ///                    when deciding a stored hash is stale, so those
+    ///                    two cannot drift apart.
     Database(std::shared_ptr<AQMSDutyReviewBackend::Database::DRP::UserStore> users,
-             std::shared_ptr<spdlog::logger> logger);
+             std::shared_ptr<spdlog::logger> logger,
+             const PasswordHashingCost &cost = PasswordHashingCost {});
 
     /// @brief Convenience constructor: builds a client and a user store of
     ///        its own from the credentials.
@@ -64,7 +71,8 @@ public:
     /// @throws std::invalid_argument if the options carry no credentials.
     /// @throws std::runtime_error if the connection cannot be established.
     Database(const DatabaseOptions &options,
-             std::shared_ptr<spdlog::logger> logger);
+             std::shared_ptr<spdlog::logger> logger,
+             const PasswordHashingCost &cost = PasswordHashingCost {});
 
     /// @brief Authenticates a user name and password.
     /// @note A provisional user - one still holding the password they were
