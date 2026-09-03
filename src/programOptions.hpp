@@ -104,6 +104,10 @@ struct UserManagementOptions
             = propertyTree.get<bool>
               (section + "passwordRequiresSpecialCharacter",
                result.passwordPolicy.requiresSpecialCharacter);
+        result.passwordPolicy.newAndOldPasswordMustBeDifferent
+            = propertyTree.get<bool>
+              (section + "passwordNewAndOldMustBeDifferent",
+               result.passwordPolicy.newAndOldPasswordMustBeDifferent);
 
         return result;
     }

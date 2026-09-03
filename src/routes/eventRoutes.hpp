@@ -83,9 +83,9 @@ inline void registerEventRoutes(crow::SimpleApp &app,
         [&context](const crow::request &,
                    const Claims &identity) -> crow::response
         {
-            SPDLOG_LOGGER_DEBUG(context.logger,
-                                "{} requesting catalog hash...",
-                                identity.user);
+            SPDLOG_LOGGER_INFO(context.logger,
+                               "{} requesting catalog hash",
+                               identity.user);
             // TODO should be reading from db
             const auto catalog
                 = context.aqmsDatabase->getCatalog(context.catalogDuration);

@@ -58,6 +58,8 @@ inline void registerUserRoutes(crow::SimpleApp &app,
             data["requiresNumber"] = context.passwordPolicy.requiresNumber;
             data["requiresSpecialCharacter"]
                 = context.passwordPolicy.requiresSpecialCharacter;
+            data["newAndOldPasswordMustBeDifferent"]
+                = context.passwordPolicy.newAndOldPasswordMustBeDifferent;
             return ::makeDataResponse(200, "Password requirements",
                                       std::move(data));
             });
@@ -108,7 +110,8 @@ inline void registerUserRoutes(crow::SimpleApp &app,
             // security - somebody who knows it is already authenticated -
             // it is telling a person that the change they think they made
             // did not happen.
-            if (credential->password == *newPassword)
+            if (context.passwordPolicy.newAndOldPasswordMustBeDifferent &&
+                credential->password == *newPassword)
             {
                 return ::makeMessageResponse(
                     400, "The new password must differ from the current one");

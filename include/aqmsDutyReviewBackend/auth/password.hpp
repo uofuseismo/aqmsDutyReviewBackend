@@ -23,6 +23,20 @@ struct PasswordPolicy
     /// Whether the password must contain something neither letter nor
     /// digit.
     bool requiresSpecialCharacter{false};
+    /// Whether a password change must actually change the password.
+    ///
+    /// On by default, unlike the two flags above, and for a different kind
+    /// of reason.  A provisional account is issued a password that reaches
+    /// its owner by whatever channel was to hand - read down a telephone,
+    /// left in a message - and the whole point of making them change it is
+    /// that the issued one has been seen by somebody else.  Re-entering it
+    /// satisfies the letter of "you must change your password" while
+    /// leaving the account exactly as exposed as it was.
+    ///
+    /// Enforced at the change-password route rather than in
+    /// passwordPolicyProblem, which is given a password and no history to
+    /// compare it against.
+    bool newAndOldPasswordMustBeDifferent{true};
 };
 
 /// @brief Checks a password against the policy.
