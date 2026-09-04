@@ -29,7 +29,9 @@ public:
     enum class ReviewStatus
     {
         Automatic, /*!< This is an automatically generated arrival. */
-        Human      /*!< This is a human-made arrival. */
+        Human,     /*!< This is a human-made arrival. */
+        Finalized  /*!< It's exceedingly rare but possible the arrival
+                         can end up in this state. */
    };
 public:
     /// @brief Constructor.
@@ -98,6 +100,33 @@ public:
     [[nodiscard]] std::chrono::nanoseconds getResidual() const; 
     /// @result True indicates the residual was set.
     [[nodiscard]] bool hasResidual() const noexcept;
+
+    /// @brief Sets the source-receiver distance (assocaro.delta).
+    /// @param[in] distance  The distance, in whatever units
+    ///                      assocaro.delta carries.  Passed through
+    ///                      unconverted - unlike depth, which the readers
+    ///                      turn from kilometres into metres, this one is
+    ///                      not rescaled anywhere.
+    /// @throws std::invalid_argument if the distance is negative.
+    /// @note Optional.  It is a property of the ASSOCIATION rather than of
+    ///       the arrival - the same pick associated to two origins has two
+    ///       distances - so an arrival read outside that context has none.
+    void setSourceReceiverDistance(double distance);
+    /// @result The source-receiver distance, if it was set.
+    [[nodiscard]] std::optional<double>
+        getSourceReceiverDistance() const noexcept;
+
+    /// @brief Sets the source-receiver azimuth (assocaro.seaz).
+    /// @param[in] azimuth  The azimuth from the source to the receiver, in
+    ///                     degrees, measured clockwise from north.
+    /// @throws std::invalid_argument if the azimuth is outside [0,360].
+    /// @note Closed at both ends: 0 and 360 are the same direction and
+    ///       AQMS may write either.
+    /// @note Optional, and for the same reason as the distance above.
+    void setSourceReceiverAzimuth(double azimuth);
+    /// @result The source-receiver azimuth in degrees, if it was set.
+    [[nodiscard]] std::optional<double>
+        getSourceReceiverAzimuth() const noexcept;
 
     /// @brief Destructor.
     ~Arrival();

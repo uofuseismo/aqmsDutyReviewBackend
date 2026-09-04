@@ -14,6 +14,8 @@ class Arrival::ArrivalImpl
 public:
     StreamIdentifier mStreamIdentifier;
     std::optional<double> mQuality;
+    std::optional<double> mSourceReceiverDistance;
+    std::optional<double> mSourceReceiverAzimuth;
     std::chrono::nanoseconds mTime{0};
     std::chrono::nanoseconds mResidual{0};
     int64_t mIdentifier{0};
@@ -210,4 +212,38 @@ std::chrono::nanoseconds Arrival::getResidual() const
 bool Arrival::hasResidual() const noexcept
 {
     return pImpl->mHasResidual;
+}
+
+/// Source-receiver distance
+void Arrival::setSourceReceiverDistance(const double distance)
+{
+    if (distance < 0)
+    {
+        throw std::invalid_argument("Source-receiver distance cannot be "
+                                    "negative");
+    }
+    pImpl->mSourceReceiverDistance = distance;
+}
+
+std::optional<double> Arrival::getSourceReceiverDistance() const noexcept
+{
+    return pImpl->mSourceReceiverDistance;
+}
+
+/// Source-receiver azimuth
+void Arrival::setSourceReceiverAzimuth(const double azimuth)
+{
+    // Closed at both ends - 0 and 360 name the same direction and there is
+    // no reason to reject a row for writing the other one.
+    if (azimuth < 0 || azimuth > 360)
+    {
+        throw std::invalid_argument(
+            "Source-receiver azimuth must be in range [0,360]");
+    }
+    pImpl->mSourceReceiverAzimuth = azimuth;
+}
+
+std::optional<double> Arrival::getSourceReceiverAzimuth() const noexcept
+{
+    return pImpl->mSourceReceiverAzimuth;
 }

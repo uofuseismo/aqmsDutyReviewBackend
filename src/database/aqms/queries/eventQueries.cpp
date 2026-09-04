@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <exception>
+#include <map>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -15,10 +16,16 @@
 #include <spdlog/logger.h>
 #include <pqxx/pqxx>
 #include "aqmsDutyReviewBackend/database/aqms/queries/eventQueries.hpp"
-#include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/arrival.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/event.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/magnitude.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/localMagnitude.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/durationMagnitude.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/humanMagnitude.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/centroidMomentTensorMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/subnetTrigger.hpp"
 #include "aqmsDutyReviewBackend/database/client.hpp"
 
@@ -168,10 +175,24 @@ CREATE TABLE credit(
 )
 ;
 
-
+        LDDATE TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
+         CONSTRAINT AMP02 CHECK (amplitude >0) ,
+         CONSTRAINT AMP04 CHECK (AMPTYPE IN ('C','WA','WAS','PGA','PGV','PGD','WAC','WAU','IV2','SP.3','SP1.0','SP3.0', 'ML100','ME100','EGY','HEL','WASF','M0')) ,
+         CONSTRAINT AMP01 CHECK (ampid > 0) ,
+         CONSTRAINT AMP03 CHECK (ampmeas in ('0','1')) ,
+         CONSTRAINT AMP06 CHECK (eramp >= 0.0) ,
+         CONSTRAINT AMP07 CHECK (flagamp in ('P','S','R','PP','ALL','SUR')) ,
+         CONSTRAINT AMP08 CHECK (per > 0.0) ,
+         CONSTRAINT AMP09 CHECK (tau > 0.0) ,
+         CONSTRAINT AMP10 CHECK (units in ('c','s','mm','cm','m','ms','mss','cms','cmss','cmcms','mms','mmss','mc','nm','e','iovs','spa','none','dycm')) ,
+         CONSTRAINT AMP11 CHECK (quality >=0.0 and quality <=1.0) ,
+         CONSTRAINT AMP12 CHECK (rflag in ('a','h','f','A','H','F')) ,
+         CONSTRAINT AMP13 CHECK (cflag in ('bn', 'os','cl','BN','OS','CL')) ,
+         CONSTRAINT AMPKEY01 PRIMARY KEY (AMPID)
+        );
 */
 
-Event::EventType toEventType(const std::string &eventType)
+[[nodiscard]] Event::EventType toEventType(const std::string &eventType)
 {
     if (eventType == "eq")
     {
@@ -216,7 +237,7 @@ Event::EventType toEventType(const std::string &eventType)
     throw std::invalid_argument("Unhandled event type " + eventType); 
 }
 
-Origin::GeographicType toGeographicType(const std::string &gtype)
+[[nodiscard]] Origin::GeographicType toGeographicType(const std::string &gtype)
 {
     if (gtype == "l")
     {   
@@ -231,6 +252,37 @@ Origin::GeographicType toGeographicType(const std::string &gtype)
         return Origin::GeographicType::Teleseismic;
     }   
     throw std::runtime_error("Unhandled geographic type " + gtype);
+}
+
+[[nodiscard]] Arrival::Phase toPhase(const std::string &phase)
+{
+    if (phase == "P")
+    {
+        return Arrival::Phase::P;
+    }
+    else if (phase == "S")
+    {
+        return Arrival::Phase::S;
+    }
+    throw std::runtime_error("Unhandled phase " + phase);
+}
+
+[[nodiscard]] 
+Arrival::ReviewStatus toArrivalReviewStatus(const std::string &status)
+{
+    if (status == "A")
+    {
+        return Arrival::ReviewStatus::Automatic;
+    }
+    else if (status == "H")
+    {
+        return Arrival::ReviewStatus::Human;
+    }
+    else if (status == "F")
+    {
+        return Arrival::ReviewStatus::Finalized;
+    }
+    throw std::runtime_error("Unhandled arrival review flag + " + status);
 }
 
 /// @brief Maps origin.rflag onto a review status.
@@ -271,6 +323,81 @@ Origin::GeographicType toGeographicType(const std::string &gtype)
     if (type == "h"){return IMagnitude::Type::Human;}
     return std::nullopt;
 }
+
+/// This will pull down an extremely detailed view of multiple origins and
+/// their picks.
+///
+/// Every origin the event has, not just the preferred one - which is what
+/// separates this from the catalog query below, where every join hangs off
+/// a preferred key.
+///
+/// The weight test rides in the ON clause and NOT in the WHERE.  An origin
+/// with no associated arrivals - a relocation whose picks have not been
+/// associated yet, say - has a NULL assocaro.wgt, and 'NULL > 0' is NULL
+/// rather than true, so a WHERE would drop that row and with it the whole
+/// origin: the outer join would quietly become an inner one.  Measured on
+/// a two-origin event, the WHERE form returns one origin and this form
+/// returns both.  The same reasoning is written out at length on
+/// credit.tname in the catalog query, and it is the same mistake.
+///
+/// wgt > 0 keeps unused picks out.  An arrival associated at zero weight
+/// was considered and not used, so it did not contribute to the location;
+/// showing it beside the ones that did would misrepresent the solution.
+///
+/// event.prefor is selected because Event::setOrigins requires exactly one
+/// origin to be marked preferred and refuses the lot otherwise.  Nothing
+/// on the origin row says which one that is - it is the event that names
+/// its preferred origin - so without this column every origin would come
+/// back not-preferred and the event could not be assembled at all.
+///
+/// The ORDER BY is load-bearing: readEvent groups arrivals onto origins by
+/// watching origin_identifier change from one row to the next, which only
+/// works while the rows for one origin are contiguous.  Reordering this
+/// does not silently corrupt anything - the same origin would arrive twice
+/// and setOrigins rejects a duplicate identifier - but it does turn a
+/// working query into a failing one.
+constexpr std::string_view EVENT_AND_ORIGIN_INFORMATION_QUERY
+{
+R"""(
+SELECT event.evid as event_identifier,
+       event.etype as event_type,
+       event.version as version,
+       event.prefor as preferred_origin_identifier,
+       event.prefmag as preferred_magnitude_identifier,
+       origin.orid as origin_identifier,
+       origin.lat as latitude,
+       origin.lon as longitude,
+       origin.depth as depth_km,
+       TrueTime.getEpoch(origin.datetime, 'NOMINAL') as origin_time,
+       origin.ndef as n_defining_phases,
+       origin.wrms as rms,
+       origin.gap as azimuthal_gap,
+       origin.subsource as origin_source,
+       origin.gtype as geographic_type,
+       origin.rflag as origin_review_flag,
+       arrival.arid as arrival_identifier,
+       arrival.net as network,
+       arrival.sta as station,
+       arrival.seedchan as channel,
+       arrival.location as location_code,
+       TrueTime.getEpoch(arrival.datetime, 'NOMINAL') as arrival_time,
+       arrival.quality as quality,
+       arrival.iphase as phase,
+       arrival.rflag as arrival_review_flag,
+       assocaro.timeres as residual,
+       assocaro.delta as source_receiver_distance,
+       assocaro.seaz as source_receiver_azimuth
+FROM event
+LEFT OUTER JOIN origin
+  ON event.evid = origin.evid
+  LEFT OUTER JOIN assocaro
+    ON origin.orid = assocaro.orid AND assocaro.wgt > 0
+    LEFT OUTER JOIN arrival
+    ON assocaro.arid = arrival.arid
+WHERE event.evid = $1
+ ORDER BY origin.orid, arrival.datetime;
+)"""
+};
 
 /// This is the high-level catalog.
 ///
@@ -388,28 +515,211 @@ constexpr std::string_view ORDER_BY_TIME
     "\n ORDER BY origin.datetime DESC, event.evid DESC;"
 };
 
-/// The column positions, named so a change to the SELECT above cannot
-/// silently swap two of them - which is exactly what makes a gap turn up
-/// as an RMS error and nobody notice.
-enum Column : int
+/// @brief Maps netmag.rflag onto a magnitude review status.
+/// @note Folded to lower case for the same reason origin.rflag is - the
+///       column carries either.
+/// @note 'F' - finalized - collapses onto Human.  IMagnitude::ReviewStatus
+///       only distinguishes "a machine produced this" from "a person stood
+///       behind it", and a finalized magnitude is emphatically the latter.
+///       The distinction between reviewed and published lives on the
+///       ORIGIN, which has a Finalized status of its own.
+[[nodiscard]] IMagnitude::ReviewStatus
+toMagnitudeReviewStatus(const std::string &rflag)
 {
-    EventIdentifier = 0,
-    EventType = 1,
-    Version = 2,
-    Latitude = 3,
-    Longitude = 4,
-    DepthInKilometers = 5,
-    OriginTime = 6,
-    NumberOfDefiningPhases = 7,
-    WeightedRootMeanSquaredError = 8,
-    AzimuthalGap = 9,
-    OriginSource = 10,
-    GeographicType = 11,
-    OriginReviewFlag = 12,
-    Magnitude = 13,
-    MagnitudeType = 14,
-    Credit = 15
+    std::string flag{rflag};
+    std::transform(flag.begin(), flag.end(), flag.begin(), ::tolower);
+    if (flag == "a"){return IMagnitude::ReviewStatus::Automatic;}
+    if (flag == "h"){return IMagnitude::ReviewStatus::Human;}
+    if (flag == "f"){return IMagnitude::ReviewStatus::Human;}
+    throw std::runtime_error("Unhandled magnitude review flag " + rflag);
+}
+
+/// The magnitudes belonging to a set of origins.
+///
+/// A separate statement rather than another join on the detailed query
+/// above.  That query already fans out one row per (origin, arrival), and
+/// joining magnitudes would multiply it again by magnitudes per origin -
+/// every arrival repeated once per magnitude, for data that has nothing to
+/// do with arrivals.  Lifting the origin identifiers and asking a second
+/// question is cheaper to run and very much easier to read.
+///
+/// Run inside the SAME transaction as the query above, so both see one
+/// snapshot.  Across two transactions a relocation landing in between
+/// could produce magnitudes for an origin the first query never returned.
+///
+/// origin.prefmag rides along because it is what marks an origin's
+/// preferred magnitude, and it is per-origin rather than per-magnitude.
+constexpr std::string_view NETMAG_QUERY
+{
+R"""(
+SELECT netmag.magid as magnitude_identifier,
+       netmag.orid as origin_identifier,
+       netmag.magnitude as magnitude,
+       netmag.magtype as magnitude_type,
+       netmag.rflag as magnitude_review_flag,
+       origin.prefmag as origin_preferred_magnitude_identifier
+FROM netmag
+INNER JOIN origin
+  ON netmag.orid = origin.orid
+WHERE netmag.orid = ANY($1::bigint[])
+ ORDER BY netmag.orid, netmag.magid;
+)"""
 };
+
+/// @brief Makes an empty magnitude of the given type.
+/// @note The type is what decides the class, and the class is what decides
+///       how much more work there is: Human and Moment are a value and
+///       little else, while Local and Duration each carry the per-station
+///       magnitudes that produced them - stamag rows, fetched separately
+///       once those queries exist.
+[[nodiscard]] std::unique_ptr<IMagnitude>
+makeMagnitude(const IMagnitude::Type type)
+{
+    switch (type)
+    {
+    case IMagnitude::Type::Local:
+        return std::make_unique<LocalMagnitude> ();
+    case IMagnitude::Type::Duration:
+        return std::make_unique<DurationMagnitude> ();
+    case IMagnitude::Type::Human:
+        return std::make_unique<HumanMagnitude> ();
+    case IMagnitude::Type::Moment:
+        return std::make_unique<CentroidMomentTensorMagnitude> ();
+    }
+    throw std::runtime_error("Unhandled magnitude type");
+}
+
+/// One netmag row, kept only until the winner for its type is known.
+struct MagnitudeRow
+{
+    double value{0};
+    std::int64_t identifier{0};
+    IMagnitude::ReviewStatus reviewStatus{IMagnitude::ReviewStatus::Automatic};
+    bool hasReviewStatus{false};
+    bool isPreferred{false};
+};
+
+/// @brief Reads the netmag rows into magnitudes, keyed by origin.
+///
+/// Origin::setMagnitudes permits one magnitude per TYPE, and netmag does
+/// not: 'l', 'l1' and 'l2' all mean local, and an origin can carry more
+/// than one of them.  So a type is decided here rather than rejected
+/// later - the one origin.prefmag names wins, and failing that the lowest
+/// magid, which the ORDER BY makes the first one seen.  The alternative is
+/// setMagnitudes throwing and the origin losing every magnitude it has,
+/// including the ones there was no argument about.
+[[nodiscard]] std::map<std::int64_t, std::vector<std::unique_ptr<IMagnitude>>>
+readMagnitudes(const pqxx::result &rows, spdlog::logger *logger)
+{
+    // origin -> type -> the row that won that type.
+    std::map<std::int64_t, std::map<IMagnitude::Type, MagnitudeRow>> chosen;
+    for (const auto &row : rows)
+    {
+        const auto originIdentifier
+            = row.at("origin_identifier").as<std::int64_t> ();
+        const auto magnitudeType
+            = row.at("magnitude_type").as<std::string> ();
+        const auto type = ::toMagnitudeType(magnitudeType);
+        if (type == std::nullopt)
+        {
+            // Energy and 'n' magnitudes among others - deliberately not
+            // modelled, so skipped rather than guessed at.
+            SPDLOG_LOGGER_DEBUG(logger,
+                                "Skipping magnitude of unmodelled type {}",
+                                magnitudeType);
+            continue;
+        }
+        if (row.at("magnitude").is_null())
+        {
+            SPDLOG_LOGGER_WARN(logger,
+                               "Skipping magnitude {} on origin {} - no value",
+                               row.at("magnitude_identifier").as<std::int64_t> (),
+                               originIdentifier);
+            continue;
+        }
+        MagnitudeRow candidate;
+        candidate.identifier
+            = row.at("magnitude_identifier").as<std::int64_t> ();
+        candidate.value = row.at("magnitude").as<double> ();
+        if (!row.at("origin_preferred_magnitude_identifier").is_null())
+        {
+            candidate.isPreferred
+                = row.at("origin_preferred_magnitude_identifier")
+                     .as<std::int64_t> () == candidate.identifier;
+        }
+        if (!row.at("magnitude_review_flag").is_null())
+        {
+            const auto reviewFlag
+                = row.at("magnitude_review_flag").as<std::string> ();
+            try
+            {
+                candidate.reviewStatus
+                    = ::toMagnitudeReviewStatus(reviewFlag);
+                candidate.hasReviewStatus = true;
+            }
+            catch (const std::exception &)
+            {
+                SPDLOG_LOGGER_WARN(logger,
+                                   "Unhandled magnitude review flag {}",
+                                   reviewFlag);
+            }
+        }
+
+        auto &byType = chosen[originIdentifier];
+        const auto existing = byType.find(*type);
+        if (existing == byType.end())
+        {
+            byType.emplace(*type, candidate);
+            continue;
+        }
+        if (existing->second.isPreferred || !candidate.isPreferred)
+        {
+            // The incumbent stays: either it is the preferred one, or
+            // neither is and the first seen keeps the place.
+            SPDLOG_LOGGER_DEBUG(logger,
+                                "Origin {} has more than one magnitude of "
+                                "type {} - keeping {}",
+                                originIdentifier, magnitudeType,
+                                existing->second.identifier);
+            continue;
+        }
+        existing->second = candidate;
+    }
+
+    std::map<std::int64_t, std::vector<std::unique_ptr<IMagnitude>>> result;
+    for (const auto &[originIdentifier, byType] : chosen)
+    {
+        std::vector<std::unique_ptr<IMagnitude>> magnitudes;
+        magnitudes.reserve(byType.size());
+        for (const auto &[type, chosenRow] : byType)
+        {
+            auto magnitude = ::makeMagnitude(type);
+            magnitude->setIdentifier(chosenRow.identifier);
+            magnitude->setValue(chosenRow.value);
+            if (chosenRow.hasReviewStatus)
+            {
+                magnitude->setReviewStatus(chosenRow.reviewStatus);
+            }
+            if (chosenRow.isPreferred)
+            {
+                magnitude->setIsPreferred();
+            }
+            else
+            {
+                magnitude->setNotPreferred();
+            }
+            // TODO The station magnitudes belonging to a Local or a
+            //      Duration magnitude come from stamag and are not fetched
+            //      yet.  They hang off THIS object - see
+            //      LocalMagnitude::setStationMagnitudes - so the query for
+            //      them keys on magid and is another statement in the same
+            //      transaction, exactly as this one is.
+            magnitudes.push_back(std::move(magnitude));
+        }
+        result.emplace(originIdentifier, std::move(magnitudes));
+    }
+    return result;
+}
 
 /// @brief Turns one row into an EventSummary.
 /// @note Only evid, etype, version, lat, and lon are NOT NULL in the
@@ -418,11 +728,34 @@ enum Column : int
     const pqxx::row_ref &row,
     spdlog::logger *logger)
 {
+    /// The column positions, named so a change to the SELECT above cannot
+    /// silently swap two of them - which is exactly what makes a gap turn up
+    /// as an RMS error and nobody notice.
+    enum EventSummaryColumn : std::int8_t
+    {
+        EventIdentifier = 0,
+        EventType = 1,
+        Version = 2,
+        Latitude = 3,
+        Longitude = 4,
+        DepthInKilometers = 5,
+        OriginTime = 6,
+        NumberOfDefiningPhases = 7,
+        WeightedRootMeanSquaredError = 8,
+        AzimuthalGap = 9,
+        OriginSource = 10, 
+        GeographicType = 11, 
+        OriginReviewFlag = 12, 
+        Magnitude = 13, 
+        MagnitudeType = 14, 
+        Credit = 15
+    };
+
     EventSummary eventSummary;
-    eventSummary.setIdentifier(row.at(Column::EventIdentifier)
+    eventSummary.setIdentifier(row.at(EventSummaryColumn::EventIdentifier)
                                   .as<std::int64_t> ());
     const auto eventType
-        = row.at(Column::EventType).as<std::string> ();
+        = row.at(EventSummaryColumn::EventType).as<std::string> ();
     try
     {
         eventSummary.setEventType(::toEventType(eventType));
@@ -435,24 +768,26 @@ enum Column : int
                            eventType);
         eventSummary.setEventType(Event::EventType::Unknown);
     }
-    eventSummary.setVersion(row.at(Column::Version).as<int> ());
-    eventSummary.setLatitude(row.at(Column::Latitude).as<double> ());
-    eventSummary.setLongitude(row.at(Column::Longitude).as<double> ());
-    if (!row.at(Column::DepthInKilometers).is_null())
+    eventSummary.setVersion(row.at(EventSummaryColumn::Version).as<int> ());
+    eventSummary.setLatitude(
+        row.at(EventSummaryColumn::Latitude).as<double> ());
+    eventSummary.setLongitude(
+        row.at(EventSummaryColumn::Longitude).as<double> ());
+    if (!row.at(EventSummaryColumn::DepthInKilometers).is_null())
     {
         // AQMS stores depth in kilometers - its CHECK constraint runs from
         // -10 to 1000 - and the model works in meters.
         eventSummary.setDepth(
-            row.at(Column::DepthInKilometers).as<double> ()*1.e3);
+            row.at(EventSummaryColumn::DepthInKilometers).as<double> ()*1.e3);
     }
     const auto originTimeNanoSeconds
         = static_cast<int64_t>
-          (std::round(row.at(Column::OriginTime).as<double> ()*1.e9));
+          (std::round(row.at(EventSummaryColumn::OriginTime).as<double> ()*1.e9));
     eventSummary.setTime(std::chrono::nanoseconds {originTimeNanoSeconds});
-    if (!row.at(Column::NumberOfDefiningPhases).is_null())
+    if (!row.at(EventSummaryColumn::NumberOfDefiningPhases).is_null())
     {
         const auto nDefiningPhases
-            = row.at(Column::NumberOfDefiningPhases).as<int> ();
+            = row.at(EventSummaryColumn::NumberOfDefiningPhases).as<int> ();
         // AQMS permits zero defining phases; the model does not, because an
         // origin located by nothing was not located.  Left unset rather
         // than rejected - the rest of the row is still good.
@@ -461,25 +796,25 @@ enum Column : int
             eventSummary.setNumberOfDefiningPhases(nDefiningPhases);
         }
     }
-    if (!row.at(Column::WeightedRootMeanSquaredError).is_null())
+    if (!row.at(EventSummaryColumn::WeightedRootMeanSquaredError).is_null())
     {
         eventSummary.setWeightedRootMeanSquaredError(
-            row.at(Column::WeightedRootMeanSquaredError).as<double> ());
+            row.at(EventSummaryColumn::WeightedRootMeanSquaredError).as<double> ());
     }
-    if (!row.at(Column::AzimuthalGap).is_null())
+    if (!row.at(EventSummaryColumn::AzimuthalGap).is_null())
     {
         eventSummary.setMaximumAzimuthalGap(
-            row.at(Column::AzimuthalGap).as<double> ());
+            row.at(EventSummaryColumn::AzimuthalGap).as<double> ());
     }
-    if (!row.at(Column::OriginSource).is_null())
+    if (!row.at(EventSummaryColumn::OriginSource).is_null())
     {
         eventSummary.setOriginSource(
-            row.at(Column::OriginSource).as<std::string> ());
+            row.at(EventSummaryColumn::OriginSource).as<std::string> ());
     }
-    if (!row.at(Column::GeographicType).is_null())
+    if (!row.at(EventSummaryColumn::GeographicType).is_null())
     {
         const auto geographicType
-            = row.at(Column::GeographicType).as<std::string> ();
+            = row.at(EventSummaryColumn::GeographicType).as<std::string> ();
         try
         {
             eventSummary.setGeographicType(
@@ -491,10 +826,10 @@ enum Column : int
                                geographicType);
         }
     }
-    if (!row.at(Column::OriginReviewFlag).is_null())
+    if (!row.at(EventSummaryColumn::OriginReviewFlag).is_null())
     {
         const auto reviewFlag
-            = row.at(Column::OriginReviewFlag).as<std::string> ();
+            = row.at(EventSummaryColumn::OriginReviewFlag).as<std::string> ();
         try
         {
             eventSummary.setReviewStatus(::toReviewStatus(reviewFlag));
@@ -504,26 +839,295 @@ enum Column : int
             SPDLOG_LOGGER_WARN(logger, "Unhandled review flag {}", reviewFlag);
         }
     }
-    if (!row.at(Column::Magnitude).is_null())
+    if (!row.at(EventSummaryColumn::Magnitude).is_null())
     {
-        eventSummary.setMagnitudeValue(row.at(Column::Magnitude).as<double> ());
+        eventSummary.setMagnitudeValue(row.at(EventSummaryColumn::Magnitude).as<double> ());
     }
-    if (!row.at(Column::MagnitudeType).is_null())
+    if (!row.at(EventSummaryColumn::MagnitudeType).is_null())
     {
         const auto magnitudeType
-            = ::toMagnitudeType(row.at(Column::MagnitudeType)
+            = ::toMagnitudeType(row.at(EventSummaryColumn::MagnitudeType)
                                    .as<std::string> ());
         if (magnitudeType != std::nullopt)
         {
             eventSummary.setMagnitudeType(*magnitudeType);
         }
     }
-    if (!row.at(Column::Credit).is_null())
+    if (!row.at(EventSummaryColumn::Credit).is_null())
     {
-        eventSummary.setCredit(row.at(Column::Credit).as<std::string> ());
+        eventSummary.setCredit(row.at(EventSummaryColumn::Credit).as<std::string> ());
     }
     return eventSummary;
 }
+
+/// @brief Turns one row into an Origin, WITHOUT its arrivals.
+/// @note The arrivals are the caller's job.  One row is one (origin,
+///       arrival) pair, so an origin's picks are spread over as many rows
+///       as it has picks and no single row can fill them in.  readEvent
+///       walks those rows and hands the finished set to setArrivals.
+/// @note Marked preferred by comparing this origin against the event's
+///       prefor, which is the only place that fact is recorded.
+[[nodiscard]] Origin readOrigin(const pqxx::row_ref &row)
+{
+    Origin origin;
+    const auto identifier = row.at("origin_identifier").as<std::int64_t> ();
+    origin.setIdentifier(identifier);
+    origin.setLatitude(row.at("latitude").as<double> ());
+    origin.setLongitude(row.at("longitude").as<double> ());
+    if (!row.at("depth_km").is_null())
+    {
+        // AQMS stores depth in kilometers - its CHECK runs from -10 to
+        // 1000 - and the model works in meters.
+        origin.setDepth(row.at("depth_km").as<double> ()*1.e3);
+    }
+    const auto originTimeNanoSeconds
+        = static_cast<std::int64_t>
+          (std::round(row.at("origin_time").as<double> ()*1.e9));
+    origin.setTime(std::chrono::nanoseconds {originTimeNanoSeconds});
+    if (!row.at("geographic_type").is_null())
+    {
+        origin.setGeographicType(
+            ::toGeographicType(row.at("geographic_type").as<std::string> ()));
+    }
+    if (!row.at("origin_review_flag").is_null())
+    {
+        origin.setReviewStatus(
+            ::toReviewStatus(row.at("origin_review_flag").as<std::string> ()));
+    }
+    // Not preferred until the event says so.  A NULL prefor leaves every
+    // origin unpreferred, which readEvent notices and reports rather than
+    // guessing.
+    origin.setNotPreferred();
+    if (!row.at("preferred_origin_identifier").is_null())
+    {
+        if (row.at("preferred_origin_identifier").as<std::int64_t> ()
+            == identifier)
+        {
+            origin.setIsPreferred();
+        }
+    }
+    return origin;
+}
+
+Arrival readArrival(const pqxx::row_ref &row)
+{
+    Arrival arrival;
+    arrival.setIdentifier(row.at("arrival_identifier").as<int64_t> ());
+
+    auto arrivalTime
+        = static_cast<int64_t>
+          (std::round(row.at("arrival_time").as<double> ()*1.e9)); 
+    arrival.setTime(std::chrono::nanoseconds {arrivalTime});
+    StreamIdentifier streamIdentifier;
+    streamIdentifier.setNetwork(row.at("network").as<std::string> ());
+    streamIdentifier.setStation(row.at("station").as<std::string> ());
+    streamIdentifier.setChannel(row.at("channel").as<std::string> ());
+    streamIdentifier.setLocationCode(
+        row.at("location_code").as<std::string> ());
+    arrival.setStreamIdentifier(std::move(streamIdentifier));
+
+    if (!row.at("quality").is_null())
+    {
+        arrival.setQuality(row["quality"].as<double> ());
+    }
+    if (!row.at("arrival_review_flag").is_null())
+    {
+        arrival.setReviewStatus(
+            ::toArrivalReviewStatus(
+               row["arrival_review_flag"].as<std::string> ()
+            )
+        );
+    }
+    if (!row.at("phase").is_null())
+    {
+        arrival.setPhase(::toPhase(row.at("phase").as<std::string> ()));
+    }
+    // The three below come from assocaro rather than arrival: they
+    // describe this pick's association with THIS origin, so the same pick
+    // on another origin carries different ones.
+    if (!row.at("residual").is_null())
+    {
+        const auto residualNanoSeconds
+            = static_cast<std::int64_t>
+              (std::round(row.at("residual").as<double> ()*1.e9));
+        arrival.setResidual(std::chrono::nanoseconds {residualNanoSeconds});
+    }
+    if (!row.at("source_receiver_distance").is_null())
+    {
+        arrival.setSourceReceiverDistance(
+            row.at("source_receiver_distance").as<double> ());
+    }
+    if (!row.at("source_receiver_azimuth").is_null())
+    {
+        arrival.setSourceReceiverAzimuth(
+            row.at("source_receiver_azimuth").as<double> ());
+    }
+    return arrival;
+}
+
+/// @brief Assembles one event from the rows of
+///        EVENT_AND_ORIGIN_INFORMATION_QUERY.
+///
+/// One row is one (origin, arrival) pair, so an origin with n picks
+/// occupies n rows and an origin with none still occupies one - with its
+/// arrival columns null, because the join is an outer one.  The origin
+/// columns repeat identically down every row of a group, which is why the
+/// origin is parsed once per group rather than once per row: watch
+/// origin_identifier, and when it changes, the previous origin is complete.
+///
+/// This depends on the query's ORDER BY keeping a group's rows together.
+/// If that is ever dropped the same origin arrives in two pieces, and
+/// setOrigins refuses a duplicate identifier rather than quietly building
+/// a wrong event.
+///
+/// @throws std::runtime_error if the rows carry no origin at all - an
+///         event with no origin has no location, and there is nothing to
+///         review.
+[[nodiscard]] Event readEvent(
+    const pqxx::result &rows,
+    std::map<std::int64_t,
+             std::vector<std::unique_ptr<IMagnitude>>> &&magnitudesByOrigin,
+    spdlog::logger *logger)
+{
+    if (rows.empty())
+    {
+        throw std::runtime_error("No rows to build an event from");
+    }
+    Event event;
+    // The event columns repeat down every row, so the first will do.
+    const auto &firstRow = rows.front();
+    event.setIdentifier(firstRow.at("event_identifier").as<std::int64_t> ());
+    event.setVersion(firstRow.at("version").as<int> ());
+    const auto eventType = firstRow.at("event_type").as<std::string> ();
+    try
+    {
+        event.setEventType(::toEventType(eventType));
+    }
+    catch (const std::exception &)
+    {
+        // Unknown rather than fatal, the same way the catalog handles it:
+        // an event type nobody has taught this about is still an event.
+        SPDLOG_LOGGER_WARN(logger, "Unhandled event type {}", eventType);
+        event.setEventType(Event::EventType::Unknown);
+    }
+
+    std::vector<Origin> origins;
+    std::vector<Arrival> arrivals;
+    Origin currentOrigin;
+    std::optional<std::int64_t> currentIdentifier;
+    const auto flushOrigin
+        = [&]()
+          {
+              if (!currentIdentifier){return;}
+              if (!arrivals.empty())
+              {
+                  currentOrigin.setArrivals(std::move(arrivals));
+                  arrivals.clear();
+              }
+              const auto found = magnitudesByOrigin.find(*currentIdentifier);
+              if (found != magnitudesByOrigin.end() && !found->second.empty())
+              {
+                  try
+                  {
+                      currentOrigin.setMagnitudes(std::move(found->second));
+                  }
+                  catch (const std::exception &e)
+                  {
+                      // setMagnitudes refuses a set with no preferred
+                      // magnitude, which is what an origin whose prefmag is
+                      // null or points outside its own magnitudes gives.
+                      // The origin itself is still good - it has a position
+                      // and a time - so it goes on without them rather than
+                      // taking the whole event down with it.
+                      SPDLOG_LOGGER_WARN(
+                          logger,
+                          "Dropping the magnitudes on origin {} because {}",
+                          *currentIdentifier, std::string {e.what()});
+                  }
+              }
+              origins.push_back(std::move(currentOrigin));
+          };
+
+    for (const auto &row : rows)
+    {
+        // The outer join gives an event with no origins a single row of
+        // nulls; there is nothing to group.
+        if (row.at("origin_identifier").is_null()){continue;}
+        const auto identifier
+            = row.at("origin_identifier").as<std::int64_t> ();
+        if (!currentIdentifier || *currentIdentifier != identifier)
+        {
+            flushOrigin();
+            currentOrigin = ::readOrigin(row);
+            currentIdentifier = identifier;
+        }
+        // Null for an origin whose picks are not associated yet, and for
+        // one whose every pick was associated at zero weight.
+        if (row.at("arrival_identifier").is_null()){continue;}
+        try
+        {
+            arrivals.push_back(::readArrival(row));
+        }
+        catch (const std::exception &e)
+        {
+            // One unreadable pick must not cost the analyst the origin it
+            // hangs off, let alone the other origins.
+            SPDLOG_LOGGER_WARN(logger,
+                               "Skipping an arrival on origin {} because {}",
+                               identifier, std::string {e.what()});
+        }
+    }
+    flushOrigin();
+
+    if (origins.empty())
+    {
+        throw std::runtime_error(
+            "Event " + std::to_string(event.getIdentifier())
+          + " has no origins");
+    }
+    // setOrigins insists on exactly one preferred origin and refuses the
+    // whole set otherwise, so an event whose prefor is null or names an
+    // origin that is not here would be unreadable.  Naming the problem
+    // beats letting setOrigins report it as a count.
+    const auto nPreferred
+        = std::count_if(origins.begin(), origins.end(),
+                        [](const Origin &origin)
+                        {
+                            return origin.isPreferred();
+                        });
+    if (nPreferred != 1)
+    {
+        throw std::runtime_error(
+            "Event " + std::to_string(event.getIdentifier()) + " has "
+          + std::to_string(nPreferred) + " preferred origins out of "
+          + std::to_string(origins.size())
+          + " - event.prefor is null or names an origin this query did "
+            "not return");
+    }
+    event.setOrigins(std::move(origins));
+    // After the origins, because Event resolves this against them.  Left
+    // unset when AQMS has no preferred magnitude for the event, which is
+    // ordinary for one nobody has sized yet.
+    if (!firstRow.at("preferred_magnitude_identifier").is_null())
+    {
+        event.setPreferredMagnitudeIdentifier(
+            firstRow.at("preferred_magnitude_identifier").as<std::int64_t> ());
+        if (!event.hasPreferredMagnitude())
+        {
+            // Not fatal, but worth saying out loud: the event names a
+            // preferred magnitude no origin here carries, so
+            // preferredMagnitude() will throw for whoever asks next.
+            SPDLOG_LOGGER_WARN(
+                logger,
+                "Event {} names preferred magnitude {} which none of its "
+                "origins holds",
+                event.getIdentifier(),
+                event.getPreferredMagnitudeIdentifier());
+        }
+    }
+    return event;
+}
+
 
 }
 
@@ -588,6 +1192,85 @@ namespace
     return result;
 }
 
+}
+
+std::optional<Event>
+AQMSDutyReviewBackend::Database::AQMS::queryEvent(
+    const DB::Client &client,
+    const std::int64_t eventIdentifier,
+    spdlog::logger *logger)
+{
+    std::optional<Event> result;
+    client.execute(
+        [&](pqxx::connection &connection)
+        {
+            // ONE transaction for both statements.  The second is keyed on
+            // origin identifiers the first returned, so run separately a
+            // relocation landing in between would leave magnitudes for an
+            // origin that is not in hand - or an origin whose magnitudes
+            // had just been replaced.  Inside one transaction both read
+            // the same snapshot and cannot disagree.
+            pqxx::work transaction(connection);
+            const auto originRows
+                = transaction.exec(::EVENT_AND_ORIGIN_INFORMATION_QUERY,
+                                   pqxx::params{eventIdentifier});
+            if (originRows.empty())
+            {
+                // No such event.  Not an error - a client may ask about an
+                // identifier that has since been merged away.
+                transaction.commit();
+                result = std::nullopt;
+                return;
+            }
+
+            // The origin identifiers, to ask netmag about.  Taken straight
+            // off the rows rather than from the parsed origins, because
+            // the magnitudes have to be in hand BEFORE readEvent builds
+            // them - Origin::setMagnitudes is how they get attached.
+            std::vector<std::int64_t> originIdentifiers;
+            for (const auto &row : originRows)
+            {
+                if (row.at("origin_identifier").is_null()){continue;}
+                const auto identifier
+                    = row.at("origin_identifier").as<std::int64_t> ();
+                if (originIdentifiers.empty() ||
+                    originIdentifiers.back() != identifier)
+                {
+                    // The query orders by orid, so equal identifiers are
+                    // adjacent and this is enough to make them distinct.
+                    originIdentifiers.push_back(identifier);
+                }
+            }
+
+            std::map<std::int64_t,
+                     std::vector<std::unique_ptr<IMagnitude>>> magnitudes;
+            if (!originIdentifiers.empty())
+            {
+                // A bigint[] literal - "{100,200}".  The values came out
+                // of the database as integers a moment ago, so there is
+                // nothing here to quote, and it still travels as a bound
+                // parameter rather than as text spliced into the SQL.
+                std::string array{"{"};
+                for (std::size_t i = 0; i < originIdentifiers.size(); ++i)
+                {
+                    if (i > 0){array += ",";}
+                    array += std::to_string(originIdentifiers.at(i));
+                }
+                array += "}";
+                magnitudes
+                    = ::readMagnitudes(
+                          transaction.exec(::NETMAG_QUERY,
+                                           pqxx::params{array}),
+                          logger);
+            }
+
+            auto event = ::readEvent(originRows, std::move(magnitudes),
+                                     logger);
+            transaction.commit();
+            result = std::move(event);
+        },
+        ::EVENT_AND_ORIGIN_INFORMATION_QUERY);
+    return result;
 }
 
 std::vector<EventSummary>

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -11,6 +12,7 @@
 #include <utility>
 #include <vector>
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/magnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/arrival.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
 
@@ -28,10 +30,64 @@ constexpr double minimumDepth{-10000};
 constexpr double maximumDepth{1000000};
 }
 
+namespace
+{
+/// @brief Deep-copies magnitudes held by unique_ptr.
+/// @note IMagnitude is abstract and the vector is move-only, so a copy has
+///       to go through clone() to keep the derived type.
+[[nodiscard]] std::vector<std::unique_ptr<AQMSDutyReviewBackend::Database::AQMS::IMagnitude>>
+cloneMagnitudes(
+    const std::vector<std::unique_ptr<AQMSDutyReviewBackend::Database::AQMS::IMagnitude>> &magnitudes)
+{
+    std::vector<std::unique_ptr<AQMSDutyReviewBackend::Database::AQMS::IMagnitude>> result;
+    result.reserve(magnitudes.size());
+    for (const auto &magnitude : magnitudes)
+    {
+        result.push_back(magnitude ? magnitude->clone() : nullptr);
+    }
+    return result;
+}
+}
+
 class Origin::OriginImpl
 {
 public:
+    OriginImpl() = default;
+    OriginImpl(const OriginImpl &impl){*this = impl;}
+    OriginImpl(OriginImpl &&impl) noexcept = default;
+    /// The magnitudes are held by unique_ptr (move-only) so the copy must
+    /// clone each element to preserve value semantics for Origin.
+    /// @warning Every member is named here by hand.  A member added below
+    ///          and not added here is silently dropped by every copy - so
+    ///          adding one means editing this too.
+    OriginImpl& operator=(const OriginImpl &impl)
+    {
+        if (&impl == this){return *this;}
+        mArrivals = impl.mArrivals;
+        mMagnitudes = ::cloneMagnitudes(impl.mMagnitudes);
+        mCredit = impl.mCredit;
+        mTime = impl.mTime;
+        mIdentifier = impl.mIdentifier;
+        mLatitude = impl.mLatitude;
+        mLongitude = impl.mLongitude;
+        mDepth = impl.mDepth;
+        mGeographicType = impl.mGeographicType;
+        mReviewStatus = impl.mReviewStatus;
+        mHasIdentifier = impl.mHasIdentifier;
+        mHasLatitude = impl.mHasLatitude;
+        mHasLongitude = impl.mHasLongitude;
+        mHasDepth = impl.mHasDepth;
+        mHasTime = impl.mHasTime;
+        mHasGeographicType = impl.mHasGeographicType;
+        mHasReviewStatus = impl.mHasReviewStatus;
+        mPreferred = impl.mPreferred;
+        return *this;
+    }
+    OriginImpl& operator=(OriginImpl &&impl) noexcept = default;
+    ~OriginImpl() = default;
+
     std::vector<Arrival> mArrivals;
+    std::vector<std::unique_ptr<IMagnitude>> mMagnitudes;
     std::optional<std::string> mCredit;
     std::chrono::nanoseconds mTime{0};
     int64_t mIdentifier{0};
@@ -413,3 +469,82 @@ const Arrival& Origin::operator[](size_t pos) const
     return pImpl->mArrivals[pos];
 }
 
+/// Magnitudes
+void Origin::setMagnitudes(
+    const std::vector<std::unique_ptr<IMagnitude>> &magnitudes)
+{
+    auto copy = ::cloneMagnitudes(magnitudes);
+    setMagnitudes(std::move(copy));
+}
+
+void Origin::setMagnitudes(std::vector<std::unique_ptr<IMagnitude>> &&magnitudes)
+{
+    if (magnitudes.empty())
+    {
+        throw std::invalid_argument("There must be at least one magnitude");
+    }
+    std::vector<IMagnitude::Type> seenTypes;
+    seenTypes.reserve(magnitudes.size());
+    for (const auto &magnitude : magnitudes)
+    {
+        if (magnitude == nullptr)
+        {
+            throw std::invalid_argument("A magnitude is null");
+        }
+        const auto type = magnitude->getType();
+        if (std::find(seenTypes.begin(), seenTypes.end(), type)
+            != seenTypes.end())
+        {
+            throw std::invalid_argument("Two magnitudes share the same type");
+        }
+        seenTypes.push_back(type);
+    }
+    const auto nPreferred
+        = std::count_if(magnitudes.begin(), magnitudes.end(),
+                        [](const std::unique_ptr<IMagnitude> &magnitude)
+                        {
+                            return magnitude->isPreferred();
+                        });
+    if (nPreferred != 1)
+    {
+        throw std::invalid_argument(
+            "There must be exactly one preferred magnitude - received "
+          + std::to_string(nPreferred) + " preferred out of "
+          + std::to_string(magnitudes.size()) + " magnitudes provided");
+    }
+    pImpl->mMagnitudes = std::move(magnitudes);
+}
+
+bool Origin::hasMagnitudes() const noexcept
+{
+    return !pImpl->mMagnitudes.empty();
+}
+
+std::vector<std::unique_ptr<IMagnitude>> Origin::getMagnitudes() const
+{
+    if (!hasMagnitudes()){throw std::runtime_error("Magnitudes not set");}
+    return ::cloneMagnitudes(pImpl->mMagnitudes);
+}
+
+std::span<const std::unique_ptr<IMagnitude>> Origin::magnitudes() const &
+{
+    if (!hasMagnitudes()){throw std::runtime_error("Magnitudes not set");}
+    return pImpl->mMagnitudes;
+}
+
+std::unique_ptr<IMagnitude> Origin::getPreferredMagnitude() const
+{
+    return preferredMagnitude().clone();
+}
+
+const IMagnitude &Origin::preferredMagnitude() const &
+{
+    if (!hasMagnitudes()){throw std::runtime_error("Magnitudes not set");}
+    for (const auto &magnitude : pImpl->mMagnitudes)
+    {
+        if (magnitude->isPreferred()){return *magnitude;}
+    }
+    // setMagnitudes guarantees a preferred magnitude exists, so this is
+    // unreachable in practice.
+    throw std::runtime_error("No preferred magnitude");
+}

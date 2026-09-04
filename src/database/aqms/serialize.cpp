@@ -6,6 +6,7 @@
 #include <boost/json/serialize.hpp>
 #include <boost/json/value.hpp>
 #include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/arrival.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/event.hpp"
@@ -84,6 +85,258 @@ namespace
     return "unknown";
 }
 
+[[nodiscard]] std::string toString(const IMagnitude::ReviewStatus status)
+{
+    switch (status)
+    {
+    case IMagnitude::ReviewStatus::Automatic: return "automatic";
+    case IMagnitude::ReviewStatus::Human:     return "human";
+    }
+    return "automatic";
+}
+
+[[nodiscard]] std::string toString(const Arrival::Phase phase)
+{
+    switch (phase)
+    {
+    case Arrival::Phase::P: return "P";
+    case Arrival::Phase::S: return "S";
+    }
+    return "P";
+}
+
+[[nodiscard]] std::string toString(const Arrival::ReviewStatus status)
+{
+    switch (status)
+    {
+    case Arrival::ReviewStatus::Automatic: return "automatic";
+    case Arrival::ReviewStatus::Human:     return "human";
+    case Arrival::ReviewStatus::Finalized: return "finalized";
+    }
+    return "automatic";
+}
+
+/// @brief Serializes one pick.
+[[nodiscard]] boost::json::object arrivalToJSON(const Arrival &arrival)
+{
+    boost::json::object item;
+    if (arrival.hasIdentifier())
+    {
+        item["arrivalIdentifier"] = arrival.getIdentifier();
+    }
+    if (arrival.hasStreamIdentifier())
+    {
+        const auto streamIdentifier = arrival.getStreamIdentifier();
+        if (streamIdentifier.hasNetwork())
+        {
+            item["network"] = streamIdentifier.getNetwork();
+        }
+        if (streamIdentifier.hasStation())
+        {
+            item["station"] = streamIdentifier.getStation();
+        }
+        if (streamIdentifier.hasChannel())
+        {
+            item["channel"] = streamIdentifier.getChannel();
+        }
+        // A location code is legitimately blank - "--" in SEED - so an
+        // empty string here is a value and not an absence.
+        if (streamIdentifier.hasLocationCode())
+        {
+            item["locationCode"] = streamIdentifier.getLocationCode();
+        }
+    }
+    if (arrival.hasTime())
+    {
+        item["arrivalTime"] = arrival.getTime().count();
+    }
+    if (arrival.hasPhase())
+    {
+        item["phase"] = ::toString(arrival.getPhase());
+    }
+    if (arrival.hasReviewStatus())
+    {
+        item["reviewStatus"] = ::toString(arrival.getReviewStatus());
+    }
+    if (const auto quality = arrival.getQuality(); quality)
+    {
+        item["quality"] = *quality;
+    }
+    // The three below describe this pick's association with THIS origin
+    // rather than the pick itself, so the same arrival under another
+    // origin carries different ones.
+    if (arrival.hasResidual())
+    {
+        item["residual"] = arrival.getResidual().count();
+    }
+    if (const auto distance = arrival.getSourceReceiverDistance(); distance)
+    {
+        item["sourceReceiverDistance"] = *distance;
+    }
+    if (const auto azimuth = arrival.getSourceReceiverAzimuth(); azimuth)
+    {
+        item["sourceReceiverAzimuth"] = *azimuth;
+    }
+    return item;
+}
+
+/// @brief Serializes one magnitude.
+[[nodiscard]] boost::json::object magnitudeToJSON(const IMagnitude &magnitude)
+{
+    boost::json::object item;
+    if (magnitude.hasIdentifier())
+    {
+        item["magnitudeIdentifier"] = magnitude.getIdentifier();
+    }
+    item["magnitudeType"] = ::toString(magnitude.getType());
+    if (magnitude.hasValue())
+    {
+        item["magnitude"] = magnitude.getValue();
+    }
+    if (magnitude.hasReviewStatus())
+    {
+        item["reviewStatus"] = ::toString(magnitude.getReviewStatus());
+    }
+    return item;
+}
+
+/// @brief Serializes one origin.
+/// @param[in] withArrivals  Whether to write its picks out.  False trims
+///                          them and nothing else - the origin keeps
+///                          everything a client needs to list it beside
+///                          the preferred solution.
+[[nodiscard]] boost::json::object originToJSON(const Origin &origin,
+                                               const bool withArrivals)
+{
+    boost::json::object item;
+    if (origin.hasIdentifier())
+    {
+        item["originIdentifier"] = origin.getIdentifier();
+    }
+    // Says the same thing as the event's preferredOriginIdentifier, and is
+    // here anyway: a client rendering a list of origins asks this question
+    // per origin, and doing it by identifier comparison at every row is
+    // work for no reason.  Unambiguous in a way the same flag on a
+    // MAGNITUDE would not be - an origin is preferred or not, full stop,
+    // whereas a magnitude can be its origin's preferred one without being
+    // the event's, which is why magnitudes keep the identifier form.
+    item["isPreferred"] = origin.isPreferred();
+    if (origin.hasLatitude()){item["latitude"] = origin.getLatitude();}
+    if (origin.hasLongitude()){item["longitude"] = origin.getLongitude();}
+    // Meters, as the model holds it - AQMS stores kilometers and the
+    // reader converts on the way in.  Absent when the solution's depth
+    // never converged; origin.depth is nullable.
+    if (origin.hasDepth()){item["depth"] = origin.getDepth();}
+    if (origin.hasTime())
+    {
+        item["originTime"] = origin.getTime().count();
+    }
+    if (origin.hasGeographicType())
+    {
+        item["geographicType"] = ::toString(origin.getGeographicType());
+    }
+    if (origin.hasReviewStatus())
+    {
+        item["reviewStatus"] = ::toString(origin.getReviewStatus());
+    }
+    if (const auto credit = origin.getCredit(); credit)
+    {
+        item["credit"] = *credit;
+    }
+
+    boost::json::array magnitudesJSON;
+    if (origin.hasMagnitudes())
+    {
+        const auto magnitudes = origin.magnitudes();
+        magnitudesJSON.reserve(magnitudes.size());
+        for (const auto &magnitude : magnitudes)
+        {
+            if (magnitude == nullptr){continue;}
+            // This origin's own preferred magnitude - origin.prefmag.  It
+            // need not be the event's; see the note on toJSON(Event).
+            if (magnitude->isPreferred() && magnitude->hasIdentifier())
+            {
+                item["preferredMagnitudeIdentifier"]
+                    = magnitude->getIdentifier();
+            }
+            magnitudesJSON.push_back(::magnitudeToJSON(*magnitude));
+        }
+    }
+    item["magnitudes"] = std::move(magnitudesJSON);
+
+    // Always, whether or not the arrivals themselves are written.  A
+    // trimmed origin still says how many picks it has, so a client can
+    // show "47 picks" and decide whether to go and ask for them.
+    item["arrivalCount"] = static_cast<std::int64_t> (origin.size());
+    if (withArrivals)
+    {
+        boost::json::array arrivalsJSON;
+        const auto arrivals = origin.getArrivals();
+        arrivalsJSON.reserve(arrivals.size());
+        for (const auto &arrival : arrivals)
+        {
+            arrivalsJSON.push_back(::arrivalToJSON(arrival));
+        }
+        // Present even when empty: an origin whose picks are not
+        // associated yet is a real origin, and the frontend should iterate
+        // without a special case.
+        item["arrivals"] = std::move(arrivalsJSON);
+    }
+    // Deliberately no "arrivals": [] in the other branch.  An empty array
+    // would say this origin has no picks, which is a different claim from
+    // "you did not ask for them" - and the difference is a hundred picks.
+    return item;
+}
+
+}
+
+boost::json::object
+AQMSDutyReviewBackend::Database::AQMS::toJSON(const Event &event,
+                                              const OriginDetail detail)
+{
+    boost::json::object result;
+    if (event.hasIdentifier())
+    {
+        result["eventIdentifier"] = event.getIdentifier();
+    }
+    if (event.hasEventType())
+    {
+        result["eventType"] = ::toString(event.getEventType());
+    }
+    result["version"] = event.getVersion();
+    // Named by identifier rather than repeated as a second copy of the
+    // object - the origin is already in the array below.
+    if (event.hasOrigins() && event.preferredOrigin().hasIdentifier())
+    {
+        result["preferredOriginIdentifier"]
+            = event.preferredOrigin().getIdentifier();
+    }
+    // event.prefmag.  Emitted even when no origin carries it: the client
+    // then sees an identifier it cannot resolve, which is the truth, and
+    // readEvent has already logged the oddity.
+    if (event.hasPreferredMagnitudeIdentifier())
+    {
+        result["preferredMagnitudeIdentifier"]
+            = event.getPreferredMagnitudeIdentifier();
+    }
+
+    boost::json::array originsJSON;
+    if (event.hasOrigins())
+    {
+        const auto origins = event.origins();
+        originsJSON.reserve(origins.size());
+        for (const auto &origin : origins)
+        {
+            // The preferred origin keeps its arrivals whatever was asked
+            // for - it is the solution the screen is about, and a trimmed
+            // one would leave nothing to review.
+            const auto withArrivals
+                = (detail == OriginDetail::AllOrigins) || origin.isPreferred();
+            originsJSON.push_back(::originToJSON(origin, withArrivals));
+        }
+    }
+    result["origins"] = std::move(originsJSON);
+    return result;
 }
 
 std::pair<boost::json::object, std::string>
