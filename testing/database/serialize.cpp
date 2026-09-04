@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <stdexcept>
 #include <algorithm>
 #include <chrono>
 #include <string>
@@ -11,6 +12,7 @@
 #include <catch2/catch_approx.hpp>
 #include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/event.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/magnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
@@ -217,5 +219,77 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS", "[serialize][catalogHash]")
         const auto [catalog, hash] = toJSON(std::vector<EventSummary> {});
         REQUIRE(!hash.empty());
         REQUIRE(toJSON(std::vector<EventSummary> {}).second != std::string {});
+    }
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS", "[serialize][eventLocks]")
+{
+    SECTION("An empty list serializes to an array, not null")
+    {
+        const auto locks = toJSON(std::vector<EventLock> {});
+        REQUIRE(locks.is_array());
+        REQUIRE(locks.as_array().empty());
+    }
+    SECTION("A lock carries who holds it and since when")
+    {
+        EventLock lock;
+        lock.setEventIdentifier(31151051);
+        lock.setUser("bbaker");
+        lock.setAcquisitionTime("2026-09-04T20:43:26Z");
+        const auto locks = toJSON(std::vector<EventLock> {lock});
+        const auto &item = locks.as_array().at(0).as_object();
+        REQUIRE(item.at("eventIdentifier").as_int64() == 31151051);
+        REQUIRE(item.at("user").as_string() == "bbaker");
+        REQUIRE(item.at("acquiredAt").as_string() == "2026-09-04T20:43:26Z");
+    }
+    SECTION("A lock with no lddate has no acquiredAt key")
+    {
+        // Absent rather than null - the same convention the catalog uses
+        // for anything AQMS had nothing to say about.
+        EventLock lock;
+        lock.setEventIdentifier(31151053);
+        lock.setUser("jsmith");
+        const auto locks = toJSON(std::vector<EventLock> {lock});
+        const auto &item = locks.as_array().at(0).as_object();
+        REQUIRE(!item.contains("acquiredAt"));
+        // Still a lock, and still reported as held.
+        REQUIRE(item.at("user").as_string() == "jsmith");
+    }
+    SECTION("acquiredAt is the shape a browser can parse")
+    {
+        // The format is produced in SQL, so this cannot check the
+        // conversion - but it can hold the contract the query is written
+        // against, which is the same RFC 3339 UTC shape list_users emits.
+        // The 'T' and the 'Z' are both load-bearing: Javascript's Date
+        // rejects "2026-09-04T20:43:26-06" and accepts this.
+        EventLock lock;
+        lock.setEventIdentifier(1);
+        lock.setUser("bbaker");
+        lock.setAcquisitionTime("2026-09-04T20:43:26Z");
+        const auto acquired
+            = toJSON(std::vector<EventLock> {lock})
+                  .as_array().at(0).as_object().at("acquiredAt").as_string();
+        const std::string text{acquired.c_str()};
+        REQUIRE(text.size() == 20);
+        REQUIRE(text.at(10) == 'T');
+        REQUIRE(text.back() == 'Z');
+        REQUIRE(text.find('+') == std::string::npos);
+    }
+    SECTION("An empty acquisition time is refused rather than stored")
+    {
+        EventLock lock;
+        REQUIRE_THROWS_AS(lock.setAcquisitionTime(""), std::invalid_argument);
+        REQUIRE(!lock.hasAcquisitionTime());
+        REQUIRE_THROWS_AS(lock.getAcquisitionTime(), std::runtime_error);
+    }
+    SECTION("Acquisition time survives a copy")
+    {
+        EventLock lock;
+        lock.setEventIdentifier(7);
+        lock.setUser("bbaker");
+        lock.setAcquisitionTime("2026-09-04T20:43:26Z");
+        const EventLock copy{lock};
+        REQUIRE(copy.hasAcquisitionTime());
+        REQUIRE(copy.getAcquisitionTime() == "2026-09-04T20:43:26Z");
     }
 }

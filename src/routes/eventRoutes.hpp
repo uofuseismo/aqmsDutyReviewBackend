@@ -33,7 +33,7 @@ inline void registerEventRoutes(crow::SimpleApp &app,
             // Never cached: a lock's whole purpose is to say who is
             // working an event right now, and a cached answer would be
             // exactly the stale one that puts two analysts on one event.
-            const auto locks = context.aqmsDatabase->getLockedEvents();
+            const auto locks = context.aqmsDatabase->getLockedEvents(context.catalogDuration);
             if (!locks)
             {
                 SPDLOG_LOGGER_ERROR(context.logger,

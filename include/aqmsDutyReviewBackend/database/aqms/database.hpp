@@ -123,7 +123,15 @@ public:
     ///       is showing: locked and mine, indicate it; not mine, ignore it.
     /// @note A lock with no user name recorded comes back as "unknown"
     ///       rather than being dropped - it is still a lock.
-    [[nodiscard]] auto getLockedEvents() const -> std::expected<std::vector<EventLock>, QueryError>;
+    /// @param[in] catalogDuration  How far back the catalog reaches.
+    ///                             Locks older than this window, plus a
+    ///                             tolerance, are left out - they belong
+    ///                             to events the caller is not showing.
+    ///                             Pass the same duration used for
+    ///                             getCatalog.
+    [[nodiscard]] auto getLockedEvents(
+        const std::chrono::seconds &catalogDuration) const
+        -> std::expected<std::vector<EventLock>, QueryError>;
 
     /// @brief Fetches the waveforms for an event.
     /// @warning Declared but not yet implemented - there is no query yet

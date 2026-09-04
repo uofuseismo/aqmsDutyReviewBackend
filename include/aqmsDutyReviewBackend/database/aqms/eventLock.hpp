@@ -47,6 +47,25 @@ public:
     /// @result True indicates the user was set.
     [[nodiscard]] bool hasUser() const noexcept;
 
+    /// @brief Sets when the lock was taken.
+    /// @param[in] acquisitionTime  The instant, already formatted as
+    ///                             RFC 3339 UTC to whole seconds -
+    ///                             "2026-09-04T20:43:26Z".
+    /// @note A string rather than a chrono type because the formatting is
+    ///       done in SQL, where the column's type is known.  See
+    ///       eventLockQueries.cpp for why that is not a detail that can
+    ///       safely be moved into C++.
+    /// @throws std::invalid_argument if the time is empty.
+    void setAcquisitionTime(const std::string &acquisitionTime);
+    /// @result When the lock was taken.
+    /// @throws std::runtime_error if \c hasAcquisitionTime() is false.
+    [[nodiscard]] std::string getAcquisitionTime() const;
+    /// @result True indicates the acquisition time was set.
+    /// @note jasieventlock.lddate is nullable, and a lock with no
+    ///       acquisition time is still a lock - the event is held, we
+    ///       just cannot say since when.
+    [[nodiscard]] bool hasAcquisitionTime() const noexcept;
+
     /// @brief Destructor.
     ~EventLock();
     /// @brief Copy assignment.

@@ -182,6 +182,12 @@ AQMSDutyReviewBackend::Database::AQMS::toJSON(
         {
             item["user"] = lock.getUser();
         }
+        // Absent rather than null when jasieventlock had no lddate - the
+        // same convention the catalog uses for a column AQMS left empty.
+        if (lock.hasAcquisitionTime())
+        {
+            item["acquiredAt"] = lock.getAcquisitionTime();
+        }
         result.push_back(std::move(item));
     }
     return result;
