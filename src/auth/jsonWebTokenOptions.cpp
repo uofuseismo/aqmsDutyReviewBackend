@@ -93,6 +93,12 @@ void JSONWebTokenOptions::setKeyPair(
     {
         throw std::invalid_argument("Private key is empty");
     }
+    // Catches the two halves being byte-identical, which is the most this
+    // can see: by the time a key reaches here it is wrapped in its own PEM
+    // armor, so the same key pasted into both fields arrives as two
+    // strings that differ in their header alone.  fromInitializationFile
+    // compares the bodies before wrapping them, which is where that case
+    // is actually caught.
     if (publicAndPrivateKey.first == publicAndPrivateKey.second)
     {
         throw std::invalid_argument("Public key cannot match private key");
@@ -126,6 +132,44 @@ bool JSONWebTokenOptions::hasKeyPair() const noexcept
 
 namespace
 {
+
+/// @brief Strips surrounding whitespace.
+/// @note Only so that comparing two keys is not defeated by a stray space
+///       at the end of an ini value.
+[[nodiscard]] std::string trim(const std::string &text)
+{
+    const auto first = text.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos){return std::string {};}
+    const auto last = text.find_last_not_of(" \t\r\n");
+    return text.substr(first, last - first + 1);
+}
+
+/// @brief Refuses a key pair that is the same key twice.
+/// @note Compared BEFORE the PEM armor goes on.  setKeyPair makes this
+///       check too, but by then the public half is wrapped in
+///       "BEGIN PUBLIC KEY" and the private half in "BEGIN PRIVATE KEY",
+///       so the same body pasted into both fields produces two strings
+///       that differ and it sees nothing wrong.  Here the two are still
+///       bare base64 and a duplicate is obvious.
+///
+/// @note Worth catching precisely rather than letting it through: the
+///       result is a private key whose contents are a public key, which
+///       fails inside OpenSSL as "bio read failed" - at the first login
+///       attempt, not at startup, and naming neither the key nor the
+///       cause.
+void throwIfKeysAreIdentical(const std::string &publicKey,
+                             const std::string &privateKey,
+                             const std::string &source)
+{
+    if (::trim(publicKey) == ::trim(privateKey))
+    {
+        throw std::invalid_argument(
+            "The public and private key in " + source + " are the same "
+            "value - one of them has been pasted over the other.  The "
+            "public key cannot sign and the private key cannot be "
+            "published; they are different keys.");
+    }
+}
 
 [[nodiscard]] std::string loadStringFromFile(const std::filesystem::path &path)
 {
@@ -208,6 +252,8 @@ JSONWebTokenOptions JSONWebTokenOptions::fromInitializationFile(
             {
                 throw std::invalid_argument("jwtPrivateKey is empty");
             }
+            ::throwIfKeysAreIdentical(*publicKey, *privateKey,
+                                      "jwtPublicKey and jwtPrivateKey");
             auto publicKeyText
                  = "-----BEGIN PUBLIC KEY-----\n"
                  + *publicKey + "\n"
@@ -234,6 +280,15 @@ JSONWebTokenOptions JSONWebTokenOptions::fromInitializationFile(
             }
             auto publicKeyText = ::loadStringFromFile(publicKeyFile);
             auto privateKeyText = ::loadStringFromFile(privateKeyFile); 
+            // Same mistake, one level up: the two settings pointed at one
+            // file.  Here the armor is whatever the files carry, so
+            // setKeyPair WOULD catch identical contents - but it would
+            // report it as a key pair problem rather than as two settings
+            // naming the same file, which is the thing to go and fix.
+            ::throwIfKeysAreIdentical(publicKeyText, privateKeyText,
+                                      "jwtPublicKeyFile (" + publicKeyFile
+                                    + ") and jwtPrivateKeyFile ("
+                                    + privateKeyFile + ")");
             result.setKeyPair(std::pair {publicKeyText, privateKeyText});
         }
     }

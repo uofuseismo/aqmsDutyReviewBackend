@@ -34,6 +34,37 @@ std::string loadKey(const std::string &fileName)
     return stream.str();
 }
 
+/// @brief The base64 body of a PEM, with the armor and newlines removed -
+///        which is the form the ini file carries a key in.
+std::string pemBody(const std::string &pem)
+{
+    std::string body;
+    std::istringstream stream{pem};
+    std::string line;
+    while (std::getline(stream, line))
+    {
+        if (line.rfind("-----", 0) == 0){continue;}
+        line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
+        body += line;
+    }
+    return body;
+}
+
+/// @brief Writes an ini naming an inline key pair and returns its path.
+std::filesystem::path writeKeyIni(const std::string &publicKey,
+                                  const std::string &privateKey,
+                                  const std::string &name)
+{
+    const auto path = std::filesystem::temp_directory_path()/name;
+    std::ofstream ini{path};
+    ini << "[Authentication]\n"
+        << "jwtSignatureAlgorithm = ed25519\n"
+        << "jwtPublicKey = " << publicKey << "\n"
+        << "jwtPrivateKey = " << privateKey << "\n";
+    ini.close();
+    return path;
+}
+
 /// @brief Options for an ed25519-signing authority.
 JSONWebTokenOptions makeSignedOptions()
 {
@@ -109,6 +140,65 @@ TEST_CASE("AQMSDutyReviewBackend::Auth::JSONWebTokenOptions",
         REQUIRE(options.hasKeyPair());
         REQUIRE(options.getKeyPair().first == publicKey);
         REQUIRE(options.getKeyPair().second == privateKey);
+    }
+}
+
+/// The same key pasted into both settings.  This is not hypothetical: it
+/// reaches OpenSSL as a private key whose contents are a public key, and
+/// the only sign of it is "bio read failed" thrown at the first login
+/// attempt - long after startup, naming neither the key nor the cause.
+///
+/// setKeyPair's own identical-keys check cannot see it.  By the time a key
+/// gets there the public half is wrapped in "BEGIN PUBLIC KEY" and the
+/// private half in "BEGIN PRIVATE KEY", so one body in both fields arrives
+/// as two strings that differ.  The comparison has to happen on the bodies.
+TEST_CASE("AQMSDutyReviewBackend::Auth::JSONWebTokenOptions rejects one key "
+          "used twice", "JSONWebTokenOptions")
+{
+    const auto publicBody = ::pemBody(::loadKey("ed25519-public-key.pem"));
+    const auto privateBody = ::pemBody(::loadKey("ed25519-private-key.pem"));
+    REQUIRE(!publicBody.empty());
+    REQUIRE(publicBody != privateBody);
+
+    SECTION("the private key pasted over the public one")
+    {
+        const auto ini = ::writeKeyIni(privateBody, privateBody,
+                                       "drpDuplicatePrivate.ini");
+        REQUIRE_THROWS_AS(
+            JSONWebTokenOptions::fromInitializationFile(ini, "Authentication"),
+            std::invalid_argument);
+        std::filesystem::remove(ini);
+    }
+    SECTION("the public key pasted over the private one")
+    {
+        const auto ini = ::writeKeyIni(publicBody, publicBody,
+                                       "drpDuplicatePublic.ini");
+        REQUIRE_THROWS_AS(
+            JSONWebTokenOptions::fromInitializationFile(ini, "Authentication"),
+            std::invalid_argument);
+        std::filesystem::remove(ini);
+    }
+    SECTION("a stray space does not defeat the check")
+    {
+        const auto ini = ::writeKeyIni(privateBody, privateBody + " ",
+                                       "drpDuplicateSpaced.ini");
+        REQUIRE_THROWS_AS(
+            JSONWebTokenOptions::fromInitializationFile(ini, "Authentication"),
+            std::invalid_argument);
+        std::filesystem::remove(ini);
+    }
+    SECTION("a genuine pair is accepted and signs")
+    {
+        // The other half of the check: it must not reject a real pair.
+        const auto ini = ::writeKeyIni(publicBody, privateBody,
+                                       "drpDistinctKeys.ini");
+        const auto options
+            = JSONWebTokenOptions::fromInitializationFile(ini,
+                                                          "Authentication");
+        REQUIRE(options.hasKeyPair());
+        const JSONWebToken authority{options, nullptr};
+        REQUIRE(!authority.createToken("bbaker").empty());
+        std::filesystem::remove(ini);
     }
 }
 

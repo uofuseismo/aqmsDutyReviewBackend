@@ -257,6 +257,11 @@ $$ LANGUAGE sql;
 --- Provisional ones are excluded because require_admin refuses them:
 --- counting them would let the last usable admin be removed on the
 --- strength of one who cannot log in.
+---
+--- Takes no locks, so the answer is already stale by the time a caller
+--- reads it.  Fine for showing a number; NOT the basis for deciding
+--- whether an administrator may be removed - see
+--- forbid_last_admin_removal, which counts under FOR UPDATE.
 CREATE OR REPLACE FUNCTION count_active_admins()
 RETURNS INTEGER AS $$
     SELECT count(*)::INTEGER FROM users
@@ -269,10 +274,52 @@ $$ LANGUAGE sql;
 --- Without this the database can be locked out of its own user
 --- management with a single ordinary-looking call, and the only way
 --- back in is a superuser session.
+---
+--- The FOR UPDATE is the whole point of this function, and it is not
+--- decoration.  Counting first and deleting second is safe only if
+--- nothing else removes an administrator in between, and two
+--- administrators on two browsers are exactly that: each counts two,
+--- each deletes a different one, both commit, nobody is left.  That is
+--- write skew, and it is the one anomaly snapshot isolation does NOT
+--- rule out - REPEATABLE READ permits it just as READ COMMITTED does.
+--- Measured on 18.4, both leave zero administrators.
+---
+--- Locking every activated administrator row, rather than only the one
+--- being removed, is what makes the two conflict: the second caller
+--- blocks on a row the first one holds even though it is removing a
+--- different person, and when it wakes it re-reads and sees the count
+--- it was going to be told about.  It then refuses, at the default
+--- READ COMMITTED, with no retry loop anywhere.
+---
+--- SERIALIZABLE also closes it, and was rejected: the isolation level
+--- cannot be set from inside a function - it has to be the first
+--- statement of the transaction - so it would have to be imposed by
+--- every caller, and it reports the conflict as a serialization failure
+--- at COMMIT, which the backend would then have to recognise and
+--- replay.  A lock the function takes for itself cannot be forgotten by
+--- a caller.
+---
+--- ORDER BY name so that concurrent callers take the row locks in one
+--- order and cannot deadlock against each other.
 CREATE OR REPLACE FUNCTION forbid_last_admin_removal(p_name TEXT)
 RETURNS VOID AS $$
+DECLARE
+    n_admins INTEGER;
 BEGIN
-    IF user_is_admin(p_name) AND count_active_admins() <= 1 THEN
+    --- Nothing to protect if the target is not an activated admin, and
+    --- no reason to take locks on their behalf.
+    IF NOT user_is_admin(p_name) THEN
+        RETURN;
+    END IF;
+    --- Deliberately not count_active_admins(): that one takes no locks,
+    --- which is what makes it safe to call for display and unsafe to
+    --- decide on.
+    SELECT count(*) INTO n_admins
+      FROM (SELECT 1 FROM users
+             WHERE permission = 'admin' AND provisional_until IS NULL
+             ORDER BY name
+               FOR UPDATE) locked_admins;
+    IF n_admins <= 1 THEN
         RAISE EXCEPTION 'refusing to leave the database with no administrator'
               USING ERRCODE = 'insufficient_privilege';
     END IF;
