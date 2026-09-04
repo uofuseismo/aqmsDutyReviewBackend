@@ -8,6 +8,7 @@
 
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
+ class Event;
  class EventLock;
  class EventSummary;
  class Station;
@@ -62,6 +63,59 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 /// @note An empty vector serializes to [] and not to null.
 [[nodiscard]] std::pair<boost::json::object, std::string> toJSON(
     const std::vector<EventSummary> &events);
+
+/// @brief How much of each origin to write out.
+/// @note Only affects origins that are NOT the preferred one.  The
+///       preferred origin is always written in full - it is the solution
+///       the screen is actually about.
+enum class OriginDetail
+{
+    AllOrigins,          /*!< Every origin gets its arrivals. */
+    PreferredOriginOnly  /*!< Only the preferred origin gets its arrivals;
+                              the rest are written down to their
+                              high-level fields. */
+};
+
+/// @brief Serializes one event - its origins, and each origin's
+///        arrivals and magnitudes.
+/// @result The event as a nested object.
+/// @note Nested rather than flattened, and by IDENTIFIER rather than by
+///       duplication.  Each origin, arrival and magnitude appears exactly
+///       once, and the preferred ones are named by their identifiers -
+///       preferredOriginIdentifier and preferredMagnitudeIdentifier on the
+///       event, preferredMagnitudeIdentifier on each origin.  Repeating
+///       the preferred origin at the top level would put the same object
+///       in the payload twice with nothing keeping the copies equal.
+/// @note Each origin also carries a plain isPreferred flag.  It is
+///       redundant against the event's preferredOriginIdentifier on
+///       purpose - a client rendering origins asks the question per row.
+///       Magnitudes deliberately do NOT get one: see the note below.
+/// @note An origin carries preferredMagnitudeIdentifier of its own, and it
+///       need not match the event's.  AQMS stores origin.prefmag and
+///       event.prefmag separately, so the event's preferred magnitude can
+///       belong to an origin that is not the preferred origin - which is
+///       exactly why a single "isPreferred" flag could not express this.
+/// @note Depth is in meters and all times are nanoseconds since the epoch,
+///       UTC, as the model holds them.
+/// @note Only the fields an object actually has are emitted; an absent key
+///       means AQMS had nothing to say.
+/// @note \c OriginDetail::PreferredOriginOnly trims the ARRIVALS off the
+///       non-preferred origins and nothing else.  They keep their
+///       position, depth, time, review status and magnitudes, so they can
+///       still be listed and compared against the preferred solution -
+///       what goes is the part that is actually large.  A relocation can
+///       carry hundreds of picks; it carries at most a handful of
+///       magnitudes.
+/// @note Every origin carries \c arrivalCount whether or not its arrivals
+///       were written, so a trimmed origin still says how many picks it
+///       has and a client can decide whether to ask for them.  The
+///       \c arrivals key is ABSENT rather than empty when it was not
+///       requested: an empty array would make an origin with a hundred
+///       picks look like one with none, which is the sort of difference
+///       that matters here.
+[[nodiscard]] boost::json::object toJSON(
+    const Event &event,
+    OriginDetail detail = OriginDetail::AllOrigins);
 
 /// @brief Serializes a waveform.
 /// @result An object carrying the stream and its segments:

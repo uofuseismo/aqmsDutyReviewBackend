@@ -65,11 +65,16 @@ Origin makeValidOrigin(const double latitude = 40.77,
 ///        non-preferred duration magnitude.
 std::vector<std::unique_ptr<IMagnitude>> makeMagnitudes()
 {
+    // Identifiers matter now: event.prefmag names a magnitude by magid and
+    // Event finds it by walking its origins, so a magnitude with no
+    // identifier can never be the event's preferred one.
     auto local = std::make_unique<LocalMagnitude> ();
+    local->setIdentifier(11);
     local->setValue(3.4);
     local->setIsPreferred();
 
     auto duration = std::make_unique<DurationMagnitude> ();
+    duration->setIdentifier(12);
     duration->setValue(3.1);
     duration->setNotPreferred();
 
@@ -164,6 +169,60 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::StreamIdentifier", "StreamIden
         const StreamIdentifier moved{std::move(toMove)};
         REQUIRE(moved.getNetwork() == "UU");
         REQUIRE(moved.getChannel() == "HHZ");
+    }
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Arrival association",
+          "Arrival")
+{
+    // delta and seaz describe the pick's association with one origin, not
+    // the pick itself, so they are optional and absent by default.
+    SECTION("Absent until set")
+    {
+        const Arrival arrival;
+        REQUIRE_FALSE(arrival.getSourceReceiverDistance().has_value());
+        REQUIRE_FALSE(arrival.getSourceReceiverAzimuth().has_value());
+    }
+    SECTION("They round trip")
+    {
+        Arrival arrival;
+        arrival.setSourceReceiverDistance(12.5);
+        arrival.setSourceReceiverAzimuth(145.0);
+        //NOLINTBEGIN(bugprone-unchecked-optional-access)
+        REQUIRE(*arrival.getSourceReceiverDistance() == Catch::Approx(12.5));
+        REQUIRE(*arrival.getSourceReceiverAzimuth() == Catch::Approx(145.0));
+        //NOLINTEND(bugprone-unchecked-optional-access)
+    }
+    SECTION("A negative distance is refused")
+    {
+        Arrival arrival;
+        REQUIRE_THROWS_AS(arrival.setSourceReceiverDistance(-1),
+                          std::invalid_argument);
+        REQUIRE_FALSE(arrival.getSourceReceiverDistance().has_value());
+        REQUIRE_NOTHROW(arrival.setSourceReceiverDistance(0));
+    }
+    SECTION("The azimuth is closed at both ends")
+    {
+        // 0 and 360 name the same direction and AQMS may write either, so
+        // neither is an off-by-one to reject.
+        Arrival arrival;
+        REQUIRE_NOTHROW(arrival.setSourceReceiverAzimuth(0));
+        REQUIRE_NOTHROW(arrival.setSourceReceiverAzimuth(360));
+        REQUIRE_THROWS_AS(arrival.setSourceReceiverAzimuth(-0.1),
+                          std::invalid_argument);
+        REQUIRE_THROWS_AS(arrival.setSourceReceiverAzimuth(360.1),
+                          std::invalid_argument);
+    }
+    SECTION("They survive a copy")
+    {
+        Arrival arrival;
+        arrival.setSourceReceiverDistance(12.5);
+        arrival.setSourceReceiverAzimuth(145.0);
+        const Arrival copy{arrival};
+        //NOLINTBEGIN(bugprone-unchecked-optional-access)
+        REQUIRE(*copy.getSourceReceiverDistance() == Catch::Approx(12.5));
+        REQUIRE(*copy.getSourceReceiverAzimuth() == Catch::Approx(145.0));
+        //NOLINTEND(bugprone-unchecked-optional-access)
     }
 }
 
@@ -503,6 +562,193 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Origin", "Origin")
     // TODO need iterator test 
 }
 
+/// Magnitudes belong to the ORIGIN - netmag.orid ties them - so a
+/// relocation carries its own, and the same event can hold two values of
+/// the same type that belong to different solutions.
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Origin magnitudes",
+          "Origin")
+{
+    SECTION("Absent by default")
+    {
+        const Origin origin;
+        REQUIRE_FALSE(origin.hasMagnitudes());
+        REQUIRE_THROWS_AS(origin.getMagnitudes(), std::runtime_error);
+        REQUIRE_THROWS_AS(origin.getPreferredMagnitude(), std::runtime_error);
+    }
+    SECTION("Magnitudes round trip and preserve derived types")
+    {
+        Origin origin;
+        origin.setMagnitudes(makeMagnitudes());
+        REQUIRE(origin.hasMagnitudes());
+
+        const auto magnitudes = origin.getMagnitudes();
+        REQUIRE(magnitudes.size() == 2);
+        // clone() must have preserved the concrete subclass of each element.
+        REQUIRE(magnitudes.at(0)->getType() == IMagnitude::Type::Local);
+        REQUIRE(magnitudes.at(0)->getValue() == 3.4);
+        REQUIRE(magnitudes.at(0)->isPreferred());
+        REQUIRE(magnitudes.at(1)->getType() == IMagnitude::Type::Duration);
+        REQUIRE(magnitudes.at(1)->getValue() == 3.1);
+        REQUIRE_FALSE(magnitudes.at(1)->isPreferred());
+
+        const auto preferred = origin.getPreferredMagnitude();
+        REQUIRE(preferred->getType() == IMagnitude::Type::Local);
+        REQUIRE(preferred->getValue() == 3.4);
+    }
+    SECTION("Empty magnitudes throw")
+    {
+        Origin origin;
+        REQUIRE_THROWS_AS(
+            origin.setMagnitudes(std::vector<std::unique_ptr<IMagnitude>> {}),
+            std::invalid_argument);
+    }
+    SECTION("Null magnitude throws")
+    {
+        std::vector<std::unique_ptr<IMagnitude>> magnitudes;
+        magnitudes.push_back(std::make_unique<LocalMagnitude> ());
+        magnitudes.push_back(nullptr);
+        Origin origin;
+        REQUIRE_THROWS_AS(origin.setMagnitudes(magnitudes),
+                          std::invalid_argument);
+    }
+    SECTION("Duplicate magnitude types throw")
+    {
+        auto first = std::make_unique<LocalMagnitude> ();
+        first->setIsPreferred();
+        auto second = std::make_unique<LocalMagnitude> ();
+        second->setNotPreferred();
+        std::vector<std::unique_ptr<IMagnitude>> magnitudes;
+        magnitudes.push_back(std::move(first));
+        magnitudes.push_back(std::move(second));
+        Origin origin;
+        REQUIRE_THROWS_AS(origin.setMagnitudes(magnitudes),
+                          std::invalid_argument);
+    }
+    SECTION("Exactly one preferred magnitude is required")
+    {
+        Origin origin;
+
+        std::vector<std::unique_ptr<IMagnitude>> nonePreferred;
+        auto local = std::make_unique<LocalMagnitude> ();
+        local->setNotPreferred();
+        nonePreferred.push_back(std::move(local));
+        REQUIRE_THROWS_AS(origin.setMagnitudes(nonePreferred),
+                          std::invalid_argument);
+
+        std::vector<std::unique_ptr<IMagnitude>> twoPreferred;
+        auto localPref = std::make_unique<LocalMagnitude> ();
+        localPref->setIsPreferred();
+        auto durationPref = std::make_unique<DurationMagnitude> ();
+        durationPref->setIsPreferred();
+        twoPreferred.push_back(std::move(localPref));
+        twoPreferred.push_back(std::move(durationPref));
+        REQUIRE_THROWS_AS(origin.setMagnitudes(twoPreferred),
+                          std::invalid_argument);
+    }
+    SECTION("They survive the origin being copied")
+    {
+        // Origin holds them by unique_ptr, so its copy has to clone each
+        // one rather than let the compiler try to copy a move-only vector.
+        Origin origin;
+        origin.setIdentifier(9);
+        origin.setMagnitudes(makeMagnitudes());
+
+        const Origin copy{origin};
+        REQUIRE(copy.hasMagnitudes());
+        REQUIRE(copy.getMagnitudes().size() == 2);
+        REQUIRE(copy.preferredMagnitude().getType()
+                == IMagnitude::Type::Local);
+        // A clone, not an alias into the original.
+        REQUIRE(&copy.preferredMagnitude() != &origin.preferredMagnitude());
+    }
+}
+
+/// event.prefmag names a magnitude that lives on an origin, so the event
+/// stores the identifier and goes and finds it.  The pairing - which
+/// origin computed the preferred magnitude - is what the review screen
+/// actually plots, and it is free once the magnitudes hang off origins.
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event preferred magnitude",
+          "Event")
+{
+    const auto makeEventWithMagnitudes
+        = [](const int64_t preferredMagnitudeIdentifier)
+          {
+              // The magnitudes go on the NON-preferred origin on purpose:
+              // AQMS keeps event.prefmag and origin.prefmag separately and
+              // they need not agree, so the lookup must not quietly assume
+              // the preferred origin.
+              auto preferredOrigin = makeValidOrigin(40.77, -111.89, 5000, 1);
+              preferredOrigin.setIsPreferred();
+              auto otherOrigin = makeValidOrigin(41.0, -112.0, 6000, 2);
+              otherOrigin.setNotPreferred();
+              otherOrigin.setMagnitudes(makeMagnitudes());
+
+              Event event;
+              event.setIdentifier(77);
+              event.setOrigins(std::vector<Origin> {preferredOrigin,
+                                                    otherOrigin});
+              event.setPreferredMagnitudeIdentifier(
+                  preferredMagnitudeIdentifier);
+              return event;
+          };
+
+    SECTION("It is found on whichever origin holds it")
+    {
+        const auto event = makeEventWithMagnitudes(11);
+        REQUIRE(event.hasPreferredMagnitude());
+        REQUIRE(event.preferredMagnitude().getIdentifier() == 11);
+        REQUIRE(event.preferredMagnitude().getType()
+                == IMagnitude::Type::Local);
+        REQUIRE(event.preferredMagnitude().getValue() == 3.4);
+    }
+    SECTION("The origin holding it is reachable")
+    {
+        // The association the visualization needs, without the caller
+        // writing the search.
+        const auto event = makeEventWithMagnitudes(11);
+        REQUIRE(event.preferredMagnitudeOrigin().getIdentifier() == 2);
+        // And it really is NOT the preferred origin here.
+        REQUIRE(event.preferredOrigin().getIdentifier() == 1);
+        REQUIRE(&event.preferredMagnitudeOrigin()
+                != &event.preferredOrigin());
+    }
+    SECTION("It can name a magnitude that is not its origin's preferred one")
+    {
+        // origin.prefmag says Local; event.prefmag can still say Duration.
+        const auto event = makeEventWithMagnitudes(12);
+        REQUIRE(event.preferredMagnitude().getType()
+                == IMagnitude::Type::Duration);
+        REQUIRE(event.preferredMagnitudeOrigin().preferredMagnitude()
+                    .getType() == IMagnitude::Type::Local);
+    }
+    SECTION("An identifier no origin holds is reported, not guessed at")
+    {
+        const auto event = makeEventWithMagnitudes(9999);
+        REQUIRE_FALSE(event.hasPreferredMagnitude());
+        REQUIRE_THROWS_AS(event.preferredMagnitude(), std::runtime_error);
+        REQUIRE_THROWS_AS(event.preferredMagnitudeOrigin(),
+                          std::runtime_error);
+    }
+    SECTION("No identifier at all is a different failure")
+    {
+        auto origin = makeValidOrigin();
+        origin.setMagnitudes(makeMagnitudes());
+        Event event;
+        event.setOrigins(std::vector<Origin> {origin});
+        REQUIRE_FALSE(event.hasPreferredMagnitudeIdentifier());
+        REQUIRE_FALSE(event.hasPreferredMagnitude());
+        REQUIRE_THROWS_AS(event.preferredMagnitude(), std::runtime_error);
+    }
+    SECTION("Origins carrying no magnitudes are skipped, not fatal")
+    {
+        // Every origin without magnitudes is simply passed over - only an
+        // exhausted search is an error.
+        const auto event = makeEventWithMagnitudes(11);
+        REQUIRE_FALSE(event.preferredOrigin().hasMagnitudes());
+        REQUIRE(event.hasPreferredMagnitude());
+    }
+}
+
 TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event", "Event")
 {
     SECTION("Defaults")
@@ -510,13 +756,15 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event", "Event")
         const Event event;
         REQUIRE_FALSE(event.hasIdentifier());
         REQUIRE_FALSE(event.hasOrigins());
-        REQUIRE_FALSE(event.hasMagnitudes());
+        REQUIRE_FALSE(event.hasPreferredMagnitudeIdentifier());
+        REQUIRE_FALSE(event.hasPreferredMagnitude());
         REQUIRE_FALSE(event.hasEventType());
         REQUIRE_THROWS_AS(event.getIdentifier(), std::runtime_error);
         REQUIRE_THROWS_AS(event.getEventType(), std::runtime_error);
         REQUIRE_THROWS_AS(event.getOrigins(), std::runtime_error);
         REQUIRE_THROWS_AS(event.getPreferredOrigin(), std::runtime_error);
-        REQUIRE_THROWS_AS(event.getMagnitudes(), std::runtime_error);
+        REQUIRE_THROWS_AS(event.getPreferredMagnitudeIdentifier(),
+                          std::runtime_error);
         REQUIRE_THROWS_AS(event.getPreferredMagnitude(), std::runtime_error);
     }
     SECTION("Set and get")
@@ -581,6 +829,24 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event", "Event")
         REQUIRE_THROWS_AS(event.setOrigins(std::vector<Origin> {noTime}),
                           std::invalid_argument);
     }
+    SECTION("An origin without a depth is accepted")
+    {
+        // origin.depth is the one nullable locating column in AQMS, so a
+        // solution whose free depth never converged has none.  Refusing it
+        // would throw away every other origin on the event too.
+        Origin bare;
+        bare.setIdentifier(4242);
+        bare.setLatitude(40.77);
+        bare.setLongitude(-111.89);
+        bare.setTime(std::chrono::nanoseconds{1'700'000'000'000'000'000});
+        bare.setIsPreferred();
+        REQUIRE_FALSE(bare.hasDepth());
+
+        Event event;
+        REQUIRE_NOTHROW(event.setOrigins(std::vector<Origin> {bare}));
+        REQUIRE(event.hasOrigins());
+        REQUIRE_FALSE(event.getPreferredOrigin().hasDepth());
+    }
     SECTION("Exactly one preferred origin is required")
     {
         Event event;
@@ -612,83 +878,16 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event", "Event")
         REQUIRE(event.getOrigins().size() == 2);
         REQUIRE(event.getPreferredOrigin().getIdentifier() == 2);
     }
-    SECTION("Magnitudes round trip and preserve derived types")
-    {
-        Event event;
-        event.setMagnitudes(makeMagnitudes());
-        REQUIRE(event.hasMagnitudes());
-
-        const auto magnitudes = event.getMagnitudes();
-        REQUIRE(magnitudes.size() == 2);
-        // clone() must have preserved the concrete subclass of each element.
-        REQUIRE(magnitudes.at(0)->getType() == IMagnitude::Type::Local);
-        REQUIRE(magnitudes.at(0)->getValue() == 3.4);
-        REQUIRE(magnitudes.at(0)->isPreferred());
-        REQUIRE(magnitudes.at(1)->getType() == IMagnitude::Type::Duration);
-        REQUIRE(magnitudes.at(1)->getValue() == 3.1);
-        REQUIRE_FALSE(magnitudes.at(1)->isPreferred());
-
-        const auto preferred = event.getPreferredMagnitude();
-        REQUIRE(preferred->getType() == IMagnitude::Type::Local);
-        REQUIRE(preferred->getValue() == 3.4);
-    }
-    SECTION("Empty magnitudes throw")
-    {
-        Event event;
-        REQUIRE_THROWS_AS(
-            event.setMagnitudes(std::vector<std::unique_ptr<IMagnitude>> {}),
-            std::invalid_argument);
-    }
-    SECTION("Null magnitude throws")
-    {
-        std::vector<std::unique_ptr<IMagnitude>> magnitudes;
-        magnitudes.push_back(std::make_unique<LocalMagnitude> ());
-        magnitudes.push_back(nullptr);
-        Event event;
-        REQUIRE_THROWS_AS(event.setMagnitudes(magnitudes),
-                          std::invalid_argument);
-    }
-    SECTION("Duplicate magnitude types throw")
-    {
-        auto first = std::make_unique<LocalMagnitude> ();
-        first->setIsPreferred();
-        auto second = std::make_unique<LocalMagnitude> ();
-        second->setNotPreferred();
-        std::vector<std::unique_ptr<IMagnitude>> magnitudes;
-        magnitudes.push_back(std::move(first));
-        magnitudes.push_back(std::move(second));
-        Event event;
-        REQUIRE_THROWS_AS(event.setMagnitudes(magnitudes),
-                          std::invalid_argument);
-    }
-    SECTION("Exactly one preferred magnitude is required")
-    {
-        Event event;
-
-        std::vector<std::unique_ptr<IMagnitude>> nonePreferred;
-        auto local = std::make_unique<LocalMagnitude> ();
-        local->setNotPreferred();
-        nonePreferred.push_back(std::move(local));
-        REQUIRE_THROWS_AS(event.setMagnitudes(nonePreferred),
-                          std::invalid_argument);
-
-        std::vector<std::unique_ptr<IMagnitude>> twoPreferred;
-        auto localPref = std::make_unique<LocalMagnitude> ();
-        localPref->setIsPreferred();
-        auto durationPref = std::make_unique<DurationMagnitude> ();
-        durationPref->setIsPreferred();
-        twoPreferred.push_back(std::move(localPref));
-        twoPreferred.push_back(std::move(durationPref));
-        REQUIRE_THROWS_AS(event.setMagnitudes(twoPreferred),
-                          std::invalid_argument);
-    }
     SECTION("Copy is a deep, independent copy")
     {
+        auto origin = makeValidOrigin();
+        origin.setMagnitudes(makeMagnitudes());
+
         Event event;
         event.setIdentifier(2024);
         event.setEventType(Event::EventType::QuarryBlast);
-        event.setOrigins(std::vector<Origin> {makeValidOrigin()});
-        event.setMagnitudes(makeMagnitudes());
+        event.setOrigins(std::vector<Origin> {origin});
+        event.setPreferredMagnitudeIdentifier(11);
 
         const Event copy{event};
         event.setIdentifier(2025);
@@ -696,21 +895,25 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event", "Event")
         REQUIRE(copy.getIdentifier() == 2024);
         REQUIRE(copy.getEventType() == Event::EventType::QuarryBlast);
         REQUIRE(copy.getOrigins().size() == 1);
-        // The polymorphic magnitudes must survive the deep copy intact.
-        REQUIRE(copy.getMagnitudes().size() == 2);
+        // The polymorphic magnitudes ride along on the origin and must
+        // survive the deep copy intact.
+        REQUIRE(copy.preferredOrigin().getMagnitudes().size() == 2);
         REQUIRE(copy.getPreferredMagnitude()->getType()
                 == IMagnitude::Type::Local);
     }
     SECTION("Move")
     {
+        auto origin = makeValidOrigin();
+        origin.setMagnitudes(makeMagnitudes());
+
         Event toMove;
         toMove.setIdentifier(2024);
-        toMove.setOrigins(std::vector<Origin> {makeValidOrigin()});
-        toMove.setMagnitudes(makeMagnitudes());
+        toMove.setOrigins(std::vector<Origin> {origin});
+        toMove.setPreferredMagnitudeIdentifier(11);
         const Event moved{std::move(toMove)};
         REQUIRE(moved.getIdentifier() == 2024);
         REQUIRE(moved.getPreferredOrigin().hasLatitude());
-        REQUIRE(moved.getMagnitudes().size() == 2);
+        REQUIRE(moved.preferredOrigin().getMagnitudes().size() == 2);
         REQUIRE(moved.getPreferredMagnitude()->getType()
                 == IMagnitude::Type::Local);
     }
@@ -1532,10 +1735,12 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event zero-copy views",
         auto origin2 = makeValidOrigin(41.00, -112.00, 6000, 200);
         origin2.setNotPreferred();
 
+        origin1.setMagnitudes(makeMagnitudes());
+
         Event event;
         event.setIdentifier(77);
         event.setOrigins(std::vector<Origin> {origin1, origin2});
-        event.setMagnitudes(makeMagnitudes());
+        event.setPreferredMagnitudeIdentifier(11);
         return event;
     };
 
@@ -1552,10 +1757,14 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event zero-copy views",
         const auto again = event.origins();
         REQUIRE(again.data() == origins.data());
 
-        const auto magnitudes = event.magnitudes();
+        // The magnitudes are the ORIGIN's, and the event's preferred one
+        // is found among them rather than held twice.
+        const auto magnitudes = event.preferredOrigin().magnitudes();
         REQUIRE(magnitudes.size() == 2);
-        REQUIRE(event.magnitudes().data() == magnitudes.data());
+        REQUIRE(event.preferredOrigin().magnitudes().data()
+                == magnitudes.data());
         REQUIRE(magnitudes[0].get() == &event.preferredMagnitude());
+        REQUIRE(&event.preferredMagnitudeOrigin() == &event.preferredOrigin());
     }
     SECTION("The copying getters really do copy")
     {
@@ -1565,9 +1774,12 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event zero-copy views",
         REQUIRE(copied.size() == event.origins().size());
         REQUIRE(copied.data() != event.origins().data());
 
-        const auto clonedMagnitudes = event.getMagnitudes();
-        REQUIRE(clonedMagnitudes.size() == event.magnitudes().size());
-        REQUIRE(clonedMagnitudes[0].get() != event.magnitudes()[0].get());
+        const auto clonedMagnitudes
+            = event.preferredOrigin().getMagnitudes();
+        REQUIRE(clonedMagnitudes.size()
+                == event.preferredOrigin().magnitudes().size());
+        REQUIRE(clonedMagnitudes[0].get()
+                != event.preferredOrigin().magnitudes()[0].get());
     }
     SECTION("Views carry the same contents as the copying getters")
     {
@@ -1602,7 +1814,7 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event zero-copy views",
         REQUIRE(nArrivals == 0);
 
         std::vector<IMagnitude::Type> types;
-        for (const auto &magnitude : event.magnitudes())
+        for (const auto &magnitude : event.preferredOrigin().magnitudes())
         {
             types.push_back(magnitude->getType());
         }
@@ -1618,8 +1830,8 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event zero-copy views",
                               {
                                   return origin.isPreferred();
                               }) == 1);
-        REQUIRE(std::count_if(event.magnitudes().begin(),
-                              event.magnitudes().end(),
+        const auto magnitudes = event.preferredOrigin().magnitudes();
+        REQUIRE(std::count_if(magnitudes.begin(), magnitudes.end(),
                               [](const std::unique_ptr<IMagnitude> &magnitude)
                               {
                                   return magnitude->isPreferred();
@@ -1629,9 +1841,10 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event zero-copy views",
     {
         const Event event;
         REQUIRE_THROWS_AS(event.origins(), std::runtime_error);
-        REQUIRE_THROWS_AS(event.magnitudes(), std::runtime_error);
         REQUIRE_THROWS_AS(event.preferredOrigin(), std::runtime_error);
         REQUIRE_THROWS_AS(event.preferredMagnitude(), std::runtime_error);
+        REQUIRE_THROWS_AS(event.preferredMagnitudeOrigin(),
+                          std::runtime_error);
     }
     SECTION("A view of a copied event is that copy's own storage")
     {
@@ -1639,7 +1852,8 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event zero-copy views",
         const Event copy{event};
         REQUIRE(copy.origins().size() == event.origins().size());
         REQUIRE(copy.origins().data() != event.origins().data());
-        REQUIRE(copy.magnitudes()[0].get() != event.magnitudes()[0].get());
+        REQUIRE(copy.preferredOrigin().magnitudes()[0].get()
+                != event.preferredOrigin().magnitudes()[0].get());
     }
     SECTION("The views are read-only")
     {
@@ -1813,14 +2027,14 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::CentroidMomentTensorMagnitude"
         magnitudes.push_back(std::move(local));
         magnitudes.push_back(std::move(moment));
 
-        Event event;
-        REQUIRE_NOTHROW(event.setMagnitudes(magnitudes));
-        REQUIRE(event.magnitudes().size() == 2);
-        REQUIRE(event.preferredMagnitude().getType()
+        Origin origin;
+        REQUIRE_NOTHROW(origin.setMagnitudes(magnitudes));
+        REQUIRE(origin.magnitudes().size() == 2);
+        REQUIRE(origin.preferredMagnitude().getType()
                 == IMagnitude::Type::Moment);
-        REQUIRE(event.preferredMagnitude().getValue() == 5.7);
+        REQUIRE(origin.preferredMagnitude().getValue() == 5.7);
     }
-    SECTION("Two moment magnitudes in one event are rejected")
+    SECTION("Two moment magnitudes on one origin are rejected")
     {
         auto first = std::make_unique<CentroidMomentTensorMagnitude> ();
         first->setValue(5.7);
@@ -1833,8 +2047,8 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::CentroidMomentTensorMagnitude"
         magnitudes.push_back(std::move(first));
         magnitudes.push_back(std::move(second));
 
-        Event event;
-        REQUIRE_THROWS_AS(event.setMagnitudes(magnitudes),
+        Origin origin;
+        REQUIRE_THROWS_AS(origin.setMagnitudes(magnitudes),
                           std::invalid_argument);
     }
 }

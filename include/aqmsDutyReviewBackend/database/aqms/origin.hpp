@@ -5,12 +5,14 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
  class Arrival;
+ class IMagnitude;
 }
 
 namespace AQMSDutyReviewBackend::Database::AQMS
@@ -120,6 +122,40 @@ public:
     [[nodiscard]] std::vector<Arrival> getArrivals() const noexcept;
     /// @result The number of arrivals.
     [[nodiscard]] size_t size() const noexcept;
+
+    /// @brief Sets the magnitudes computed for this origin.
+    /// @note Magnitudes hang off the ORIGIN and not the event - netmag.orid
+    ///       is what ties one to the other.  A relocation gets its own
+    ///       magnitudes, and the same event can therefore carry several
+    ///       values of the same type that belong to different solutions.
+    ///       Holding them here keeps a magnitude next to the location it
+    ///       was computed from, so nothing has to be paired up afterwards.
+    /// @note Every magnitude must have a different type and exactly one
+    ///       must be preferred - origin.prefmag names it.
+    /// @throws std::invalid_argument if the vector is empty, a magnitude is
+    ///         null, two share a type, or the number preferred is not one.
+    void setMagnitudes(const std::vector<std::unique_ptr<IMagnitude>> &magnitudes);
+    /// @brief Sets the magnitudes computed for this origin.
+    void setMagnitudes(std::vector<std::unique_ptr<IMagnitude>> &&magnitudes);
+    /// @result Deep copies of the magnitudes, preserving their derived
+    ///         types.
+    /// @note Prefer \c magnitudes() unless a copy is genuinely wanted.
+    /// @throws std::runtime_error if \c hasMagnitudes() is false.
+    [[nodiscard]] std::vector<std::unique_ptr<IMagnitude>> getMagnitudes() const;
+    /// @result A read-only view of the magnitudes.  No copying.
+    /// @throws std::runtime_error if \c hasMagnitudes() is false.
+    [[nodiscard]] std::span<const std::unique_ptr<IMagnitude>>
+        magnitudes() const &;
+    std::span<const std::unique_ptr<IMagnitude>> magnitudes() const && = delete;
+    /// @result A deep copy of this origin's preferred magnitude.
+    /// @throws std::runtime_error if \c hasMagnitudes() is false.
+    [[nodiscard]] std::unique_ptr<IMagnitude> getPreferredMagnitude() const;
+    /// @result A reference to this origin's preferred magnitude.
+    /// @throws std::runtime_error if \c hasMagnitudes() is false.
+    [[nodiscard]] const IMagnitude &preferredMagnitude() const &;
+    const IMagnitude &preferredMagnitude() const && = delete;
+    /// @result True indicates the magnitudes were set.
+    [[nodiscard]] bool hasMagnitudes() const noexcept;
 
     /// @brief Sets the geographic type.
     void setGeographicType(GeographicType type) noexcept;

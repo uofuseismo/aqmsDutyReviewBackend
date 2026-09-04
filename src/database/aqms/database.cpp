@@ -13,6 +13,7 @@
 #include <spdlog/logger.h>
 #include <spdlog/sinks/stdout_color_sinks.h> //NOLINT
 #include "aqmsDutyReviewBackend/database/aqms/database.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/event.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
@@ -155,6 +156,26 @@ auto Database::getCatalog(const std::chrono::seconds &duration) const
     {
         SPDLOG_LOGGER_ERROR(pImpl->mLogger,
                             "Could not fetch the catalog from {} because {}",
+                            pImpl->mMainClient->getName(),
+                            std::string {e.what()});
+        return std::unexpected(QueryError::ConnectionFailed);
+    }
+}
+
+/// One event, in full
+auto Database::getEvent(const int64_t eventIdentifier) const
+    -> std::expected<std::optional<Event>, QueryError>
+{
+    try
+    {
+        return queryEvent(*pImpl->mMainClient, eventIdentifier,
+                          pImpl->mLogger.get());
+    }
+    catch (const std::exception &e)
+    {
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Could not fetch event {} from {} because {}",
+                            eventIdentifier,
                             pImpl->mMainClient->getName(),
                             std::string {e.what()});
         return std::unexpected(QueryError::ConnectionFailed);

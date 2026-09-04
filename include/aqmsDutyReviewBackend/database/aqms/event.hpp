@@ -60,8 +60,13 @@ public:
     [[nodiscard]] int getVersion() const noexcept; 
 
     /// @brief Sets the origins.
-    /// @note All origins must have required fields (e.g., latitude, longitude,
-    ///       depth, time) and one and only one origin must be the preferred origin.
+    /// @note Every origin must have an identifier, a latitude, a longitude
+    ///       and a time, the identifiers must be distinct, and exactly one
+    ///       origin must be the preferred one.
+    /// @note Depth is NOT among them.  It is nullable in AQMS, so an
+    ///       origin can legitimately arrive without one, and refusing it
+    ///       here would discard every other origin on the event along with
+    ///       it.  Read it through hasDepth().
     void setOrigins(const std::vector<Origin> &origins);
     void setOrigins(std::vector<Origin> &&origins);
     /// @result True indicates that the origins were set.
@@ -75,35 +80,43 @@ public:
     /// @throws std::runtime_error if \c hasOrigins() is false. 
     [[nodiscard]] std::vector<Origin> getOrigins() const; 
 
-    /// @brief Sets the magnitudes.
-    /// @note Every magnitude must have a different type and there must be
-    ///       one and only one magnitude that is preferred.
-    /// @throws std::invalid_argument if a magnitude is null, two magnitudes
-    ///         share a type, or the number of preferred magnitudes is not one.
-    void setMagnitudes(const std::vector<std::unique_ptr<IMagnitude>> &magnitudes);
-    /// @result Deep copies of the magnitudes, preserving their derived types.
-    /// @note Prefer \c magnitudes() unless a copy is genuinely wanted;
-    ///       this clones every magnitude, and each clone copies its
-    ///       station magnitudes.
-    /// @throws std::runtime_error if \c hasMagnitudes() is false.
-    [[nodiscard]] std::vector<std::unique_ptr<IMagnitude>> getMagnitudes() const;
-    /// @result A deep copy of the preferred magnitude.
-    /// @throws std::runtime_error if \c hasMagnitudes() is false.
+    /// @brief Names the event's preferred magnitude - event.prefmag.
+    /// @note An identifier and not a magnitude.  Magnitudes belong to
+    ///       origins - netmag.orid is what ties one to the other - so the
+    ///       event's preferred magnitude is already held by one of its
+    ///       origins, and storing a second copy here would be the same
+    ///       value in two places with nothing keeping them equal.  This
+    ///       records WHICH one; preferredMagnitude() goes and finds it.
+    /// @note AQMS keeps event.prefmag separately from origin.prefmag and
+    ///       they need not agree: the event's preferred magnitude can sit
+    ///       on an origin that is not the preferred origin.
+    void setPreferredMagnitudeIdentifier(int64_t identifier);
+    /// @result The identifier of the event's preferred magnitude.
+    /// @throws std::runtime_error if
+    ///         \c hasPreferredMagnitudeIdentifier() is false.
+    [[nodiscard]] int64_t getPreferredMagnitudeIdentifier() const;
+    /// @result True indicates the preferred magnitude identifier was set.
+    [[nodiscard]] bool hasPreferredMagnitudeIdentifier() const noexcept;
+
+    /// @result A deep copy of the event's preferred magnitude.
+    /// @throws std::runtime_error if no identifier was set, or if it names
+    ///         a magnitude none of this event's origins holds.
     [[nodiscard]] std::unique_ptr<IMagnitude> getPreferredMagnitude() const;
-    /// @result True indicates the magnitudes were set.
-    [[nodiscard]] bool hasMagnitudes() const noexcept;
+    /// @result True indicates an identifier was set AND one of the origins
+    ///         holds a magnitude carrying it.
+    [[nodiscard]] bool hasPreferredMagnitude() const noexcept;
 
     /// @name Zero-copy views
     /// @{
     /// These are the read path.  An event is built once from a query,
     /// moved in, and from then on only read - usually straight into
     /// JSON - so the getters above, which deep-copy the origins and
-    /// clone every magnitude, are the wrong tool for that job.  These
+    /// everything hanging off them, are the wrong tool for that job.  These
     /// hand back a view of the event's own storage instead.
     ///
     /// @warning A view is only valid while the event is alive and its
-    ///          contents unchanged.  Calling setOrigins or setMagnitudes
-    ///          invalidates every view previously handed out, exactly as
+    ///          contents unchanged.  Calling setOrigins invalidates every
+    ///          view previously handed out, exactly as
     ///          it would for a vector.  The rvalue overloads are deleted
     ///          so a view cannot be taken from a temporary event, which
     ///          is the easiest way to get a dangling one.  N.B. a
@@ -115,23 +128,25 @@ public:
     /// @throws std::runtime_error if \c hasOrigins() is false.
     [[nodiscard]] std::span<const Origin> origins() const &;
     std::span<const Origin> origins() const && = delete;
-    /// @result A view of the magnitudes, in the order they were set.
-    /// @note The elements are unique_ptrs, so a magnitude is read through
-    ///       two dereferences - e.g. magnitude->getValue() in a range-for.
-    ///       No clone happens.
-    /// @throws std::runtime_error if \c hasMagnitudes() is false.
-    [[nodiscard]] std::span<const std::unique_ptr<IMagnitude>>
-        magnitudes() const &;
-    std::span<const std::unique_ptr<IMagnitude>>
-        magnitudes() const && = delete;
     /// @result The preferred origin.
     /// @throws std::runtime_error if \c hasOrigins() is false.
     [[nodiscard]] const Origin &preferredOrigin() const &;
     const Origin &preferredOrigin() const && = delete;
-    /// @result The preferred magnitude.
-    /// @throws std::runtime_error if \c hasMagnitudes() is false.
+    /// @result The event's preferred magnitude, found among the origins'
+    ///         magnitudes.
+    /// @throws std::runtime_error if no identifier was set, or if it names
+    ///         a magnitude none of this event's origins holds.
     [[nodiscard]] const IMagnitude &preferredMagnitude() const &;
     const IMagnitude &preferredMagnitude() const && = delete;
+    /// @result The origin that holds the event's preferred magnitude.
+    /// @note The pairing a review screen actually wants: a magnitude means
+    ///       little without the location it was computed from, and this is
+    ///       the one lookup that would otherwise be written at every call
+    ///       site.
+    /// @throws std::runtime_error under the same conditions as
+    ///         \c preferredMagnitude().
+    [[nodiscard]] const Origin &preferredMagnitudeOrigin() const &;
+    const Origin &preferredMagnitudeOrigin() const && = delete;
     /// @}
 
     /// @brief Sets the event type.

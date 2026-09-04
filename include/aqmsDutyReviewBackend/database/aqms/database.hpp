@@ -129,6 +129,16 @@ public:
     ///                             to events the caller is not showing.
     ///                             Pass the same duration used for
     ///                             getCatalog.
+    /// @brief Fetches one event in full - every origin, and each origin's
+    ///        arrivals and magnitudes.
+    /// @param[in] eventIdentifier  The event to fetch.
+    /// @result The event; a nullopt INSIDE the expected means there is no
+    ///         such event, which is an answer and not a failure - a client
+    ///         may ask about an identifier that has since been merged
+    ///         away.  An unexpected means the database could not be asked.
+    [[nodiscard]] auto getEvent(int64_t eventIdentifier) const
+        -> std::expected<std::optional<Event>, QueryError>;
+
     [[nodiscard]] auto getLockedEvents(
         const std::chrono::seconds &catalogDuration) const
         -> std::expected<std::vector<EventLock>, QueryError>;

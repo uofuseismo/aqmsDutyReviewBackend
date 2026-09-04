@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <crow/app.h>
+#include "aqmsDutyReviewBackend/database/aqms/event.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
@@ -106,6 +107,50 @@ inline void registerEventRoutes(crow::SimpleApp &app,
             payload["hash"] = std::move(hash);
             return ::makeDataResponse(200, "Catalog hash", std::move(payload));
         });
+
+    // A url parameter, so CROW_ROUTE and an explicit authorizeRoute
+    // rather than ::authorizedRoute - the exception this file's header
+    // comment describes.
+    //
+    // The <int> cannot swallow the literal routes above it.  Crow matches
+    // a static segment in preference to a parameter, and "locks" is not an
+    // integer in any case, so /event-information/locks and
+    // /event-information/catalog still reach their own handlers.
+    CROW_ROUTE(app, "/event-information/<int>")
+    ([&context](const crow::request &request,
+                const int64_t eventIdentifier) -> crow::response
+    {
+        auto authorization = ::authorizeRoute(request, *context.authenticator,
+                                              ::readOnlyRequirement,
+                                              context.logger);
+        if (!authorization){return std::move(*authorization.rejection);}
+        SPDLOG_LOGGER_INFO(context.logger, "{} requesting event {}",
+                           authorization.identity->user, eventIdentifier);
+        const auto event = context.aqmsDatabase->getEvent(eventIdentifier);
+        if (!event)
+        {
+            SPDLOG_LOGGER_ERROR(context.logger,
+                                "Could not fetch event {} for {}",
+                                eventIdentifier,
+                                authorization.identity->user);
+            return ::makeMessageResponse(
+                500,
+                "Could not reach the AQMS database - try again shortly");
+        }
+        // An empty optional inside a good expected is "no such event",
+        // which is an answer rather than a failure - hence 404 and not
+        // 500.  A duty analyst can hold a link to an event that has since
+        // been merged into another one.
+        if (!event->has_value())
+        {
+            return ::makeMessageResponse(
+                404, "No event " + std::to_string(eventIdentifier));
+        }
+        return ::makeDataResponse(
+            200,
+            "Found event " + std::to_string(eventIdentifier),
+            AQMSDutyReviewBackend::Database::AQMS::toJSON(**event));
+    });
 
     CROW_ROUTE(app, "/waveforms-hash/<int>")
     ([&context](const crow::request &request,

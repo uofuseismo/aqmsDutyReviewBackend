@@ -1,6 +1,7 @@
 #ifndef AQMS_DUTY_REVIEW_BACKEND_DATABASE_AQMS_QUERIES_EVENT_QUERIES_HPP
 #define AQMS_DUTY_REVIEW_BACKEND_DATABASE_AQMS_QUERIES_EVENT_QUERIES_HPP
 #include <chrono>
+#include <optional>
 #include <memory>
 #include <vector>
 #include <spdlog/logger.h>
@@ -12,6 +13,7 @@ namespace AQMSDutyReviewBackend::Database
 
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
+ class Event;
  class EventSummary;
  class SubnetTrigger;
 }
@@ -34,6 +36,25 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 ///       for those.
 /// @throws std::invalid_argument if the duration is not positive.
 /// @throws std::runtime_error if the query itself fails.
+/// @brief Fetches one event in full - every origin, every origin's picks,
+///        and every origin's magnitudes.
+/// @param[in] client           The AQMS database.
+/// @param[in] eventIdentifier  The event to fetch.
+/// @param[in] logger           Where oddities are reported.  Borrowed.
+/// @result The event, or nullopt if there is no such event.
+/// @note Every origin, not just the preferred one - the point of this
+///       query is comparing a relocation against what it replaced.
+/// @note Two statements in one transaction: the origins and their picks,
+///       then the magnitudes for those origins.  Joining magnitudes onto
+///       the first would multiply every arrival row by the magnitude
+///       count, and running them in separate transactions would let a
+///       relocation land in between.
+/// @throws std::exception if the query or the parse fails.
+[[nodiscard]] std::optional<Event> queryEvent(
+    const Client &client,
+    int64_t eventIdentifier,
+    spdlog::logger *logger);
+
 [[nodiscard]] std::vector<EventSummary> queryEventSummaries(
     const Client &client,
     const std::chrono::seconds &duration,
