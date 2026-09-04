@@ -11,9 +11,11 @@ class EventLock::EventLockImpl
 {
 public:
     std::string mUser;
+    std::string mAcquisitionTime;
     int64_t mEventIdentifier{0};
     bool mHasEventIdentifier{false};
     bool mHasUser{false};
+    bool mHasAcquisitionTime{false};
 };
 
 /// Constructor
@@ -96,4 +98,29 @@ std::string EventLock::getUser() const
 bool EventLock::hasUser() const noexcept
 {
     return pImpl->mHasUser;
+}
+
+/// Acquisition time
+void EventLock::setAcquisitionTime(const std::string &acquisitionTime)
+{
+    if (acquisitionTime.empty())
+    {
+        throw std::invalid_argument("Acquisition time is empty");
+    }
+    pImpl->mAcquisitionTime = acquisitionTime;
+    pImpl->mHasAcquisitionTime = true;
+}
+
+std::string EventLock::getAcquisitionTime() const
+{
+    if (!hasAcquisitionTime())
+    {
+        throw std::runtime_error("Acquisition time not set");
+    }
+    return pImpl->mAcquisitionTime;
+}
+
+bool EventLock::hasAcquisitionTime() const noexcept
+{
+    return pImpl->mHasAcquisitionTime;
 }

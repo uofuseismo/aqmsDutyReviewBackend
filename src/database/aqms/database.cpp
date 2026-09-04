@@ -162,12 +162,19 @@ auto Database::getCatalog(const std::chrono::seconds &duration) const
 }
 
 /// Event locks
-auto Database::getLockedEvents() const
+auto Database::getLockedEvents(
+    const std::chrono::seconds &catalogDuration) const
     -> std::expected<std::vector<EventLock>, QueryError>
 {
+    if (catalogDuration.count() <= 0)
+    {
+        // A window with no time in it is a bad request, not a database
+        // problem - the same answer getCatalog gives.
+        return std::unexpected(QueryError::InvalidArgument);
+    }
     try
     {
-        return queryEventLocks(*pImpl->mMainClient);
+        return queryEventLocks(*pImpl->mMainClient, catalogDuration);
     }
     catch (const std::exception &e)
     {
