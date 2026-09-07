@@ -1,3 +1,5 @@
+#include <chrono>
+#include <optional>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -29,7 +31,17 @@ namespace
 class StationLocalMagnitude::StationLocalMagnitudeImpl
 {
 public:
-    std::pair<PeakToPeakAmplitude, PeakToPeakAmplitude> mAmplitudes;
+        StreamIdentifier mStreamIdentifier;
+    std::optional<double> mAmplitude;
+    std::optional<double> mSourceReceiverDistance;
+    std::optional<double> mSourceReceiverAzimuth;
+    double mMagnitude{0};
+    double mResidual{0};
+    double mCorrection{0};
+    bool mHasMagnitude{false};
+    bool mHasResidual{false};
+    bool mHasStreamIdentifier{false};
+std::pair<PeakToPeakAmplitude, PeakToPeakAmplitude> mAmplitudes;
     double mWeight{0};
     bool mHasAmplitudes{false};
     bool mHasWeight{false};
@@ -141,4 +153,145 @@ double StationLocalMagnitude::getWeight() const
 bool StationLocalMagnitude::hasWeight() const noexcept
 {
     return pImpl->mHasWeight;
+}
+
+/// Channel magnitude - assocamm.mag
+void StationLocalMagnitude::setMagnitude(const double magnitude) noexcept
+{
+    pImpl->mMagnitude = magnitude;
+    pImpl->mHasMagnitude = true;
+}
+
+double StationLocalMagnitude::getMagnitude() const
+{
+    if (!hasMagnitude()){throw std::runtime_error("Magnitude not set");}
+    return pImpl->mMagnitude;
+}
+
+bool StationLocalMagnitude::hasMagnitude() const noexcept
+{
+    return pImpl->mHasMagnitude;
+}
+
+/// Residual
+void StationLocalMagnitude::setResidual(const double residual) noexcept
+{
+    pImpl->mResidual = residual;
+    pImpl->mHasResidual = true;
+}
+
+double StationLocalMagnitude::getResidual() const
+{
+    if (!hasResidual()){throw std::runtime_error("Residual not set");}
+    return pImpl->mResidual;
+}
+
+bool StationLocalMagnitude::hasResidual() const noexcept
+{
+    return pImpl->mHasResidual;
+}
+
+/// Correction
+void StationLocalMagnitude::setCorrection(const double correction) noexcept
+{
+    pImpl->mCorrection = correction;
+}
+
+double StationLocalMagnitude::getCorrection() const noexcept
+{
+    return pImpl->mCorrection;
+}
+
+/// Wood-Anderson amplitude - millimetres
+void StationLocalMagnitude::setAmplitude(const double amplitude)
+{
+    if (!(amplitude > 0))
+    {
+        throw std::invalid_argument("Amplitude must be positive");
+    }
+    pImpl->mAmplitude = amplitude;
+}
+
+std::optional<double> StationLocalMagnitude::getAmplitude() const noexcept
+{
+    return pImpl->mAmplitude;
+}
+
+/// Source-receiver distance - meters
+void StationLocalMagnitude::setSourceReceiverDistance(const double distance)
+{
+    if (distance < 0)
+    {
+        throw std::invalid_argument("Source-receiver distance cannot be "
+                                    "negative");
+    }
+    pImpl->mSourceReceiverDistance = distance;
+}
+
+std::optional<double>
+StationLocalMagnitude::getSourceReceiverDistance() const noexcept
+{
+    return pImpl->mSourceReceiverDistance;
+}
+
+/// Source-receiver azimuth
+void StationLocalMagnitude::setSourceReceiverAzimuth(const double azimuth)
+{
+    if (azimuth < 0 || azimuth > 360)
+    {
+        throw std::invalid_argument(
+            "Source-receiver azimuth must be in range [0,360]");
+    }
+    pImpl->mSourceReceiverAzimuth = azimuth;
+}
+
+std::optional<double>
+StationLocalMagnitude::getSourceReceiverAzimuth() const noexcept
+{
+    return pImpl->mSourceReceiverAzimuth;
+}
+
+/// Stream identifier
+void StationLocalMagnitude::setStreamIdentifier(
+    const StreamIdentifier &identifier)
+{
+    auto copy = identifier;
+    setStreamIdentifier(std::move(copy));
+}
+
+void StationLocalMagnitude::setStreamIdentifier(StreamIdentifier &&identifier)
+{
+    if (!identifier.hasNetwork())
+    {
+        throw std::invalid_argument("Network not set on stream identifier");
+    }
+    if (!identifier.hasStation())
+    {
+        throw std::invalid_argument("Station not set on stream identifier");
+    }
+    if (!identifier.hasChannel())
+    {
+        throw std::invalid_argument("Channel not set on stream identifier");
+    }
+    if (!identifier.hasLocationCode())
+    {
+        throw std::invalid_argument(
+            "Location code not set on stream identifier");
+    }
+    pImpl->mStreamIdentifier = std::move(identifier);
+    pImpl->mHasStreamIdentifier = true;
+}
+
+StreamIdentifier StationLocalMagnitude::getStreamIdentifier() const
+{
+    if (!hasStreamIdentifier())
+    {
+        throw std::runtime_error("Stream identifier not set");
+    }
+    return pImpl->mStreamIdentifier;
+}
+
+bool StationLocalMagnitude::hasStreamIdentifier() const noexcept
+{
+    return pImpl->mHasStreamIdentifier;
 }

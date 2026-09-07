@@ -109,7 +109,9 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/database/aqms/arrival.hpp
     include/${PROJECT_NAME}/database/aqms/database.hpp
     include/${PROJECT_NAME}/database/aqms/centroidMomentTensorMagnitude.hpp
+    include/${PROJECT_NAME}/database/aqms/distanceCorrections.hpp
     include/${PROJECT_NAME}/database/aqms/durationMagnitude.hpp
+    include/${PROJECT_NAME}/database/aqms/durationMagnitudeScale.hpp
     include/${PROJECT_NAME}/database/aqms/geodesic.hpp
     include/${PROJECT_NAME}/database/aqms/rectify.hpp
     include/${PROJECT_NAME}/database/aqms/event.hpp
@@ -117,11 +119,13 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/database/aqms/eventSummary.hpp
     include/${PROJECT_NAME}/database/aqms/humanMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/localMagnitude.hpp
+    include/${PROJECT_NAME}/database/aqms/localMagnitudeScale.hpp
     include/${PROJECT_NAME}/database/aqms/magnitude.hpp
     include/${PROJECT_NAME}/database/aqms/origin.hpp
     include/${PROJECT_NAME}/database/aqms/queries/alarmQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/eventLockQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/eventQueries.hpp
+    include/${PROJECT_NAME}/database/aqms/queries/magnitudeQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/stationQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/waveformQueries.hpp
     include/${PROJECT_NAME}/database/aqms/serialize.hpp
@@ -153,19 +157,23 @@ set(LIBRARY_SRC
     src/database/aqms/arrival.cpp
     src/database/aqms/centroidMomentTensorMagnitude.cpp
     src/database/aqms/database.cpp
+    src/database/aqms/distanceCorrections.cpp
     src/database/aqms/durationMagnitude.cpp
+    src/database/aqms/durationMagnitudeScale.cpp
     src/database/aqms/event.cpp
     src/database/aqms/eventLock.cpp
     src/database/aqms/eventSummary.cpp
     src/database/aqms/geodesic.cpp
     src/database/aqms/humanMagnitude.cpp
     src/database/aqms/localMagnitude.cpp
+    src/database/aqms/localMagnitudeScale.cpp
     src/database/aqms/magnitude.cpp
     src/database/aqms/origin.cpp
     src/database/aqms/rectify.cpp
     src/database/aqms/queries/alarmQueries.cpp
     src/database/aqms/queries/eventLockQueries.cpp
     src/database/aqms/queries/eventQueries.cpp
+    src/database/aqms/queries/magnitudeQueries.cpp
     src/database/aqms/queries/stationQueries.cpp
     src/database/aqms/queries/waveformQueries.cpp
     src/database/aqms/serialize.cpp

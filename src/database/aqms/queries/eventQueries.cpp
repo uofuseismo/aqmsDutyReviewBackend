@@ -23,12 +23,15 @@
 #include "aqmsDutyReviewBackend/database/aqms/magnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/localMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/durationMagnitude.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/stationDurationMagnitude.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/stationLocalMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/humanMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/centroidMomentTensorMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/subnetTrigger.hpp"
 #include "aqmsDutyReviewBackend/database/client.hpp"
+#include "durationMagnitudeReader.hpp"
 
 using namespace AQMSDutyReviewBackend::Database::AQMS;
 namespace DB = AQMSDutyReviewBackend::Database;
@@ -967,8 +970,10 @@ Arrival readArrival(const pqxx::row_ref &row)
     }
     if (!row.at("source_receiver_distance").is_null())
     {
+        // assocaro.delta is in kilometres and the model works in meters,
+        // the same conversion origin.depth gets a few lines up.
         arrival.setSourceReceiverDistance(
-            row.at("source_receiver_distance").as<double> ());
+            row.at("source_receiver_distance").as<double> ()*1.e3);
     }
     if (!row.at("source_receiver_azimuth").is_null())
     {
@@ -1275,6 +1280,70 @@ AQMSDutyReviewBackend::Database::AQMS::queryEvent(
                           transaction.exec(::NETMAG_QUERY,
                                            pqxx::params{array}),
                           logger);
+
+                // The codas behind each duration magnitude, in this same
+                // transaction.  A third statement per duration magnitude
+                // rather than another join: the netmag query already
+                // returns one row per magnitude, and joining coda onto it
+                // would multiply that by the codas.
+                //
+                // Duration magnitudes carry one row per station; local
+                // magnitudes one row per CHANNEL.  That asymmetry is in
+                // AQMS, not here - see the queries' own notes.
+                for (auto &[originIdentifier, originMagnitudes] : magnitudes)
+                {
+                    for (auto &magnitude : originMagnitudes)
+                    {
+                        if (magnitude == nullptr){continue;}
+                        if (magnitude->getType()
+                            == IMagnitude::Type::Local)
+                        {
+                            // Per CHANNEL, not per station: assocamm.mag
+                            // is stored per component and the components
+                            // disagree on automatics, so there is no
+                            // station value to collapse them into.
+                            if (!magnitude->hasIdentifier()){continue;}
+                            auto *localMagnitude
+                                = dynamic_cast<LocalMagnitude *>
+                                  (magnitude.get());
+                            if (localMagnitude == nullptr){continue;}
+                            auto amplitudes
+                                = readStationLocalMagnitudes(
+                                      transaction,
+                                      localMagnitude->getIdentifier(),
+                                      originIdentifier,
+                                      logger);
+                            if (!amplitudes.empty())
+                            {
+                                localMagnitude->setStationMagnitudes(
+                                    std::move(amplitudes));
+                            }
+                            continue;
+                        }
+                        if (magnitude->getType()
+                            != IMagnitude::Type::Duration)
+                        {
+                            continue;
+                        }
+                        if (!magnitude->hasIdentifier()){continue;}
+                        auto *durationMagnitude
+                            = dynamic_cast<DurationMagnitude *>
+                              (magnitude.get());
+                        if (durationMagnitude == nullptr){continue;}
+                        auto stationMagnitudes
+                            = readStationDurationMagnitudes(
+                                  transaction,
+                                  durationMagnitude->getIdentifier(),
+                                  originIdentifier,
+                                  logger);
+                        if (!stationMagnitudes.empty())
+                        {
+                            durationMagnitude->setStationMagnitudes(
+                                std::move(stationMagnitudes));
+                        }
+                        continue;
+                    }
+                }
             }
 
             auto event = ::readEvent(originRows, std::move(magnitudes),

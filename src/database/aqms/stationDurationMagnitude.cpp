@@ -1,22 +1,31 @@
+#include <chrono>
+#include <optional>
 #include <memory>
 #include <stdexcept>
 #include <utility>
 #include "aqmsDutyReviewBackend/database/aqms/stationDurationMagnitude.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
 
 using namespace AQMSDutyReviewBackend::Database::AQMS;
 
 class StationDurationMagnitude::StationDurationMagnitudeImpl
 {
 public:
+    StreamIdentifier mStreamIdentifier;
+    std::optional<double> mSourceReceiverDistance;
+    std::optional<double> mSourceReceiverAzimuth;
+    std::chrono::nanoseconds mStartTime{0};
+    double mMagnitude{0};
     double mDuration{0};
-    double mDistance{0};
     double mCorrection{0};
     double mResidual{0};
     double mWeight{0};
+    bool mHasMagnitude{false};
     bool mHasDuration{false};
-    bool mHasDistance{false};
     bool mHasResidual{false};
     bool mHasWeight{false};
+    bool mHasStartTime{false};
+    bool mHasStreamIdentifier{false};
 };
 
 /// Constructor
@@ -84,25 +93,6 @@ bool StationDurationMagnitude::hasDuration() const noexcept
 }
 
 /// Distance
-void StationDurationMagnitude::setDistance(const double distance)
-{
-    if (distance < 0)
-    {
-        throw std::invalid_argument("Distance cannot be negative");
-    }
-    pImpl->mDistance = distance;
-    pImpl->mHasDistance = true;
-}
-
-double StationDurationMagnitude::getDistance() const noexcept
-{
-    return pImpl->mDistance;
-}
-
-bool StationDurationMagnitude::hasDistance() const noexcept
-{
-    return pImpl->mHasDistance;
-}
 
 /// Correction
 void StationDurationMagnitude::setCorrection(const double correction) noexcept
@@ -153,4 +143,126 @@ double StationDurationMagnitude::getWeight() const
 bool StationDurationMagnitude::hasWeight() const noexcept
 {
     return pImpl->mHasWeight;
+}
+
+/// Measurement window start
+void StationDurationMagnitude::setStartTime(
+    const std::chrono::nanoseconds &startTime) noexcept
+{
+    pImpl->mStartTime = startTime;
+    pImpl->mHasStartTime = true;
+}
+
+std::chrono::nanoseconds StationDurationMagnitude::getStartTime() const
+{
+    if (!hasStartTime()){throw std::runtime_error("Start time not set");}
+    return pImpl->mStartTime;
+}
+
+bool StationDurationMagnitude::hasStartTime() const noexcept
+{
+    return pImpl->mHasStartTime;
+}
+
+/// Source-receiver distance - meters, as everywhere else
+void StationDurationMagnitude::setSourceReceiverDistance(
+    const double distance)
+{
+    if (distance < 0)
+    {
+        throw std::invalid_argument("Source-receiver distance cannot be "
+                                    "negative");
+    }
+    pImpl->mSourceReceiverDistance = distance;
+}
+
+std::optional<double>
+StationDurationMagnitude::getSourceReceiverDistance() const noexcept
+{
+    return pImpl->mSourceReceiverDistance;
+}
+
+/// Source-receiver azimuth
+void StationDurationMagnitude::setSourceReceiverAzimuth(const double azimuth)
+{
+    // Closed at both ends - 0 and 360 name the same direction and there is
+    // no reason to reject a row for writing the other one.
+    if (azimuth < 0 || azimuth > 360)
+    {
+        throw std::invalid_argument(
+            "Source-receiver azimuth must be in range [0,360]");
+    }
+    pImpl->mSourceReceiverAzimuth = azimuth;
+}
+
+std::optional<double>
+StationDurationMagnitude::getSourceReceiverAzimuth() const noexcept
+{
+    return pImpl->mSourceReceiverAzimuth;
+}
+
+/// Stream identifier
+void StationDurationMagnitude::setStreamIdentifier(
+    const StreamIdentifier &identifier)
+{
+    auto copy = identifier;
+    setStreamIdentifier(std::move(copy));
+}
+
+void StationDurationMagnitude::setStreamIdentifier(
+    StreamIdentifier &&identifier)
+{
+    // The same four parts Arrival insists on.  A station magnitude belongs
+    // to a channel, and a partial stream cannot name one.
+    if (!identifier.hasNetwork())
+    {
+        throw std::invalid_argument("Network not set on stream identifier");
+    }
+    if (!identifier.hasStation())
+    {
+        throw std::invalid_argument("Station not set on stream identifier");
+    }
+    if (!identifier.hasChannel())
+    {
+        throw std::invalid_argument("Channel not set on stream identifier");
+    }
+    if (!identifier.hasLocationCode())
+    {
+        throw std::invalid_argument(
+            "Location code not set on stream identifier");
+    }
+    pImpl->mStreamIdentifier = std::move(identifier);
+    pImpl->mHasStreamIdentifier = true;
+}
+
+StreamIdentifier StationDurationMagnitude::getStreamIdentifier() const
+{
+    if (!hasStreamIdentifier())
+    {
+        throw std::runtime_error("Stream identifier not set");
+    }
+    return pImpl->mStreamIdentifier;
+}
+
+bool StationDurationMagnitude::hasStreamIdentifier() const noexcept
+{
+    return pImpl->mHasStreamIdentifier;
+}
+
+/// Station magnitude - assoccom.mag
+void StationDurationMagnitude::setMagnitude(const double magnitude) noexcept
+{
+    pImpl->mMagnitude = magnitude;
+    pImpl->mHasMagnitude = true;
+}
+
+double StationDurationMagnitude::getMagnitude() const
+{
+    if (!hasMagnitude()){throw std::runtime_error("Magnitude not set");}
+    return pImpl->mMagnitude;
+}
+
+bool StationDurationMagnitude::hasMagnitude() const noexcept
+{
+    return pImpl->mHasMagnitude;
 }

@@ -163,7 +163,9 @@ int AQMSDutyReviewBackend::Database::AQMS::rectifyArrivalGeometry(
                 {
                     if (const auto distance = geometry.getDistance(); distance)
                     {
-                        arrival.setSourceReceiverDistance(*distance);
+                        // DistanceAzimuth answers in kilometres; the models
+                        // hold meters.
+                        arrival.setSourceReceiverDistance(*distance*1.e3);
                     }
                 }
                 if (needsAzimuth)

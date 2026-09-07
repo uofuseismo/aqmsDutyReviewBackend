@@ -17,7 +17,9 @@
 #include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/event.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/arrival.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/stationDurationMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/localMagnitude.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/stationLocalMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/durationMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
@@ -315,7 +317,7 @@ namespace
     arrival.setReviewStatus(Arrival::ReviewStatus::Human);
     arrival.setQuality(0.8);
     arrival.setResidual(std::chrono::nanoseconds{50'000'000});
-    arrival.setSourceReceiverDistance(12.5);
+    arrival.setSourceReceiverDistance(12'500.0);   // meters
     arrival.setSourceReceiverAzimuth(145.0);
     StreamIdentifier streamIdentifier;
     streamIdentifier.setNetwork("UU");
@@ -404,8 +406,8 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS", "[serialize][event]")
         REQUIRE(preferredOrigin.at("preferredMagnitudeIdentifier")
                     .as_int64() == 51);
         REQUIRE(json.at("preferredMagnitudeIdentifier").as_int64() == 51);
-        for (const auto &magnitude
-             : preferredOrigin.at("magnitudes").as_array())
+        for (const auto &[key, magnitude]
+             : preferredOrigin.at("magnitudes").as_object())
         {
             REQUIRE_FALSE(magnitude.as_object().contains("isPreferred"));
         }
@@ -418,17 +420,18 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS", "[serialize][event]")
         // iterate without a special case.
         for (const auto &entry : origins)
         {
-            REQUIRE(entry.as_object().at("magnitudes").is_array());
+            // Magnitudes are keyed by type; arrivals stay a list.
+            REQUIRE(entry.as_object().at("magnitudes").is_object());
             REQUIRE(entry.as_object().at("arrivals").is_array());
         }
         const auto &superseded = origins.at(1).as_object();
-        REQUIRE(superseded.at("magnitudes").as_array().empty());
+        REQUIRE(superseded.at("magnitudes").as_object().empty());
         const auto &arrival
             = superseded.at("arrivals").as_array().at(0).as_object();
         REQUIRE(arrival.at("station").as_string() == "CTU");
         REQUIRE(arrival.at("phase").as_string() == "P");
         REQUIRE(arrival.at("sourceReceiverDistance").as_double()
-                == Catch::Approx(12.5));
+                == Catch::Approx(12'500.0));
         REQUIRE(arrival.at("sourceReceiverAzimuth").as_double()
                 == Catch::Approx(145.0));
         REQUIRE(arrival.at("residual").as_int64() == 50'000'000);
@@ -687,5 +690,383 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS", "[serialize][waveformEncoding
         }
         // samplingRate is still a double and still prints as 1E2 - that is
         // one number per segment, not one per sample, so it is left alone.
+    }
+}
+
+namespace
+{
+
+/// @brief A duration magnitude with two codas - one reviewed-looking, one
+///        with only what an automatic carries.
+[[nodiscard]] std::unique_ptr<IMagnitude> makeCodaMagnitude()
+{
+    StreamIdentifier streamIdentifier;
+    streamIdentifier.setNetwork("UU");
+    streamIdentifier.setStation("FOR5");
+    streamIdentifier.setChannel("HHZ");
+    streamIdentifier.setLocationCode("01");
+
+    StationDurationMagnitude complete;
+    complete.setStreamIdentifier(streamIdentifier);
+    complete.setStartTime(std::chrono::nanoseconds{1'700'000'000'000'000'000});
+    complete.setMagnitude(1.46);
+    complete.setDuration(70.0);
+    complete.setWeight(1.0);
+    complete.setResidual(0.15);
+    complete.setCorrection(-0.1);
+    complete.setSourceReceiverDistance(12'500.0);
+    complete.setSourceReceiverAzimuth(145.0);
+
+    // What an automatic actually carries: the stream, the window and the
+    // duration, and nothing else.
+    StreamIdentifier otherStream;
+    otherStream.setNetwork("UU");
+    otherStream.setStation("NMU");
+    otherStream.setChannel("EHZ");
+    otherStream.setLocationCode("01");
+    // An automatic coda: AQMS stores its magnitude but no residual, and
+    // the reader derives one.  Here the derived value is set directly,
+    // since the reader needs a database.
+    StationDurationMagnitude sparse;
+    sparse.setStreamIdentifier(otherStream);
+    sparse.setStartTime(std::chrono::nanoseconds{1'700'000'001'000'000'000});
+    sparse.setMagnitude(0.83);
+    sparse.setResidual(0.83 - 1.31);
+    sparse.setDuration(19.0);
+
+    auto magnitude = std::make_unique<DurationMagnitude> ();
+    magnitude->setIdentifier(105706);
+    magnitude->setValue(1.31);
+    magnitude->setIsPreferred();
+    magnitude->setStationMagnitudes(
+        std::vector<StationDurationMagnitude> {complete, sparse});
+    return magnitude;
+}
+
+[[nodiscard]] Event makeEventWithCodaMagnitude()
+{
+    Origin origin;
+    origin.setIdentifier(152936);
+    origin.setLatitude(40.7);
+    origin.setLongitude(-111.9);
+    origin.setDepth(5000);
+    origin.setTime(std::chrono::nanoseconds{1'700'000'000'000'000'000});
+    origin.setIsPreferred();
+    std::vector<std::unique_ptr<IMagnitude>> magnitudes;
+    magnitudes.push_back(::makeCodaMagnitude());
+    origin.setMagnitudes(std::move(magnitudes));
+
+    Event event;
+    event.setIdentifier(31153006);
+    event.setOrigins(std::vector<Origin> {origin});
+    event.setPreferredMagnitudeIdentifier(105706);
+    return event;
+}
+
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS", "[serialize][codaMagnitude]")
+{
+    SECTION("A duration magnitude carries its codas")
+    {
+        const auto json = toJSON(::makeEventWithCodaMagnitude());
+        // Reached by NAME rather than by scanning for a type.
+        const auto &magnitude = json.at("origins").as_array().at(0)
+                                    .as_object().at("magnitudes")
+                                    .as_object().at("durationMagnitude")
+                                    .as_object();
+        REQUIRE(magnitude.at("magnitudeType").as_string() == "duration");
+        REQUIRE(magnitude.at("magnitudeIdentifier").as_int64() == 105706);
+        const auto &codas = magnitude.at("stationMagnitudes").as_array();
+        REQUIRE(codas.size() == 2);
+
+        const auto &first = codas.at(0).as_object();
+        REQUIRE(first.at("station").as_string() == "FOR5");
+        REQUIRE(first.at("channel").as_string() == "HHZ");
+        // The window is [startTime, startTime + duration] - but the two
+        // are not in the same units on the wire, so the end has to be
+        // computed as startTime + duration*1e9.
+        REQUIRE(first.at("duration").as_double() == Catch::Approx(70.0));
+        REQUIRE(first.at("startTime").as_int64()
+                == 1'700'000'000'000'000'000);
+        const auto endTime
+            = first.at("startTime").as_int64()
+            + static_cast<std::int64_t>
+              (first.at("duration").as_double()*1.e9);
+        REQUIRE(endTime == 1'700'000'070'000'000'000);
+        REQUIRE(first.at("weight").as_double() == Catch::Approx(1.0));
+        REQUIRE(first.at("magnitude").as_double() == Catch::Approx(1.46));
+        REQUIRE(first.at("residual").as_double() == Catch::Approx(0.15));
+        REQUIRE(first.at("sourceReceiverDistance").as_double()
+                == Catch::Approx(12'500.0));
+        REQUIRE(first.at("sourceReceiverAzimuth").as_double()
+                == Catch::Approx(145.0));
+    }
+    SECTION("An automatic coda still carries a magnitude and a residual")
+    {
+        // AQMS writes magres only on review, but it writes the station
+        // magnitude on every coda - so the residual is recoverable by
+        // subtraction and the analyst is not left with a blank column.
+        const auto json = toJSON(::makeEventWithCodaMagnitude());
+        const auto &codas = json.at("origins").as_array().at(0).as_object()
+                                .at("magnitudes").as_object()
+                                .at("durationMagnitude").as_object()
+                                .at("stationMagnitudes").as_array();
+        const auto &sparse = codas.at(1).as_object();
+        REQUIRE(sparse.at("station").as_string() == "NMU");
+        // The station magnitude and a residual DO come through - AQMS
+        // stores the magnitude on every coda, and the residual is that
+        // magnitude less the network magnitude.
+        REQUIRE(sparse.at("magnitude").as_double() == Catch::Approx(0.83));
+        REQUIRE(sparse.at("residual").as_double()
+                == Catch::Approx(0.83 - 1.31));
+        // What an automatic genuinely lacks:
+        REQUIRE_FALSE(sparse.contains("weight"));
+        REQUIRE_FALSE(sparse.contains("sourceReceiverDistance"));
+        REQUIRE_FALSE(sparse.contains("sourceReceiverAzimuth"));
+        // What it does have is enough to draw the coda window.
+        REQUIRE(sparse.at("duration").as_double() == Catch::Approx(19.0));
+        REQUIRE(sparse.contains("startTime"));
+    }
+    SECTION("The correction is always present - it defaults to zero")
+    {
+        // Unlike the residual: a magnitude with no correction applied has
+        // a correction of zero, which is a value rather than an absence.
+        const auto json = toJSON(::makeEventWithCodaMagnitude());
+        const auto &codas = json.at("origins").as_array().at(0).as_object()
+                                .at("magnitudes").as_object()
+                                .at("durationMagnitude").as_object()
+                                .at("stationMagnitudes").as_array();
+        REQUIRE(codas.at(0).as_object().at("correction").as_double()
+                == Catch::Approx(-0.1));
+        REQUIRE(codas.at(1).as_object().at("correction").as_double()
+                == Catch::Approx(0.0));
+    }
+    SECTION("A magnitude with no codas read has no stationMagnitudes key")
+    {
+        // Absent says they were not read; an empty array would say the
+        // magnitude was computed from nothing.
+        auto bare = std::make_unique<DurationMagnitude> ();
+        bare->setIdentifier(7);
+        bare->setValue(2.0);
+        bare->setIsPreferred();
+        Origin origin;
+        origin.setIdentifier(1);
+        origin.setLatitude(40.7);
+        origin.setLongitude(-111.9);
+        origin.setTime(std::chrono::nanoseconds{1});
+        origin.setIsPreferred();
+        std::vector<std::unique_ptr<IMagnitude>> magnitudes;
+        magnitudes.push_back(std::move(bare));
+        origin.setMagnitudes(std::move(magnitudes));
+        Event event;
+        event.setIdentifier(1);
+        event.setOrigins(std::vector<Origin> {origin});
+
+        const auto json = toJSON(event);
+        const auto &magnitude = json.at("origins").as_array().at(0)
+                                    .as_object().at("magnitudes")
+                                    .as_object().at("durationMagnitude")
+                                    .as_object();
+        REQUIRE_FALSE(magnitude.contains("stationMagnitudes"));
+    }
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS", "[serialize][magnitudeKeys]")
+{
+    SECTION("Magnitudes are keyed by type, not listed")
+    {
+        // An origin carries at most one magnitude of each type, so the
+        // shape says so and a client never scans for a magnitudeType.
+        const auto json = toJSON(::makeEventWithCodaMagnitude());
+        const auto &magnitudes = json.at("origins").as_array().at(0)
+                                     .as_object().at("magnitudes")
+                                     .as_object();
+        REQUIRE(magnitudes.contains("durationMagnitude"));
+        // A type this origin has no magnitude of is simply absent.
+        REQUIRE_FALSE(magnitudes.contains("localMagnitude"));
+        REQUIRE_FALSE(magnitudes.contains("momentMagnitude"));
+        REQUIRE_FALSE(magnitudes.contains("humanMagnitude"));
+        REQUIRE(magnitudes.at("durationMagnitude").as_object()
+                          .at("stationMagnitudes").as_array().size() == 2);
+    }
+    SECTION("Each entry still names its own type")
+    {
+        // Redundant with the key, and kept: an entry logged or passed
+        // around on its own would otherwise say nothing about what it is.
+        const auto json = toJSON(::makeEventWithCodaMagnitude());
+        const auto &magnitudes = json.at("origins").as_array().at(0)
+                                     .as_object().at("magnitudes")
+                                     .as_object();
+        for (const auto &[key, magnitude] : magnitudes)
+        {
+            const auto type
+                = magnitude.as_object().at("magnitudeType").as_string();
+            CAPTURE(std::string {key});
+            REQUIRE(std::string {key.begin(), key.end()}
+                    == std::string {type.begin(), type.end()}
+                     + "Magnitude");
+        }
+    }
+    SECTION("An origin with no magnitudes has an empty object")
+    {
+        // Present and empty, so a client can read magnitudes.x on any
+        // origin without checking the key exists first.
+        const auto json = toJSON(::makeDetailedEvent());
+        const auto &superseded = json.at("origins").as_array().at(1)
+                                     .as_object();
+        REQUIRE(superseded.at("magnitudes").is_object());
+        REQUIRE(superseded.at("magnitudes").as_object().empty());
+    }
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS",
+          "[serialize][codaResidual]")
+{
+    SECTION("The residual is the station magnitude less the network one")
+    {
+        // The definition, and it is not an approximation: on every
+        // reviewed row in the archive magres equals exactly this subtraction,
+        // so deriving it where AQMS left it out gives the same quantity.
+        const auto json = toJSON(::makeEventWithCodaMagnitude());
+        const auto &magnitude = json.at("origins").as_array().at(0)
+                                    .as_object().at("magnitudes")
+                                    .as_object().at("durationMagnitude")
+                                    .as_object();
+        const auto networkMagnitude = magnitude.at("magnitude").as_double();
+        const auto &automatic = magnitude.at("stationMagnitudes")
+                                         .as_array().at(1).as_object();
+        REQUIRE(automatic.at("residual").as_double()
+                == Catch::Approx(automatic.at("magnitude").as_double()
+                               - networkMagnitude));
+    }
+    SECTION("A station magnitude and the network one are different keys")
+    {
+        // Both are called "magnitude" in their own object, one nested in
+        // the other, so a client reading the wrong level gets a plausible
+        // number.  Pinned so the nesting cannot quietly change.
+        const auto json = toJSON(::makeEventWithCodaMagnitude());
+        const auto &magnitude = json.at("origins").as_array().at(0)
+                                    .as_object().at("magnitudes")
+                                    .as_object().at("durationMagnitude")
+                                    .as_object();
+        REQUIRE(magnitude.at("magnitude").as_double() == Catch::Approx(1.31));
+        REQUIRE(magnitude.at("stationMagnitudes").as_array().at(0)
+                         .as_object().at("magnitude").as_double()
+                == Catch::Approx(1.46));
+    }
+}
+
+namespace
+{
+
+/// @brief A local magnitude with both horizontals of one station, as AQMS
+///        actually stores them - a magnitude per CHANNEL.
+[[nodiscard]] Event makeEventWithLocalMagnitude()
+{
+    const auto makeChannel
+        = [](const std::string &channel, const double magnitude,
+             const double amplitude)
+          {
+              StreamIdentifier streamIdentifier;
+              streamIdentifier.setNetwork("UU");
+              streamIdentifier.setStation("FOR5");
+              streamIdentifier.setChannel(channel);
+              streamIdentifier.setLocationCode("01");
+
+              StationLocalMagnitude stationMagnitude;
+              stationMagnitude.setStreamIdentifier(streamIdentifier);
+              stationMagnitude.setMagnitude(magnitude);
+              stationMagnitude.setResidual(magnitude - 0.79);
+              stationMagnitude.setAmplitude(amplitude);
+              stationMagnitude.setWeight(1.0);
+              return stationMagnitude;
+          };
+
+    auto localMagnitude = std::make_unique<LocalMagnitude> ();
+    localMagnitude->setIdentifier(105691);
+    localMagnitude->setValue(0.79);
+    localMagnitude->setIsPreferred();
+    localMagnitude->setStationMagnitudes(
+        std::vector<StationLocalMagnitude> {makeChannel("HHE", 0.97, 0.7480),
+                                            makeChannel("HHN", 0.97, 0.7430)});
+
+    Origin origin;
+    origin.setIdentifier(152936);
+    origin.setLatitude(40.7);
+    origin.setLongitude(-111.9);
+    origin.setTime(std::chrono::nanoseconds{1});
+    origin.setIsPreferred();
+    std::vector<std::unique_ptr<IMagnitude>> magnitudes;
+    magnitudes.push_back(std::move(localMagnitude));
+    origin.setMagnitudes(std::move(magnitudes));
+
+    Event event;
+    event.setIdentifier(31152986);
+    event.setOrigins(std::vector<Origin> {origin});
+    return event;
+}
+
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS",
+          "[serialize][localStationMagnitude]")
+{
+    SECTION("Local station magnitudes are per channel, not per station")
+    {
+        // The difference from codas, and it is in AQMS rather than here: a
+        // coda is one channel per station, a local amplitude is two
+        // horizontals, and assocamm.mag is stored for each.
+        const auto json = toJSON(::makeEventWithLocalMagnitude());
+        const auto &channels = json.at("origins").as_array().at(0)
+                                   .as_object().at("magnitudes").as_object()
+                                   .at("localMagnitude").as_object()
+                                   .at("stationMagnitudes").as_array();
+        REQUIRE(channels.size() == 2);
+        // Same station, two rows, told apart only by the channel.
+        REQUIRE(channels.at(0).as_object().at("station").as_string()
+                == channels.at(1).as_object().at("station").as_string());
+        REQUIRE(channels.at(0).as_object().at("channel").as_string() == "HHE");
+        REQUIRE(channels.at(1).as_object().at("channel").as_string() == "HHN");
+    }
+    SECTION("Each channel carries its own magnitude and residual")
+    {
+        const auto json = toJSON(::makeEventWithLocalMagnitude());
+        const auto &magnitude = json.at("origins").as_array().at(0)
+                                    .as_object().at("magnitudes").as_object()
+                                    .at("localMagnitude").as_object();
+        const auto networkMagnitude = magnitude.at("magnitude").as_double();
+        for (const auto &entry : magnitude.at("stationMagnitudes").as_array())
+        {
+            const auto &channel = entry.as_object();
+            REQUIRE(channel.at("residual").as_double()
+                    == Catch::Approx(channel.at("magnitude").as_double()
+                                   - networkMagnitude));
+        }
+    }
+    SECTION("The amplitude is millimetres whatever amp.units said")
+    {
+        // the archive holds Wood-Anderson amplitudes in both mm and cm; the
+        // reader normalises so the wire carries one unit.
+        const auto json = toJSON(::makeEventWithLocalMagnitude());
+        const auto &channels = json.at("origins").as_array().at(0)
+                                   .as_object().at("magnitudes").as_object()
+                                   .at("localMagnitude").as_object()
+                                   .at("stationMagnitudes").as_array();
+        REQUIRE(channels.at(0).as_object().at("amplitude").as_double()
+                == Catch::Approx(0.7480));
+    }
+    SECTION("Duration and local sit under their own keys")
+    {
+        // A client renders two differently shaped tables, and reaches each
+        // by name rather than by inspecting what it got.
+        const auto codaJson = toJSON(::makeEventWithCodaMagnitude());
+        const auto localJson = toJSON(::makeEventWithLocalMagnitude());
+        REQUIRE(codaJson.at("origins").as_array().at(0).as_object()
+                        .at("magnitudes").as_object()
+                        .contains("durationMagnitude"));
+        REQUIRE(localJson.at("origins").as_array().at(0).as_object()
+                         .at("magnitudes").as_object()
+                         .contains("localMagnitude"));
     }
 }

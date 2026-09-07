@@ -63,9 +63,11 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 ///       something to compare against a stored value as though a
 ///       disagreement meant one of them was wrong.
 ///
-/// @note Distance in kilometres and azimuth in degrees clockwise from
-///       north, which is what assocaro.delta and assocaro.seaz carry -
-///       checked against the archive rather than assumed.
+/// @note Written in meters and degrees clockwise from north.
+///       assocaro.delta is in KILOMETRES and assocaro.seaz in degrees -
+///       checked against the archive rather than assumed - so the reader
+///       scales delta on the way in and this scales the geodesic's answer
+///       the same way.  Everything past the query boundary is meters.
 [[nodiscard]] int rectifyArrivalGeometry(
     Event &event,
     const std::vector<Station> &stations,

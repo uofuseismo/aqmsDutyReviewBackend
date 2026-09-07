@@ -13,6 +13,10 @@
 #include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/event.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/durationMagnitude.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/stationDurationMagnitude.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/localMagnitude.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/stationLocalMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/magnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/station.hpp"
@@ -86,6 +90,25 @@ namespace
     case IMagnitude::Type::Moment:   return "moment";
     }
     return "unknown";
+}
+
+/// @brief The key a magnitude is filed under on its origin.
+/// @note An origin carries at most ONE magnitude of each type -
+///       Origin::setMagnitudes refuses a second - so the magnitudes are an
+///       object keyed by type rather than an array to be searched.  A
+///       client wanting the coda measurements writes
+///       origin.magnitudes.durationMagnitude.stationMagnitudes instead of
+///       scanning for the entry whose magnitudeType says "duration".
+[[nodiscard]] std::string toMagnitudeKey(const IMagnitude::Type type)
+{
+    switch (type)
+    {
+    case IMagnitude::Type::Human:    return "humanMagnitude";
+    case IMagnitude::Type::Duration: return "durationMagnitude";
+    case IMagnitude::Type::Local:    return "localMagnitude";
+    case IMagnitude::Type::Moment:   return "momentMagnitude";
+    }
+    return "unknownMagnitude";
 }
 
 [[nodiscard]] std::string toString(const IMagnitude::ReviewStatus status)
@@ -276,7 +299,150 @@ void writeSamples(boost::json::object &item,
     return item;
 }
 
+/// @brief Serializes one coda measurement behind a duration magnitude.
+[[nodiscard]] boost::json::object stationDurationMagnitudeToJSON(
+    const StationDurationMagnitude &stationMagnitude)
+{
+    boost::json::object item;
+    if (stationMagnitude.hasStreamIdentifier())
+    {
+        // A coda belongs to a CHANNEL, so the full stream is what tells
+        // two of them at one station apart.
+        const auto streamIdentifier = stationMagnitude.getStreamIdentifier();
+        if (streamIdentifier.hasNetwork())
+        {
+            item["network"] = streamIdentifier.getNetwork();
+        }
+        if (streamIdentifier.hasStation())
+        {
+            item["station"] = streamIdentifier.getStation();
+        }
+        if (streamIdentifier.hasChannel())
+        {
+            item["channel"] = streamIdentifier.getChannel();
+        }
+        if (streamIdentifier.hasLocationCode())
+        {
+            item["locationCode"] = streamIdentifier.getLocationCode();
+        }
+    }
+    if (stationMagnitude.hasStartTime())
+    {
+        item["startTime"] = stationMagnitude.getStartTime().count();
+    }
+    if (stationMagnitude.hasMagnitude())
+    {
+        item["magnitude"] = stationMagnitude.getMagnitude();
+    }
+    if (stationMagnitude.hasDuration())
+    {
+        // coda.tau.  The measurement window runs from startTime to
+        // startTime + duration, so no end time is sent - one number
+        // cannot disagree with itself the way two could.
+        //
+        // Mind the units: startTime is NANOSECONDS and this is SECONDS,
+        // so the end is startTime + duration*1e9.  Adding them directly
+        // lands nine orders of magnitude out, which is far enough to be
+        // obvious but only once somebody plots it.
+        item["duration"] = stationMagnitude.getDuration();
+    }
+    if (stationMagnitude.hasWeight())
+    {
+        item["weight"] = stationMagnitude.getWeight();
+    }
+    if (stationMagnitude.hasResidual())
+    {
+        // AQMS stores this only on reviewed magnitudes - zero of 140,879
+        // automatic coda rows carry one - so on an automatic it is the
+        // reader's own subtraction of the station magnitude and the
+        // network magnitude.  Not a different quantity: magres is that
+        // subtraction, exactly, on every reviewed row in the archive.
+        item["residual"] = stationMagnitude.getResidual();
+    }
+    item["correction"] = stationMagnitude.getCorrection();
+    if (const auto distance = stationMagnitude.getSourceReceiverDistance();
+        distance)
+    {
+        item["sourceReceiverDistance"] = *distance;
+    }
+    if (const auto azimuth = stationMagnitude.getSourceReceiverAzimuth();
+        azimuth)
+    {
+        item["sourceReceiverAzimuth"] = *azimuth;
+    }
+    return item;
+}
+
+/// @brief Serializes one channel's contribution to a local magnitude.
+/// @note One of these per CHANNEL, not per station - a local magnitude is
+///       measured on two horizontals and AQMS stores a magnitude for each,
+///       which on an automatic magnitude disagree.  A client rendering
+///       these gets more rows than it would for codas, and that is honest
+///       rather than incidental.
+[[nodiscard]] boost::json::object stationLocalMagnitudeToJSON(
+    const StationLocalMagnitude &stationMagnitude)
+{
+    boost::json::object item;
+    if (stationMagnitude.hasStreamIdentifier())
+    {
+        const auto streamIdentifier = stationMagnitude.getStreamIdentifier();
+        if (streamIdentifier.hasNetwork())
+        {
+            item["network"] = streamIdentifier.getNetwork();
+        }
+        if (streamIdentifier.hasStation())
+        {
+            item["station"] = streamIdentifier.getStation();
+        }
+        if (streamIdentifier.hasChannel())
+        {
+            item["channel"] = streamIdentifier.getChannel();
+        }
+        if (streamIdentifier.hasLocationCode())
+        {
+            item["locationCode"] = streamIdentifier.getLocationCode();
+        }
+    }
+    if (stationMagnitude.hasMagnitude())
+    {
+        item["magnitude"] = stationMagnitude.getMagnitude();
+    }
+    if (stationMagnitude.hasResidual())
+    {
+        // As for a coda: stored on review, and otherwise this channel's
+        // magnitude less the network magnitude - which is what a stored
+        // one is, exactly.
+        item["residual"] = stationMagnitude.getResidual();
+    }
+    if (const auto amplitude = stationMagnitude.getAmplitude(); amplitude)
+    {
+        // Millimetres, whatever amp.units said - the reader normalises.
+        item["amplitude"] = *amplitude;
+    }
+    if (stationMagnitude.hasWeight())
+    {
+        item["weight"] = stationMagnitude.getWeight();
+    }
+    item["correction"] = stationMagnitude.getCorrection();
+    if (const auto distance = stationMagnitude.getSourceReceiverDistance();
+        distance)
+    {
+        item["sourceReceiverDistance"] = *distance;
+    }
+    if (const auto azimuth = stationMagnitude.getSourceReceiverAzimuth();
+        azimuth)
+    {
+        item["sourceReceiverAzimuth"] = *azimuth;
+    }
+    return item;
+}
+
 /// @brief Serializes one magnitude.
+/// @note The per-station measurements hang off the concrete type rather
+///       than off IMagnitude, so reaching them means asking what this
+///       actually is.  Only duration magnitudes carry them today; a local
+///       magnitude's station amplitudes are the same shape and are not
+///       read yet.
 [[nodiscard]] boost::json::object magnitudeToJSON(const IMagnitude &magnitude)
 {
     boost::json::object item;
@@ -284,6 +450,9 @@ void writeSamples(boost::json::object &item,
     {
         item["magnitudeIdentifier"] = magnitude.getIdentifier();
     }
+    // Kept even though the key it is filed under says the same thing: a
+    // client that iterates the object's values, or logs one entry on its
+    // own, would otherwise have nothing naming the type.
     item["magnitudeType"] = ::toString(magnitude.getType());
     if (magnitude.hasValue())
     {
@@ -292,6 +461,42 @@ void writeSamples(boost::json::object &item,
     if (magnitude.hasReviewStatus())
     {
         item["reviewStatus"] = ::toString(magnitude.getReviewStatus());
+    }
+    if (magnitude.getType() == IMagnitude::Type::Local)
+    {
+        const auto *localMagnitude
+            = dynamic_cast<const LocalMagnitude *> (&magnitude);
+        if (localMagnitude != nullptr && localMagnitude->size() > 0)
+        {
+            boost::json::array stationMagnitudes;
+            stationMagnitudes.reserve(localMagnitude->size());
+            for (const auto &stationMagnitude : *localMagnitude)
+            {
+                stationMagnitudes.push_back(
+                    ::stationLocalMagnitudeToJSON(stationMagnitude));
+            }
+            item["stationMagnitudes"] = std::move(stationMagnitudes);
+        }
+    }
+    if (magnitude.getType() == IMagnitude::Type::Duration)
+    {
+        const auto *durationMagnitude
+            = dynamic_cast<const DurationMagnitude *> (&magnitude);
+        if (durationMagnitude != nullptr &&
+            durationMagnitude->size() > 0)
+        {
+            boost::json::array stationMagnitudes;
+            stationMagnitudes.reserve(durationMagnitude->size());
+            for (const auto &stationMagnitude : *durationMagnitude)
+            {
+                stationMagnitudes.push_back(
+                    ::stationDurationMagnitudeToJSON(stationMagnitude));
+            }
+            // Only when there are some.  An absent key says the codas were
+            // not read; an empty array would say the magnitude was
+            // computed from nothing.
+            item["stationMagnitudes"] = std::move(stationMagnitudes);
+        }
     }
     return item;
 }
@@ -340,12 +545,10 @@ void writeSamples(boost::json::object &item,
         item["credit"] = *credit;
     }
 
-    boost::json::array magnitudesJSON;
+    boost::json::object magnitudesJSON;
     if (origin.hasMagnitudes())
     {
-        const auto magnitudes = origin.magnitudes();
-        magnitudesJSON.reserve(magnitudes.size());
-        for (const auto &magnitude : magnitudes)
+        for (const auto &magnitude : origin.magnitudes())
         {
             if (magnitude == nullptr){continue;}
             // This origin's own preferred magnitude - origin.prefmag.  It
@@ -355,9 +558,12 @@ void writeSamples(boost::json::object &item,
                 item["preferredMagnitudeIdentifier"]
                     = magnitude->getIdentifier();
             }
-            magnitudesJSON.push_back(::magnitudeToJSON(*magnitude));
+            magnitudesJSON[::toMagnitudeKey(magnitude->getType())]
+                = ::magnitudeToJSON(*magnitude);
         }
     }
+    // An object, always present, possibly empty.  Absent keys are the
+    // types this origin has no magnitude of.
     item["magnitudes"] = std::move(magnitudesJSON);
 
     // Always, whether or not the arrivals themselves are written.  A

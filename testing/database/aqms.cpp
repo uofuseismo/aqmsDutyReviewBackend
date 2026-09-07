@@ -5,6 +5,7 @@
 #include <iterator>
 #include <span>
 #include <type_traits>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -15,6 +16,9 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/distanceCorrections.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/durationMagnitudeScale.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/localMagnitudeScale.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/station.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/rectify.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/arrival.hpp"
@@ -1079,11 +1083,16 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::StationDurationMagnitude",
     {
         const StationDurationMagnitude magnitude;
         REQUIRE_FALSE(magnitude.hasDuration());
-        REQUIRE_FALSE(magnitude.hasDistance());
+        REQUIRE_FALSE(magnitude.getSourceReceiverDistance().has_value());
+        REQUIRE_FALSE(magnitude.getSourceReceiverAzimuth().has_value());
+        REQUIRE_FALSE(magnitude.hasStartTime());
+        REQUIRE_FALSE(magnitude.hasStreamIdentifier());
         REQUIRE_FALSE(magnitude.hasResidual());
         REQUIRE_FALSE(magnitude.hasWeight());
         REQUIRE(magnitude.getCorrection() == 0.0);   // Default, not "has".
-        REQUIRE(magnitude.getDistance() == 0.0);      // noexcept: 0 when unset.
+        REQUIRE_THROWS_AS(magnitude.getStartTime(), std::runtime_error);
+        REQUIRE_THROWS_AS(magnitude.getStreamIdentifier(),
+                          std::runtime_error);
         REQUIRE_THROWS_AS(magnitude.getDuration(), std::runtime_error);
         REQUIRE_THROWS_AS(magnitude.getResidual(), std::runtime_error);
         REQUIRE_THROWS_AS(magnitude.getWeight(), std::runtime_error);
@@ -1099,11 +1108,51 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::StationDurationMagnitude",
     }
     SECTION("Distance cannot be negative")
     {
+        // Meters, and named the way Arrival names it - there is one
+        // source-receiver distance on these models, not two.
         StationDurationMagnitude magnitude;
-        REQUIRE_THROWS_AS(magnitude.setDistance(-1.0), std::invalid_argument);
-        magnitude.setDistance(177000.0);
-        REQUIRE(magnitude.hasDistance());
-        REQUIRE(magnitude.getDistance() == 177000.0);
+        REQUIRE_THROWS_AS(magnitude.setSourceReceiverDistance(-1.0),
+                          std::invalid_argument);
+        magnitude.setSourceReceiverDistance(177000.0);
+        //NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+        REQUIRE(*magnitude.getSourceReceiverDistance() == 177000.0);
+    }
+    SECTION("The azimuth is closed at both ends")
+    {
+        StationDurationMagnitude magnitude;
+        REQUIRE_NOTHROW(magnitude.setSourceReceiverAzimuth(0));
+        REQUIRE_NOTHROW(magnitude.setSourceReceiverAzimuth(360));
+        REQUIRE_THROWS_AS(magnitude.setSourceReceiverAzimuth(-0.1),
+                          std::invalid_argument);
+        REQUIRE_THROWS_AS(magnitude.setSourceReceiverAzimuth(360.1),
+                          std::invalid_argument);
+    }
+    SECTION("The measurement window start round trips")
+    {
+        StationDurationMagnitude magnitude;
+        magnitude.setStartTime(std::chrono::nanoseconds{1'700'000'000'000'000'000});
+        REQUIRE(magnitude.hasStartTime());
+        REQUIRE(magnitude.getStartTime()
+                == std::chrono::nanoseconds{1'700'000'000'000'000'000});
+    }
+    SECTION("A station magnitude belongs to a channel")
+    {
+        // Partial streams are refused for the same reason Arrival refuses
+        // them: the same station contributes one of these per component,
+        // so a stream without a channel cannot tell two of them apart.
+        StationDurationMagnitude magnitude;
+        StreamIdentifier partial;
+        partial.setNetwork("UU");
+        partial.setStation("CTU");
+        REQUIRE_THROWS_AS(magnitude.setStreamIdentifier(partial),
+                          std::invalid_argument);
+        REQUIRE_FALSE(magnitude.hasStreamIdentifier());
+
+        partial.setChannel("EHZ");
+        partial.setLocationCode("01");
+        magnitude.setStreamIdentifier(partial);
+        REQUIRE(magnitude.hasStreamIdentifier());
+        REQUIRE(magnitude.getStreamIdentifier().getStation() == "CTU");
     }
     SECTION("Correction and residual")
     {
@@ -1126,13 +1175,19 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::StationDurationMagnitude",
     {
         StationDurationMagnitude magnitude;
         magnitude.setDuration(12.5);
-        magnitude.setDistance(177000.0);
+        magnitude.setSourceReceiverDistance(177000.0);
+        magnitude.setSourceReceiverAzimuth(145.0);
+        magnitude.setStartTime(std::chrono::nanoseconds{42});
 
         const StationDurationMagnitude copy{magnitude};
         magnitude.setDuration(20.0);
         REQUIRE(magnitude.getDuration() == 20.0);
         REQUIRE(copy.getDuration() == 12.5);
-        REQUIRE(copy.getDistance() == 177000.0);
+        //NOLINTBEGIN(bugprone-unchecked-optional-access)
+        REQUIRE(*copy.getSourceReceiverDistance() == 177000.0);
+        REQUIRE(*copy.getSourceReceiverAzimuth() == 145.0);
+        //NOLINTEND(bugprone-unchecked-optional-access)
+        REQUIRE(copy.getStartTime() == std::chrono::nanoseconds{42});
     }
 }
 
@@ -1170,7 +1225,7 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::NetworkMagnitudeStations",
     {
         StationDurationMagnitude station;
         station.setDuration(12.5);
-        station.setDistance(177000.0);
+        station.setSourceReceiverDistance(177000.0);
 
         DurationMagnitude magnitude;
         magnitude.setValue(2.9);
@@ -2709,9 +2764,11 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::rectifyArrivalGeometry",
         REQUIRE(arrival.getSourceReceiverAzimuth().has_value());
         //NOLINTBEGIN(bugprone-unchecked-optional-access)
         // Salt Lake to a point south-east of it: order 100 km, bearing in
-        // the south-east quadrant.
-        REQUIRE(*arrival.getSourceReceiverDistance() > 50.0);
-        REQUIRE(*arrival.getSourceReceiverDistance() < 150.0);
+        // the south-east quadrant.  METERS, like every other distance in
+        // these models - the geodesic answers in kilometres and the
+        // rectifier scales it.
+        REQUIRE(*arrival.getSourceReceiverDistance() > 50'000.0);
+        REQUIRE(*arrival.getSourceReceiverDistance() < 150'000.0);
         REQUIRE(*arrival.getSourceReceiverAzimuth() > 90.0);
         REQUIRE(*arrival.getSourceReceiverAzimuth() < 180.0);
         //NOLINTEND(bugprone-unchecked-optional-access)
@@ -2805,5 +2862,292 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::rectifyArrivalGeometry",
                 ::makeBareArrival("CTU",
                                   std::chrono::nanoseconds{1'700'000'001'000'000'000})});
         REQUIRE(rectifyArrivalGeometry(event, std::vector<Station> {}) == 0);
+    }
+}
+
+/// The tables are buckets, not a curve: a distance takes the correction of
+/// the greatest tabulated distance not greater than it.
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::getDistanceCorrection",
+          "distanceCorrections")
+{
+    // The lookup takes METERS, as the models hold distance; the tables are
+    // written in kilometres.
+    const auto atKm
+        = [](const double kilometers, const MagnitudeRegion region)
+          {
+              return getDistanceCorrection(kilometers*1.e3, region);
+          };
+
+    SECTION("A tabulated distance takes its own correction")
+    {
+        REQUIRE(atKm(0.0,   MagnitudeRegion::Utah) == 1.4);
+        REQUIRE(atKm(30.0,  MagnitudeRegion::Utah) == 2.1);
+        REQUIRE(atKm(220.0, MagnitudeRegion::Utah) == 3.65);
+        REQUIRE(atKm(600.0, MagnitudeRegion::Utah) == 4.9);
+        REQUIRE(atKm(3.0,   MagnitudeRegion::Yellowstone) == 0.64);
+        REQUIRE(atKm(180.0, MagnitudeRegion::Yellowstone) == 3.67);
+    }
+    SECTION("Between two entries the LOWER one applies")
+    {
+        // The whole point of calling them buckets.  Interpolating here
+        // would give magnitudes no previous run of this scale produced.
+        REQUIRE(atKm(31.0,  MagnitudeRegion::Utah) == 2.1);   // 30 -> 35
+        REQUIRE(atKm(34.99, MagnitudeRegion::Utah) == 2.1);
+        REQUIRE(atKm(35.0,  MagnitudeRegion::Utah) == 2.3);   // the next one
+        REQUIRE(atKm(4.0,   MagnitudeRegion::Yellowstone) == 0.64);
+    }
+    SECTION("The wide Utah bucket at 70 km behaves like any other")
+    {
+        // There is no 75 km entry, so 70 owns everything up to 80.
+        REQUIRE(atKm(70.0, MagnitudeRegion::Utah) == 2.8);
+        REQUIRE(atKm(75.0, MagnitudeRegion::Utah) == 2.8);
+        REQUIRE(atKm(79.9, MagnitudeRegion::Utah) == 2.8);
+        REQUIRE(atKm(80.0, MagnitudeRegion::Utah) == 2.9);
+    }
+    SECTION("Closer than the table starts takes the first correction")
+    {
+        // Utah starts at 0, so only Yellowstone can be undershot - it
+        // starts at 3 km.
+        REQUIRE(atKm(0.0, MagnitudeRegion::Yellowstone) == 0.64);
+        REQUIRE(atKm(2.9, MagnitudeRegion::Yellowstone) == 0.64);
+    }
+    SECTION("Further than the table goes takes the last correction")
+    {
+        REQUIRE(atKm(601.0,  MagnitudeRegion::Utah) == 4.9);
+        REQUIRE(atKm(5000.0, MagnitudeRegion::Utah) == 4.9);
+        REQUIRE(atKm(181.0,  MagnitudeRegion::Yellowstone) == 3.67);
+        REQUIRE(atKm(5000.0, MagnitudeRegion::Yellowstone) == 3.67);
+    }
+    SECTION("The two regions are different curves, not an offset")
+    {
+        // Picking the wrong one is a wrong magnitude, not a slightly wrong
+        // one - at 50 km they differ by more than half a magnitude unit.
+        REQUIRE(atKm(50.0, MagnitudeRegion::Utah) == 2.6);
+        REQUIRE(atKm(50.0, MagnitudeRegion::Yellowstone) == 2.69);
+        // Utah is the lower curve close in and the higher one far out -
+        // they cross, so no single offset relates them.
+        REQUIRE(atKm(20.0, MagnitudeRegion::Utah) == 1.7);
+        REQUIRE(atKm(20.0, MagnitudeRegion::Yellowstone) == 1.55);
+        REQUIRE(atKm(150.0, MagnitudeRegion::Utah) == 3.3);
+        REQUIRE(atKm(150.0, MagnitudeRegion::Yellowstone) == 3.5);
+    }
+    SECTION("The Yellowstone dip is preserved, not smoothed")
+    {
+        // The corrections rise to 3.17 at 80 km, fall to 3.06 at 110, then
+        // rise again.  That is in the source table and a "fix" that made
+        // it monotonic would be wrong.
+        REQUIRE(atKm(80.0,  MagnitudeRegion::Yellowstone) == 3.17);
+        REQUIRE(atKm(110.0, MagnitudeRegion::Yellowstone) == 3.06);
+        REQUIRE(atKm(140.0, MagnitudeRegion::Yellowstone) == 3.37);
+        REQUIRE(atKm(110.0, MagnitudeRegion::Yellowstone)
+                < atKm(80.0, MagnitudeRegion::Yellowstone));
+    }
+    SECTION("It never throws, whatever it is handed")
+    {
+        REQUIRE_NOTHROW(getDistanceCorrection(0.0, MagnitudeRegion::Utah));
+        REQUIRE_NOTHROW(getDistanceCorrection(-1.0, MagnitudeRegion::Utah));
+        // A negative distance cannot come from the models, but if one ever
+        // did it lands in the first bucket rather than anywhere surprising.
+        REQUIRE(getDistanceCorrection(-1.0, MagnitudeRegion::Utah) == 1.4);
+    }
+}
+
+/// Ml = log10(A_mm/2) + static + distance correction.  Millimetres, not
+/// centimetres - the distance table is Richter's -log10(A0), which is
+/// defined against a Wood-Anderson amplitude in mm.
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::computeStationLocalMagnitude",
+          "localMagnitudeScale")
+{
+    SECTION("It reproduces reviewed station magnitudes from the archive")
+    {
+        // magid 5513, two of its stations.  The amplitudes are the
+        // millimetre values; the stored station magnitudes came out of
+        // assocamm.mag.  Post-processed magnitudes are computed a little
+        // differently from these inputs, so this pins the formula to a few
+        // thousandths rather than to the bit.
+        REQUIRE(computeStationLocalMagnitude(17.561114430427551, 0.21,
+                                             7'904.320901479857,
+                                             MagnitudeRegion::Utah)
+                == Catch::Approx(2.5514).margin(0.005));
+        REQUIRE(computeStationLocalMagnitude(8.890487849712372, -0.12,
+                                             30'454.08888215444,
+                                             MagnitudeRegion::Utah)
+                == Catch::Approx(2.6252).margin(0.005));
+    }
+    SECTION("Reading the amplitude in centimetres would be exactly one low")
+    {
+        // The mistake worth guarding: it looks like a calibration problem
+        // rather than a units bug, because the answer stays plausible.
+        const auto inMillimeters
+            = computeStationLocalMagnitude(17.561114430427551, 0.21,
+                                           7'904.320901479857,
+                                           MagnitudeRegion::Utah);
+        const auto inCentimeters
+            = computeStationLocalMagnitude(1.7561114430427551, 0.21,
+                                           7'904.320901479857,
+                                           MagnitudeRegion::Utah);
+        REQUIRE(inMillimeters - inCentimeters == Catch::Approx(1.0));
+    }
+    SECTION("Doubling the amplitude adds log10(2)")
+    {
+        // The scale is logarithmic in amplitude and nothing else touches
+        // it, so this holds whatever the corrections are.
+        const auto single
+            = computeStationLocalMagnitude(4.0, 0.3, 50'000.0,
+                                           MagnitudeRegion::Utah);
+        const auto doubled
+            = computeStationLocalMagnitude(8.0, 0.3, 50'000.0,
+                                           MagnitudeRegion::Utah);
+        REQUIRE(doubled - single == Catch::Approx(std::log10(2.0)));
+    }
+    SECTION("The corrections enter additively")
+    {
+        const auto base
+            = computeStationLocalMagnitude(10.0, 0.0, 50'000.0,
+                                           MagnitudeRegion::Utah);
+        REQUIRE(computeStationLocalMagnitude(10.0, 0.25, 50'000.0,
+                                             MagnitudeRegion::Utah)
+                == Catch::Approx(base + 0.25));
+        // 50 km sits in the Utah 2.6 bucket, so a bare formula with no
+        // corrections at all would be log10(10/2) = 0.699 below this.
+        REQUIRE(base == Catch::Approx(std::log10(5.0) + 2.6));
+    }
+    SECTION("A region change moves the answer by the table difference")
+    {
+        const auto utah
+            = computeStationLocalMagnitude(10.0, 0.0, 50'000.0,
+                                           MagnitudeRegion::Utah);
+        const auto yellowstone
+            = computeStationLocalMagnitude(10.0, 0.0, 50'000.0,
+                                           MagnitudeRegion::Yellowstone);
+        REQUIRE(utah - yellowstone == Catch::Approx(2.6 - 2.69));
+    }
+    SECTION("An amplitude with no logarithm is refused")
+    {
+        // A station that measured nothing did not measure a magnitude, and
+        // there is no defensible number to return for one.
+        REQUIRE_THROWS_AS(computeStationLocalMagnitude(0.0, 0.0, 1'000.0,
+                                                       MagnitudeRegion::Utah),
+                          std::invalid_argument);
+        REQUIRE_THROWS_AS(computeStationLocalMagnitude(-1.0, 0.0, 1'000.0,
+                                                       MagnitudeRegion::Utah),
+                          std::invalid_argument);
+        // NaN too - it would otherwise propagate into a magnitude that
+        // compares false against everything.
+        REQUIRE_THROWS_AS(
+            computeStationLocalMagnitude(
+                std::numeric_limits<double>::quiet_NaN(), 0.0, 1'000.0,
+                MagnitudeRegion::Utah),
+            std::invalid_argument);
+    }
+}
+
+/// Md = constant + slope*log10(tau) + distanceTerm*r_km + correction, with
+/// different coefficients for each region.  Unlike the local magnitude
+/// scale this is closed form - no lookup table, so no bucket question.
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::"
+          "computeStationDurationMagnitude", "durationMagnitudeScale")
+{
+    SECTION("It reproduces stored station magnitudes exactly - Utah")
+    {
+        // Real the archive rows: UU.SAIU and UU.FPU on an event at 41.14N,
+        // well outside Yellowstone.  Distances converted from the
+        // kilometres assoccoo holds to the meters the models do.
+        REQUIRE(computeStationDurationMagnitude(34.12594780123858,
+                                                58.76331999875106*1.e3,
+                                                0.0, MagnitudeRegion::Utah)
+                == Catch::Approx(1.4419121913802746).margin(1.e-9));
+        REQUIRE(computeStationDurationMagnitude(43.155019159016305,
+                                                23.71236790802278*1.e3,
+                                                0.0, MagnitudeRegion::Utah)
+                == Catch::Approx(1.5978110940990375).margin(1.e-9));
+    }
+    SECTION("It reproduces stored station magnitudes exactly - Yellowstone")
+    {
+        // WY.YLT and WY.YDD on an event at 44.45N, -110.57 - inside the
+        // caldera.  These do NOT reproduce under the Utah coefficients,
+        // which is what says the region genuinely switches the scale.
+        REQUIRE(computeStationDurationMagnitude(52.89957167870078,
+                                                2.1252983536765395*1.e3,
+                                                0.0,
+                                                MagnitudeRegion::Yellowstone)
+                == Catch::Approx(1.6137244531290513).margin(1.e-9));
+        REQUIRE(computeStationDurationMagnitude(36.29984776469949,
+                                                6.304355620174647*1.e3,
+                                                0.0,
+                                                MagnitudeRegion::Yellowstone)
+                == Catch::Approx(1.2313851434691265).margin(1.e-9));
+    }
+    SECTION("The wrong region gives a visibly wrong answer")
+    {
+        // Not a rounding difference - picking the wrong scale is a wrong
+        // magnitude, so a region test that is merely usually right is not
+        // good enough.
+        const auto asYellowstone
+            = computeStationDurationMagnitude(52.89957167870078,
+                                              2.1252983536765395*1.e3, 0.0,
+                                              MagnitudeRegion::Yellowstone);
+        const auto asUtah
+            = computeStationDurationMagnitude(52.89957167870078,
+                                              2.1252983536765395*1.e3, 0.0,
+                                              MagnitudeRegion::Utah);
+        REQUIRE(std::abs(asYellowstone - asUtah) > 0.1);
+    }
+    SECTION("The coefficients are the ones UUSS writes")
+    {
+        // A coda of one second has log10(tau) = 0, so at zero distance the
+        // answer is the constant alone.
+        REQUIRE(computeStationDurationMagnitude(1.0, 0.0, 0.0,
+                                                MagnitudeRegion::Utah)
+                == Catch::Approx(-2.25));
+        REQUIRE(computeStationDurationMagnitude(1.0, 0.0, 0.0,
+                                                MagnitudeRegion::Yellowstone)
+                == Catch::Approx(-2.60));
+        // Ten seconds makes log10(tau) = 1, isolating the slope.
+        REQUIRE(computeStationDurationMagnitude(10.0, 0.0, 0.0,
+                                                MagnitudeRegion::Utah)
+                == Catch::Approx(-2.25 + 2.32));
+        REQUIRE(computeStationDurationMagnitude(10.0, 0.0, 0.0,
+                                                MagnitudeRegion::Yellowstone)
+                == Catch::Approx(-2.60 + 2.44));
+        // 100 km isolates the distance term.
+        REQUIRE(computeStationDurationMagnitude(1.0, 100'000.0, 0.0,
+                                                MagnitudeRegion::Utah)
+                == Catch::Approx(-2.25 + 0.23));
+        REQUIRE(computeStationDurationMagnitude(1.0, 100'000.0, 0.0,
+                                                MagnitudeRegion::Yellowstone)
+                == Catch::Approx(-2.60 + 0.40));
+    }
+    SECTION("The distance is METERS, as the models hold it")
+    {
+        // Feeding kilometres would put the distance term a thousand times
+        // too small - invisible at short range, which is what makes it
+        // worth pinning.
+        REQUIRE(computeStationDurationMagnitude(1.0, 100'000.0, 0.0,
+                                                MagnitudeRegion::Utah)
+              - computeStationDurationMagnitude(1.0, 100.0, 0.0,
+                                                MagnitudeRegion::Utah)
+                == Catch::Approx(0.0023*(100.0 - 0.1)));
+    }
+    SECTION("The channel correction enters additively")
+    {
+        REQUIRE(computeStationDurationMagnitude(20.0, 30'000.0, 0.35,
+                                                MagnitudeRegion::Utah)
+              - computeStationDurationMagnitude(20.0, 30'000.0, 0.0,
+                                                MagnitudeRegion::Utah)
+                == Catch::Approx(0.35));
+    }
+    SECTION("A coda of no length is refused")
+    {
+        REQUIRE_THROWS_AS(computeStationDurationMagnitude(
+                              0.0, 1'000.0, 0.0, MagnitudeRegion::Utah),
+                          std::invalid_argument);
+        REQUIRE_THROWS_AS(computeStationDurationMagnitude(
+                              -1.0, 1'000.0, 0.0, MagnitudeRegion::Utah),
+                          std::invalid_argument);
+        REQUIRE_THROWS_AS(computeStationDurationMagnitude(
+                              std::numeric_limits<double>::quiet_NaN(),
+                              1'000.0, 0.0, MagnitudeRegion::Utah),
+                          std::invalid_argument);
     }
 }

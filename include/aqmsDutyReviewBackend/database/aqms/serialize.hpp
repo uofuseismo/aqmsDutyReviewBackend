@@ -90,13 +90,26 @@ enum class OriginDetail
 ///       redundant against the event's preferredOriginIdentifier on
 ///       purpose - a client rendering origins asks the question per row.
 ///       Magnitudes deliberately do NOT get one: see the note below.
+/// @note An origin's magnitudes are an OBJECT keyed by type -
+///       durationMagnitude, localMagnitude, humanMagnitude,
+///       momentMagnitude - not an array.  An origin carries at most one of
+///       each, so the shape says so, and a client reaches the coda
+///       measurements as
+///       origin.magnitudes.durationMagnitude.stationMagnitudes rather than
+///       by scanning an array for a matching magnitudeType.  A type the
+///       origin has no magnitude of is simply an absent key.
 /// @note An origin carries preferredMagnitudeIdentifier of its own, and it
 ///       need not match the event's.  AQMS stores origin.prefmag and
 ///       event.prefmag separately, so the event's preferred magnitude can
 ///       belong to an origin that is not the preferred origin - which is
 ///       exactly why a single "isPreferred" flag could not express this.
-/// @note Depth is in meters and all times are nanoseconds since the epoch,
-///       UTC, as the model holds them.
+/// @note Depth and source-receiver distance are in meters, and all times
+///       are nanoseconds since the epoch, UTC, as the models hold them.
+/// @note One exception, and it is a trap: a coda's \c duration is in
+///       SECONDS, beside a \c startTime in nanoseconds.  Its measurement
+///       window ends at startTime + duration*1e9.
+///       AQMS stores both distances in kilometres; the conversion happens
+///       once, in the readers.
 /// @note Only the fields an object actually has are emitted; an absent key
 ///       means AQMS had nothing to say.
 /// @note \c OriginDetail::PreferredOriginOnly trims the ARRIVALS off the

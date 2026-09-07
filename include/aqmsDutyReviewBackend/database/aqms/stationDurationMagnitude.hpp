@@ -1,6 +1,13 @@
 #ifndef AQMS_DUTY_REVIEW_BACKEND_DATABASE_AQMS_STATION_DURATION_MAGNITUDE_HPP
 #define AQMS_DUTY_REVIEW_BACKEND_DATABASE_AQMS_STATION_DURATION_MAGNITUDE_HPP
+#include <chrono>
 #include <memory>
+#include <optional>
+namespace AQMSDutyReviewBackend::Database::AQMS
+{
+ class StreamIdentifier;
+}
+
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
 /// @class StationDurationMagnitude stationDurationMagnitude.hpp
@@ -21,6 +28,21 @@ public:
     /// @brief Move constructor.
     StationDurationMagnitude(StationDurationMagnitude &&magnitude) noexcept;
 
+    /// @brief Sets this channel's magnitude - assoccom.mag.
+    /// @param[in] magnitude  The station magnitude.
+    /// @note AQMS computes and stores this on EVERY coda, reviewed or not
+    ///       - 140,879 of 140,879 automatic rows carry one - so it is read
+    ///       rather than recomputed.  computeStationDurationMagnitude
+    ///       exists for recomputing a magnitude after an analyst changes
+    ///       something, not for reconstructing what the database already
+    ///       says.
+    void setMagnitude(double magnitude) noexcept;
+    /// @result This channel's magnitude.
+    /// @throws std::runtime_error if \c hasMagnitude() is false.
+    [[nodiscard]] double getMagnitude() const;
+    /// @result True indicates the magnitude was set.
+    [[nodiscard]] bool hasMagnitude() const noexcept;
+
     /// @brief The coda duration (tau in the database).
     /// @param[in] duration  The duration in seconds.
     /// @throws std::invalid_argument if the duration is not positive.
@@ -31,15 +53,6 @@ public:
     /// @result True indicates the duration was set.
     [[nodiscard]] bool hasDuration() const noexcept;
 
-    /// @brief The source-receiver distance in meters.
-    /// @throws std::invalid_argument if this is negative.
-    void setDistance(double distance);
-    /// @result The source-receiver distance in meters.
-    /// @throws std::runtime_error if \c hasDistance() is false.
-    [[nodiscard]] double getDistance() const noexcept;
-    /// @result True indicates the source-receiver distance was set.
-    [[nodiscard]] bool hasDistance() const noexcept;
-
     /// @brief Sets the magnitude correction.
     /// @param[in] correction  The corretion to add to the magnitude.
     void setCorrection(double correction) noexcept;
@@ -47,9 +60,15 @@ public:
     ///         are not used at UUSS. 
     [[nodiscard]] double getCorrection() const noexcept;
 
-    /// @brief Sets the residual magnitude (observed - estimated) where
-    ///        "estimated" is effectively an average of the individual
-    ///        station magnitudes.
+    /// @brief Sets the residual magnitude - this channel's magnitude less
+    ///        the network magnitude.
+    /// @note assoccom.magres when AQMS supplied one, and otherwise the
+    ///       same subtraction done here.  That is not an approximation:
+    ///       across every reviewed row in the archive - 10,485 of 10,485 -
+    ///       magres equals assoccom.mag minus netmag.magnitude exactly, so
+    ///       computing it when absent produces the identical quantity.
+    ///       AQMS simply does not bother writing it down for automatic
+    ///       magnitudes, which is 96% of what a duty analyst opens.
     void setResidual(double residual) noexcept;
     /// @result The residual magnitude.
     [[nodiscard]] double getResidual() const;
@@ -65,6 +84,65 @@ public:
     [[nodiscard]] double getWeight() const;
     /// @result True indicates the weight was set.
     [[nodiscard]] bool hasWeight() const noexcept;
+
+    /// @brief Sets the start of the window the duration was measured
+    ///        over.
+    /// @param[in] startTime  The window start, in nanoseconds since the
+    ///                       epoch, UTC - as every other time in these
+    ///                       models is held.
+    /// @note The window runs from here to here plus getDuration(); the
+    ///       end is not stored separately.
+    /// @note getDuration() is in SECONDS while this is in NANOSECONDS, so
+    ///       the end is
+    ///       getStartTime() + std::chrono::duration_cast
+    ///           <std::chrono::nanoseconds>
+    ///           (std::chrono::duration<double> {getDuration()}) -
+    ///       not the two added as they stand.
+    void setStartTime(const std::chrono::nanoseconds &startTime) noexcept;
+    /// @result The start of the measurement window.
+    /// @throws std::runtime_error if \c hasStartTime() is false.
+    [[nodiscard]] std::chrono::nanoseconds getStartTime() const;
+    /// @result True indicates the start time was set.
+    [[nodiscard]] bool hasStartTime() const noexcept;
+
+    /// @brief Sets the source-receiver distance in meters.
+    /// @param[in] distance  The distance in meters.
+    /// @throws std::invalid_argument if the distance is negative.
+    /// @note Meters, like every other distance in these models - depth
+    ///       included.  AQMS stores kilometres and the readers multiply on
+    ///       the way in, so the conversion happens once, at the edge.
+    ///       Mind the magnitude formula in this class's description, which
+    ///       is written in KILOMETRES.
+    void setSourceReceiverDistance(double distance);
+    /// @result The source-receiver distance in meters, if it was set.
+    [[nodiscard]] std::optional<double>
+        getSourceReceiverDistance() const noexcept;
+
+    /// @brief Sets the source-to-receiver azimuth.
+    /// @param[in] azimuth  The azimuth from the source to the receiver, in
+    ///                     degrees, measured clockwise from north.
+    /// @throws std::invalid_argument if the azimuth is outside [0,360].
+    /// @note Closed at both ends: 0 and 360 name the same direction and
+    ///       AQMS may write either.
+    void setSourceReceiverAzimuth(double azimuth);
+    /// @result The source-to-receiver azimuth in degrees, if it was set.
+    [[nodiscard]] std::optional<double>
+        getSourceReceiverAzimuth() const noexcept;
+
+    /// @brief Sets the stream the duration was measured on.
+    /// @throws std::invalid_argument if the identifier is not complete
+    ///         enough to name a stream.
+    /// @note A station magnitude belongs to a CHANNEL, not to a station -
+    ///       the same station can contribute one per component - so this
+    ///       is what tells two of them apart.
+    void setStreamIdentifier(const StreamIdentifier &identifier);
+    /// @brief Sets the stream the duration was measured on.
+    void setStreamIdentifier(StreamIdentifier &&identifier);
+    /// @result The stream the duration was measured on.
+    /// @throws std::runtime_error if \c hasStreamIdentifier() is false.
+    [[nodiscard]] StreamIdentifier getStreamIdentifier() const;
+    /// @result True indicates the stream identifier was set.
+    [[nodiscard]] bool hasStreamIdentifier() const noexcept;
 
     /// @brief Destructor.
     ~StationDurationMagnitude();
