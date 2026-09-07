@@ -110,6 +110,7 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/database/aqms/database.hpp
     include/${PROJECT_NAME}/database/aqms/centroidMomentTensorMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/durationMagnitude.hpp
+    include/${PROJECT_NAME}/database/aqms/geodesic.hpp
     include/${PROJECT_NAME}/database/aqms/event.hpp
     include/${PROJECT_NAME}/database/aqms/eventLock.hpp
     include/${PROJECT_NAME}/database/aqms/eventSummary.hpp
@@ -154,6 +155,7 @@ set(LIBRARY_SRC
     src/database/aqms/event.cpp
     src/database/aqms/eventLock.cpp
     src/database/aqms/eventSummary.cpp
+    src/database/aqms/geodesic.cpp
     src/database/aqms/humanMagnitude.cpp
     src/database/aqms/localMagnitude.cpp
     src/database/aqms/magnitude.cpp
