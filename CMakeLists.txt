@@ -111,6 +111,7 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/database/aqms/centroidMomentTensorMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/durationMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/geodesic.hpp
+    include/${PROJECT_NAME}/database/aqms/rectify.hpp
     include/${PROJECT_NAME}/database/aqms/event.hpp
     include/${PROJECT_NAME}/database/aqms/eventLock.hpp
     include/${PROJECT_NAME}/database/aqms/eventSummary.hpp
@@ -134,6 +135,7 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/database/drp/serialize.hpp
     include/${PROJECT_NAME}/database/drp/userStore.hpp
     include/${PROJECT_NAME}/database/credentials.hpp
+    include/${PROJECT_NAME}/signalProcessing/bandpass.hpp
     include/${PROJECT_NAME}/signalProcessing/demean.hpp
     include/${PROJECT_NAME}/hash.hpp
     include/${PROJECT_NAME}/metricsSingleton.hpp
@@ -160,6 +162,7 @@ set(LIBRARY_SRC
     src/database/aqms/localMagnitude.cpp
     src/database/aqms/magnitude.cpp
     src/database/aqms/origin.cpp
+    src/database/aqms/rectify.cpp
     src/database/aqms/queries/alarmQueries.cpp
     src/database/aqms/queries/eventLockQueries.cpp
     src/database/aqms/queries/eventQueries.cpp
@@ -178,6 +181,7 @@ set(LIBRARY_SRC
     src/database/drp/serialize.cpp
     src/database/drp/userStore.cpp
     src/database/credentials.cpp
+    src/signalProcessing/bandpass.cpp
     src/signalProcessing/demean.cpp
     src/hash.cpp
     src/metricsSingleton.cpp
@@ -285,6 +289,7 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
    set(TEST_SRC
        testing/database/aqms.cpp
        testing/database/serialize.cpp
+       testing/signalProcessing/signalProcessing.cpp
        testing/database/credentials.cpp
        testing/auth/authenticator.cpp
        testing/auth/authNZ.cpp

@@ -13,6 +13,7 @@
 #include <spdlog/logger.h>
 #include <spdlog/sinks/stdout_color_sinks.h> //NOLINT
 #include "aqmsDutyReviewBackend/database/aqms/database.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/rectify.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/event.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
@@ -162,14 +163,72 @@ auto Database::getCatalog(const std::chrono::seconds &duration) const
     }
 }
 
+namespace
+{
+
+/// @brief Fills in whatever source-receiver geometry AQMS left out.
+///
+/// The order matters.  Ask the event whether anything is missing first -
+/// that is a walk over arrivals already in hand - and only then go and
+/// fetch the stations, which is a second round trip.  Most events have
+/// their delta and seaz and this costs them nothing.
+///
+/// @note Best effort, and silent about failing.  A station list that
+///       cannot be fetched, or a station that is simply not in it, leaves
+///       the arrival exactly as AQMS had it: without a distance and
+///       azimuth.  That is a worse event to look at, not a broken request,
+///       so it must not turn a good event into an error.
+///
+/// @note The station positions are a slowly changing thing read fresh
+///       every time this fires.  A station added for an aftershock
+///       sequence starts being picked before anybody updates station_data,
+///       and until they do, its arrivals get no geometry - which is the
+///       "oh well" case and not a fault to handle.  When the DRP-side
+///       cache arrives this is where it gets read from, and writing
+///       through it is what will keep an added station from staying
+///       invisible.
+void repairArrivalGeometry(
+    AQMSDutyReviewBackend::Database::AQMS::Event &event,
+    const AQMSDutyReviewBackend::Database::AQMS::Database &database,
+    const std::shared_ptr<spdlog::logger> &logger)
+{
+    namespace AQMS = AQMSDutyReviewBackend::Database::AQMS;
+    try
+    {
+        if (!AQMS::needsArrivalGeometry(event)){return;}
+        const auto stations = database.fetchStations();
+        if (!stations)
+        {
+            SPDLOG_LOGGER_WARN(logger,
+                               "Could not fetch stations to compute the "
+                               "missing arrival geometry - leaving it unset");
+            return;
+        }
+        AQMS::rectifyArrivalGeometry(event, *stations, logger.get());
+    }
+    catch (const std::exception &e)
+    {
+        // Deliberately swallowed.  The event is worth returning without
+        // the geometry; it is not worth failing over.
+        SPDLOG_LOGGER_WARN(logger,
+                           "Could not compute the missing arrival geometry "
+                           "because {}",
+                           std::string {e.what()});
+    }
+}
+
+}
+
 /// One event, in full
 auto Database::getEvent(const int64_t eventIdentifier) const
     -> std::expected<std::optional<Event>, QueryError>
 {
     try
     {
-        return queryEvent(*pImpl->mMainClient, eventIdentifier,
-                          pImpl->mLogger.get());
+        auto event = queryEvent(*pImpl->mMainClient, eventIdentifier,
+                                pImpl->mLogger.get());
+        if (event){::repairArrivalGeometry(*event, *this, pImpl->mLogger);}
+        return event;
     }
     catch (const std::exception &e)
     {

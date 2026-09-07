@@ -16,6 +16,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/station.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/rectify.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/arrival.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/magnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/localMagnitude.hpp"
@@ -2618,5 +2619,191 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Geodesic",
                      Catch::Matchers::WithinAbs(-99.84855154050379+180, 1.e-10));
         REQUIRE_THAT(*distaz.getDistance(),
                      Catch::Matchers::WithinAbs(13779.227281877534, 1.e-7));
+    }
+}
+
+namespace
+{
+
+/// @brief A station with a position, and an epoch if one is wanted.
+[[nodiscard]] Station makeStation(const std::string &network,
+                                  const std::string &name,
+                                  const double latitude,
+                                  const double longitude)
+{
+    Station station;
+    station.setNetwork(network);
+    station.setName(name);
+    station.setLatitude(latitude);
+    station.setLongitude(longitude);
+    return station;
+}
+
+/// @brief An arrival on a stream, with no geometry of its own.
+[[nodiscard]] Arrival makeBareArrival(const std::string &station,
+                                      const std::chrono::nanoseconds &time)
+{
+    StreamIdentifier streamIdentifier;
+    streamIdentifier.setNetwork("UU");
+    streamIdentifier.setStation(station);
+    streamIdentifier.setChannel("HHZ");
+    streamIdentifier.setLocationCode("01");
+
+    Arrival arrival;
+    arrival.setIdentifier(static_cast<int64_t> (time.count()));
+    arrival.setTime(time);
+    arrival.setPhase(Arrival::Phase::P);
+    // Origin::setArrivals requires a review status as well as a time, a
+    // stream and a phase, and the rectifier hands the arrivals back
+    // through it - so an arrival built without one could never survive
+    // the round trip.
+    arrival.setReviewStatus(Arrival::ReviewStatus::Automatic);
+    arrival.setStreamIdentifier(streamIdentifier);
+    return arrival;
+}
+
+/// @brief An event at Salt Lake with the given arrivals on its origin.
+[[nodiscard]] Event makeEventWithArrivals(std::vector<Arrival> &&arrivals)
+{
+    Origin origin;
+    origin.setIdentifier(1);
+    origin.setLatitude(40.77);
+    origin.setLongitude(-111.89);
+    origin.setDepth(5000);
+    origin.setTime(std::chrono::nanoseconds{1'700'000'000'000'000'000});
+    origin.setIsPreferred();
+    origin.setArrivals(std::move(arrivals));
+
+    Event event;
+    event.setIdentifier(31004803);
+    event.setOrigins(std::vector<Origin> {origin});
+    return event;
+}
+
+}
+
+/// assocaro.delta and assocaro.seaz are nullable and in the archive are null
+/// more often than not.  Both are recoverable from the origin's position
+/// and the station's, which is what this does.
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::rectifyArrivalGeometry",
+          "rectify")
+{
+    const std::vector<Station> stations{
+        ::makeStation("UU", "CTU", 40.0, -111.0),
+        ::makeStation("UU", "HEB", 41.0, -111.5)};
+
+    SECTION("A missing distance and azimuth are computed")
+    {
+        auto event = ::makeEventWithArrivals(
+            std::vector<Arrival> {
+                ::makeBareArrival("CTU",
+                                  std::chrono::nanoseconds{1'700'000'001'000'000'000})});
+        REQUIRE(rectifyArrivalGeometry(event, stations) == 1);
+
+        // getArrivals returns the vector BY VALUE, so the vector is held
+        // in a named local - a reference to .at(0) of the temporary would
+        // dangle the moment the statement ended.
+        const auto arrivals = event.preferredOrigin().getArrivals();
+        const auto &arrival = arrivals.at(0);
+        REQUIRE(arrival.getSourceReceiverDistance().has_value());
+        REQUIRE(arrival.getSourceReceiverAzimuth().has_value());
+        //NOLINTBEGIN(bugprone-unchecked-optional-access)
+        // Salt Lake to a point south-east of it: order 100 km, bearing in
+        // the south-east quadrant.
+        REQUIRE(*arrival.getSourceReceiverDistance() > 50.0);
+        REQUIRE(*arrival.getSourceReceiverDistance() < 150.0);
+        REQUIRE(*arrival.getSourceReceiverAzimuth() > 90.0);
+        REQUIRE(*arrival.getSourceReceiverAzimuth() < 180.0);
+        //NOLINTEND(bugprone-unchecked-optional-access)
+    }
+    SECTION("A value AQMS supplied is never overwritten")
+    {
+        // The whole point of calling this a last ditch effort.  A computed
+        // number quietly replacing a stored one would put two different
+        // calculations in one payload with no way to tell them apart.
+        auto arrival = ::makeBareArrival(
+            "CTU", std::chrono::nanoseconds{1'700'000'001'000'000'000});
+        arrival.setSourceReceiverDistance(999.0);
+        arrival.setSourceReceiverAzimuth(12.0);
+        auto event
+            = ::makeEventWithArrivals(std::vector<Arrival> {arrival});
+
+        REQUIRE(rectifyArrivalGeometry(event, stations) == 0);
+        const auto arrivals = event.preferredOrigin().getArrivals();
+        const auto &unchanged = arrivals.at(0);
+        //NOLINTBEGIN(bugprone-unchecked-optional-access)
+        REQUIRE(*unchanged.getSourceReceiverDistance() == 999.0);
+        REQUIRE(*unchanged.getSourceReceiverAzimuth() == 12.0);
+        //NOLINTEND(bugprone-unchecked-optional-access)
+    }
+    SECTION("Half a pair is completed without disturbing the other half")
+    {
+        auto arrival = ::makeBareArrival(
+            "CTU", std::chrono::nanoseconds{1'700'000'001'000'000'000});
+        arrival.setSourceReceiverAzimuth(12.0);
+        auto event
+            = ::makeEventWithArrivals(std::vector<Arrival> {arrival});
+
+        REQUIRE(rectifyArrivalGeometry(event, stations) == 1);
+        const auto arrivals = event.preferredOrigin().getArrivals();
+        const auto &fixed = arrivals.at(0);
+        //NOLINTBEGIN(bugprone-unchecked-optional-access)
+        REQUIRE(fixed.getSourceReceiverDistance().has_value());
+        REQUIRE(*fixed.getSourceReceiverAzimuth() == 12.0);
+        //NOLINTEND(bugprone-unchecked-optional-access)
+    }
+    SECTION("An unknown station is left alone rather than guessed at")
+    {
+        auto event = ::makeEventWithArrivals(
+            std::vector<Arrival> {
+                ::makeBareArrival("NOSUCH",
+                                  std::chrono::nanoseconds{1'700'000'001'000'000'000})});
+        REQUIRE(rectifyArrivalGeometry(event, stations) == 0);
+        const auto arrivals = event.preferredOrigin().getArrivals();
+        REQUIRE_FALSE(arrivals.at(0)
+                          .getSourceReceiverDistance().has_value());
+    }
+    SECTION("The same station gives the same geometry to every phase on it")
+    {
+        // It is a property of where the station is, not of the pick, so a
+        // P and an S on one station must not disagree.
+        auto first = ::makeBareArrival(
+            "CTU", std::chrono::nanoseconds{1'700'000'001'000'000'000});
+        auto second = ::makeBareArrival(
+            "CTU", std::chrono::nanoseconds{1'700'000'002'000'000'000});
+        second.setPhase(Arrival::Phase::S);
+        auto event = ::makeEventWithArrivals(
+            std::vector<Arrival> {first, second});
+
+        REQUIRE(rectifyArrivalGeometry(event, stations) == 2);
+        const auto arrivals = event.preferredOrigin().getArrivals();
+        //NOLINTBEGIN(bugprone-unchecked-optional-access)
+        REQUIRE(*arrivals.at(0).getSourceReceiverDistance()
+                == *arrivals.at(1).getSourceReceiverDistance());
+        REQUIRE(*arrivals.at(0).getSourceReceiverAzimuth()
+                == *arrivals.at(1).getSourceReceiverAzimuth());
+        //NOLINTEND(bugprone-unchecked-optional-access)
+    }
+    SECTION("An origin with no position cannot be measured from")
+    {
+        Origin positionless;
+        positionless.setIdentifier(2);
+        positionless.setLatitude(40.77);
+        positionless.setLongitude(-111.89);
+        positionless.setTime(std::chrono::nanoseconds{1});
+        positionless.setIsPreferred();
+        // No arrivals at all - nothing to rectify, and nothing to throw.
+        Event event;
+        event.setIdentifier(1);
+        event.setOrigins(std::vector<Origin> {positionless});
+        REQUIRE(rectifyArrivalGeometry(event, stations) == 0);
+    }
+    SECTION("No stations at all is a quiet no-op")
+    {
+        auto event = ::makeEventWithArrivals(
+            std::vector<Arrival> {
+                ::makeBareArrival("CTU",
+                                  std::chrono::nanoseconds{1'700'000'001'000'000'000})});
+        REQUIRE(rectifyArrivalGeometry(event, std::vector<Station> {}) == 0);
     }
 }
