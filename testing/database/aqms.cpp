@@ -13,6 +13,7 @@
 #include <vector>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/station.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/arrival.hpp"
@@ -28,6 +29,7 @@
 #include "aqmsDutyReviewBackend/database/aqms/peakToPeakAmplitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/stationLocalMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/stationDurationMagnitude.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/geodesic.hpp"
 
 using namespace AQMSDutyReviewBackend::Database::AQMS;
 
@@ -1218,7 +1220,7 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Origin iterators", "Origin")
 {
     SECTION("An origin with no arrivals iterates over nothing")
     {
-        Origin origin;
+        const Origin origin;
         REQUIRE(origin.size() == 0);
         REQUIRE(origin.begin() == origin.end());
         REQUIRE(origin.cbegin() == origin.cend());
@@ -2575,5 +2577,46 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::SubnetTrigger",
         REQUIRE(moved.getTime() == std::chrono::nanoseconds{42});
         //NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         REQUIRE(*moved.getOriginSource() == "rtdb1");
+    }
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Geodesic",
+          "Geodesic")
+{
+    SECTION("Defaults")
+    {
+        const Geodesic::DistanceAzimuth geo;
+        REQUIRE(geo.getDistance() == std::nullopt);
+        REQUIRE(geo.getAzimuth() == std::nullopt);
+        REQUIRE(geo.getBackAzimuth() == std::nullopt);
+    }   
+
+    SECTION("Bad arguments")
+    {
+        Geodesic::DistanceAzimuth geo;
+        REQUIRE_THROWS_AS(geo.setDistance(-1),     std::invalid_argument);
+        REQUIRE_THROWS_AS(geo.setAzimuth(-1),      std::invalid_argument);
+        REQUIRE_THROWS_AS(geo.setAzimuth(360),     std::invalid_argument);
+        REQUIRE_THROWS_AS(geo.setBackAzimuth(-1),  std::invalid_argument);
+        REQUIRE_THROWS_AS(geo.setBackAzimuth(360), std::invalid_argument);
+    }
+
+    SECTION("From origin/station")
+    {
+        Origin origin;
+        origin.setLatitude(19);
+        origin.setLongitude(32.5);
+
+        Station station;
+        station.setLatitude(-20.0);
+        station.setLongitude(272.4);
+
+        const Geodesic::DistanceAzimuth distaz(origin, station);
+        REQUIRE_THAT(*distaz.getAzimuth(),
+                     Catch::Matchers::WithinAbs(-101.69839545926366+360, 1.e-10));
+        REQUIRE_THAT(*distaz.getBackAzimuth(),
+                     Catch::Matchers::WithinAbs(-99.84855154050379+180, 1.e-10));
+        REQUIRE_THAT(*distaz.getDistance(),
+                     Catch::Matchers::WithinAbs(13779.227281877534, 1.e-7));
     }
 }

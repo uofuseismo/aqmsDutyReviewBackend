@@ -64,7 +64,7 @@ DistanceAzimuth::DistanceAzimuth(const Origin &origin, const Station &station) :
     // back-azimuth by subtracting 180, i.e., +180.
     backAzimuth = backAzimuth + 180;
     // Lock it in
-    setDistance(distance);
+    setDistance(distance*1.e-3);
     setAzimuth(azimuth);
     setBackAzimuth(backAzimuth);
 }
@@ -127,10 +127,10 @@ void DistanceAzimuth::setBackAzimuth(const double backAzimuth)
 {
     if (backAzimuth < 0 || backAzimuth >= 360)
     {
-        throw std::invalid_argument("Back azimuth must be in range [0, 360)");
+        throw std::invalid_argument("Back azimuth must be in range [0, 360]");
     }
     pImpl->mBackAzimuth = backAzimuth;
-    pImpl->mHaveAzimuth = true;
+    pImpl->mHaveBackAzimuth = true;
 }
 
 std::optional<double> DistanceAzimuth::getBackAzimuth() const noexcept
