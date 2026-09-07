@@ -219,7 +219,7 @@ Database::Database(const DatabaseOptions &options,
                    const PasswordHashingCost &cost) :
     Database(std::make_shared<DRP::UserStore>
              (std::make_shared<AQMSDutyReviewBackend::Database::Client>
-              (options.getCredentials(), logger),
+              (options.getCredentials(), std::move(logger)),
               logger),
              logger,
              cost)

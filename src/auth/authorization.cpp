@@ -7,7 +7,8 @@
 #include <string_view>
 #include <utility>
 #include <vector>
-#include <sodium.h>
+//#include <sodium.h>
+#include <sodium/utils.h>
 #include "aqmsDutyReviewBackend/auth/authorization.hpp"
 
 using namespace AQMSDutyReviewBackend::Auth;

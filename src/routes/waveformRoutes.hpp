@@ -36,6 +36,34 @@ inline void registerWaveformRoutes(crow::SimpleApp &app,
         // before anything has to decide which streams an event has.  The
         // eventIdentifier from the url is deliberately ignored until then.
         namespace AQMS = AQMSDutyReviewBackend::Database::AQMS;
+
+        // How the samples come back.  Both off by default, so a caller
+        // that asks for nothing gets the plain form and nothing it did not
+        // ask for changes under it.  The reply says what was actually
+        // done - see the gain and deltaEncoded on every segment - because
+        // delta encoding is declined on fractional samples.
+        //
+        // Query parameters rather than a body: this is a GET, and these
+        // pick a representation of the same resource rather than changing
+        // it.
+        AQMS::WaveformEncoding encoding;
+        const auto readFlag
+            = [&request](const char *name, const bool fallback)
+              {
+                  const auto value = request.url_params.get(name);
+                  if (value == nullptr){return fallback;}
+                  const std::string text{value};
+                  // "true"/"1" on, "false"/"0" off; anything else is
+                  // treated as unset rather than guessed at.
+                  if (text == "true" || text == "1"){return true;}
+                  if (text == "false" || text == "0"){return false;}
+                  return fallback;
+              };
+        encoding.enableDeltaEncoding
+            = readFlag("enableDeltaEncoding", false);
+        encoding.enableQuantization
+            = readFlag("enableQuantization", false);
+
         constexpr int64_t hardwiredEvent{31151421};
         AQMS::StreamIdentifier streamIdentifier;
         streamIdentifier.setNetwork("UU");
@@ -84,14 +112,17 @@ inline void registerWaveformRoutes(crow::SimpleApp &app,
             nSegments = nSegments + waveform.size();
         }
         SPDLOG_LOGGER_INFO(context.logger,
-                           "Returning {} waveform(s) and {} segment(s) for {}",
+                           "Returning {} waveform(s) and {} segment(s) for "
+                           "{} (delta={}, quantized={})",
                            waveforms->size(), nSegments,
-                           authorization.identity->user);
+                           authorization.identity->user,
+                           encoding.enableDeltaEncoding,
+                           encoding.enableQuantization);
         return ::makeDataResponse(
             200,
             "Found " + std::to_string(waveforms->size()) + " waveform(s) in "
                      + std::to_string(nSegments) + " segment(s)",
-            AQMS::toJSON(*waveforms));
+            AQMS::toJSON(*waveforms, encoding));
     }); 
 }
 }

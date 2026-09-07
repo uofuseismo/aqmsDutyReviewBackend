@@ -33,6 +33,7 @@ find_package(libpqxx REQUIRED)
 find_package(jwt-cpp CONFIG REQUIRED)
 find_package(libsodium REQUIRED)
 find_package(libmseed REQUIRED)
+find_package(geographiclib REQUIRED)
 find_package(OpenLDAP)
 find_package(Crow REQUIRED)
 if (${ENABLE_COMPRESSION})
@@ -132,6 +133,7 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/database/drp/serialize.hpp
     include/${PROJECT_NAME}/database/drp/userStore.hpp
     include/${PROJECT_NAME}/database/credentials.hpp
+    include/${PROJECT_NAME}/signalProcessing/demean.hpp
     include/${PROJECT_NAME}/hash.hpp
     include/${PROJECT_NAME}/metricsSingleton.hpp
     include/${PROJECT_NAME}/version.hpp)
@@ -174,6 +176,7 @@ set(LIBRARY_SRC
     src/database/drp/serialize.cpp
     src/database/drp/userStore.cpp
     src/database/credentials.cpp
+    src/signalProcessing/demean.cpp
     src/hash.cpp
     src/metricsSingleton.cpp
     src/version.cpp)
@@ -214,10 +217,11 @@ target_link_libraries(libaqmsDutyReviewBackend
                               spdlog::spdlog_header_only
                               Boost::headers Boost::json Boost::program_options
                               libsodium::libsodium
+                              GeographicLib::GeographicLib
                               Threads::Threads)
 if (${OpenLDAP_FOUND})
    target_compile_definitions(libaqmsDutyReviewBackend PUBLIC WITH_OPENLDAP)
-   target_link_libraries(libaqmsDutyReviewBackend PRIVATE openldap::openldap)
+   target_link_libraries(libaqmsDutyReviewBackend PRIVATE OpenLDAP::ldap OpenLDAP::lber)
 endif()
 
 target_sources(libaqmsDutyReviewBackend

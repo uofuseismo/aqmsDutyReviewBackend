@@ -117,6 +117,41 @@ enum class OriginDetail
     const Event &event,
     OriginDetail detail = OriginDetail::AllOrigins);
 
+/// @brief How the samples are written onto the wire.
+///
+/// Both levels are off by default, which is the plain form: every sample
+/// as the number it is.  Turn them on independently to trade size for
+/// exactness, and read the reply's own \c gain and \c deltaEncoded back -
+/// they say what was ACTUALLY done, which is not always what was asked
+/// for.
+struct WaveformEncoding
+{
+    /// @brief Send first differences instead of samples.
+    /// @note Lossless, and the larger of the two savings on real data:
+    ///       consecutive seismic samples are close together, so the
+    ///       differences are small numbers with far fewer digits.  It is
+    ///       what miniSEED's own Steim compression exploits.
+    /// @note Requires whole-number samples, so it applies when the samples
+    ///       are counts - which is what sampletype 'i' gives - or when
+    ///       quantization has just made them whole.  Asked for on
+    ///       fractional samples without quantization it is declined, and
+    ///       the reply says so.
+    bool enableDeltaEncoding{false};
+    /// @brief Scale by a gain and round to whole numbers.
+    /// @note Lossy, and the loss is bounded by \c quantizationLevels: the
+    ///       gain is chosen so the largest absolute sample lands on that
+    ///       many levels, so the error is at worst half a level of full
+    ///       scale.
+    bool enableQuantization{false};
+    /// @brief How many levels the largest absolute sample is given.
+    /// @note 32767 - a signed 16-bit full scale - keeps the error near
+    ///       1.5e-05 of full scale.  A trace two thousand pixels tall
+    ///       resolves about eleven bits, so this is already far finer than
+    ///       anything a person can see, and lower values buy real size.
+    /// @note Ignored unless \c enableQuantization is true.
+    int quantizationLevels{32767};
+};
+
 /// @brief Serializes a waveform.
 /// @result An object carrying the stream and its segments:
 ///         {network, station, channel, locationCode,
@@ -135,13 +170,21 @@ enum class OriginDetail
 ///          as text - so a waveform response is orders of magnitude larger
 ///          than any other in this API.  Ask for the streams you are going
 ///          to draw.
-[[nodiscard]] boost::json::value toJSON(const Waveform &waveform);
+/// @note Every segment carries \c gain and \c deltaEncoded whatever was
+///       asked for, so one decoder handles every reply:
+///       undo the differences if \c deltaEncoded, then divide by
+///       \c gain.  With both levels off the gain is 1 and
+///       \c deltaEncoded is false, so that same path is a no-op.
+[[nodiscard]] boost::json::value toJSON(
+    const Waveform &waveform,
+    const WaveformEncoding &encoding = WaveformEncoding {});
 
 /// @brief Serializes several waveforms.
 /// @result A JSON array of waveform objects.
 /// @note An empty vector serializes to [] and not to null.
 [[nodiscard]] boost::json::value toJSON(
-    const std::vector<Waveform> &waveforms);
+    const std::vector<Waveform> &waveforms,
+    const WaveformEncoding &encoding = WaveformEncoding {});
 
 /// @brief Serializes the subnet triggers.
 /// @result A JSON array of {eventIdentifier, time, originSource} objects.

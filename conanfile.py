@@ -34,6 +34,7 @@ class aqmsDutyReviewBackendConan(ConanFile):
        self.requires("openssl/3.6.3")
        #self.requires("openldap/2.6.7")
        self.requires('libsodium/1.0.22')
+       self.requires("geographiclib/2.6")
 
 
    def build_requirements(self):

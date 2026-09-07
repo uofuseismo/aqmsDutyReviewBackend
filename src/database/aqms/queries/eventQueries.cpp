@@ -2,6 +2,7 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <map>
@@ -340,9 +341,20 @@ Arrival::ReviewStatus toArrivalReviewStatus(const std::string &status)
 /// returns both.  The same reasoning is written out at length on
 /// credit.tname in the catalog query, and it is the same mistake.
 ///
-/// wgt > 0 keeps unused picks out.  An arrival associated at zero weight
-/// was considered and not used, so it did not contribute to the location;
-/// showing it beside the ones that did would misrepresent the solution.
+/// The weight test keeps unused picks out.  An arrival associated at zero
+/// weight was considered and not used, so it did not contribute to the
+/// location; showing it beside the ones that did would misrepresent the
+/// solution.
+///
+/// A NULL weight is KEPT, and that is not a nicety.  'NULL > 0' is NULL
+/// rather than false, so a bare 'wgt > 0' discards those rows without ever
+/// judging them - and in the archive a null weight is the common case, not the
+/// exception: 2129 of 4229 associations across a two-thousand-event slice,
+/// against 75 that are genuinely zero.  Event 31004803 is the plain
+/// demonstration - fourteen picks with sensible residuals, every one of
+/// them dropped, leaving an origin that looked like it had no arrivals at
+/// all.  A weight nobody recorded is not the same claim as a weight of
+/// zero, and only the second one means the pick went unused.
 ///
 /// event.prefor is selected because Event::setOrigins requires exactly one
 /// origin to be marked preferred and refuses the lot otherwise.  Nothing
@@ -391,7 +403,8 @@ FROM event
 LEFT OUTER JOIN origin
   ON event.evid = origin.evid
   LEFT OUTER JOIN assocaro
-    ON origin.orid = assocaro.orid AND assocaro.wgt > 0
+    ON origin.orid = assocaro.orid
+   AND (assocaro.wgt IS NULL OR assocaro.wgt > 0)
     LEFT OUTER JOIN arrival
     ON assocaro.arid = arrival.arid
 WHERE event.evid = $1
