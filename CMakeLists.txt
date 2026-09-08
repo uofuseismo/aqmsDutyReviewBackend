@@ -109,17 +109,13 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/database/aqms/arrival.hpp
     include/${PROJECT_NAME}/database/aqms/database.hpp
     include/${PROJECT_NAME}/database/aqms/centroidMomentTensorMagnitude.hpp
-    include/${PROJECT_NAME}/database/aqms/distanceCorrections.hpp
     include/${PROJECT_NAME}/database/aqms/durationMagnitude.hpp
-    include/${PROJECT_NAME}/database/aqms/durationMagnitudeScale.hpp
     include/${PROJECT_NAME}/database/aqms/geodesic.hpp
-    include/${PROJECT_NAME}/database/aqms/rectify.hpp
     include/${PROJECT_NAME}/database/aqms/event.hpp
     include/${PROJECT_NAME}/database/aqms/eventLock.hpp
     include/${PROJECT_NAME}/database/aqms/eventSummary.hpp
     include/${PROJECT_NAME}/database/aqms/humanMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/localMagnitude.hpp
-    include/${PROJECT_NAME}/database/aqms/localMagnitudeScale.hpp
     include/${PROJECT_NAME}/database/aqms/magnitude.hpp
     include/${PROJECT_NAME}/database/aqms/origin.hpp
     include/${PROJECT_NAME}/database/aqms/queries/alarmQueries.hpp
@@ -157,19 +153,15 @@ set(LIBRARY_SRC
     src/database/aqms/arrival.cpp
     src/database/aqms/centroidMomentTensorMagnitude.cpp
     src/database/aqms/database.cpp
-    src/database/aqms/distanceCorrections.cpp
     src/database/aqms/durationMagnitude.cpp
-    src/database/aqms/durationMagnitudeScale.cpp
     src/database/aqms/event.cpp
     src/database/aqms/eventLock.cpp
     src/database/aqms/eventSummary.cpp
     src/database/aqms/geodesic.cpp
     src/database/aqms/humanMagnitude.cpp
     src/database/aqms/localMagnitude.cpp
-    src/database/aqms/localMagnitudeScale.cpp
     src/database/aqms/magnitude.cpp
     src/database/aqms/origin.cpp
-    src/database/aqms/rectify.cpp
     src/database/aqms/queries/alarmQueries.cpp
     src/database/aqms/queries/eventLockQueries.cpp
     src/database/aqms/queries/eventQueries.cpp
@@ -295,7 +287,12 @@ endif()
 if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
    message("Will build unit tests")
    set(TEST_SRC
-       testing/database/aqms.cpp
+       testing/database/aqms/streamsAndArrivals.cpp
+       testing/database/aqms/magnitudes.cpp
+       testing/database/aqms/origins.cpp
+       testing/database/aqms/events.cpp
+       testing/database/aqms/stationsAndGeodesic.cpp
+       testing/database/aqms/catalog.cpp
        testing/database/serialize.cpp
        testing/signalProcessing/signalProcessing.cpp
        testing/database/credentials.cpp
@@ -323,7 +320,8 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
                             Threads::Threads
                             Catch2::Catch2 Catch2::Catch2WithMain)
    target_include_directories(unitTests
-                              PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>)
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/testing/database/aqms>)
    add_test(NAME unitTests
             COMMAND $<TARGET_FILE:unitTests>)
 endif()
