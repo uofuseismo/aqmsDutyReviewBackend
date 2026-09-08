@@ -63,7 +63,7 @@ Event::EventType toEventType(const std::string &eventType)
     {
         return Event::EventType::NuclearTest;
     }
-    else if (eventType == "so")
+    else if (eventType == "sn" || eventType == "so")
     {
         return Event::EventType::Sonic;
     }

@@ -206,6 +206,10 @@ CREATE TABLE credit(
     {
         return Event::EventType::QuarryBlast;
     }
+    else if (eventType == "sn")
+    {
+        return Event::EventType::Sonic;
+    }
     else if (eventType == "st")
     {
         return Event::EventType::SubnetTrigger;
