@@ -21,6 +21,18 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 class StationDurationMagnitude
 {
 public:
+    /// @brief The review status of this observation.
+    /// @note Its own status, not the magnitude's.  They differ: the archive
+    ///       holds 5,368 automatic codas under reviewed network magnitudes
+    ///       and 4 finalized amplitudes under automatic ones, so this says
+    ///       something the magnitude's own review status does not.
+    enum class ReviewStatus
+    {
+        Automatic, /*!< Produced by the real-time system. */
+        Human,     /*!< A person reviewed it. */
+        Finalized  /*!< Reviewed and published. */
+    };
+
     /// @brief Constructor.
     StationDurationMagnitude();
     /// @brief Copy constructor.
@@ -28,14 +40,22 @@ public:
     /// @brief Move constructor.
     StationDurationMagnitude(StationDurationMagnitude &&magnitude) noexcept;
 
+    /// @brief Sets the review status of this observation.
+    void setReviewStatus(ReviewStatus status) noexcept;
+    /// @result The review status.
+    /// @throws std::runtime_error if \c hasReviewStatus() is false.
+    [[nodiscard]] ReviewStatus getReviewStatus() const;
+    /// @result True indicates the review status was set.
+    [[nodiscard]] bool hasReviewStatus() const noexcept;
+
     /// @brief Sets this channel's magnitude - assoccom.mag.
     /// @param[in] magnitude  The station magnitude.
     /// @note AQMS computes and stores this on EVERY coda, reviewed or not
     ///       - 140,879 of 140,879 automatic rows carry one - so it is read
-    ///       rather than recomputed.  computeStationDurationMagnitude
-    ///       exists for recomputing a magnitude after an analyst changes
-    ///       something, not for reconstructing what the database already
-    ///       says.
+    ///       rather than recomputed.  Reference implementations of the
+    ///       scales themselves live in attic/magnitudeCalculations and are
+    ///       not built - reconstructing what the database already stores
+    ///       would only be a chance to disagree with it.
     void setMagnitude(double magnitude) noexcept;
     /// @result This channel's magnitude.
     /// @throws std::runtime_error if \c hasMagnitude() is false.
@@ -62,13 +82,12 @@ public:
 
     /// @brief Sets the residual magnitude - this channel's magnitude less
     ///        the network magnitude.
-    /// @note assoccom.magres when AQMS supplied one, and otherwise the
-    ///       same subtraction done here.  That is not an approximation:
-    ///       across every reviewed row in the archive - 10,485 of 10,485 -
-    ///       magres equals assoccom.mag minus netmag.magnitude exactly, so
-    ///       computing it when absent produces the identical quantity.
-    ///       AQMS simply does not bother writing it down for automatic
-    ///       magnitudes, which is 96% of what a duty analyst opens.
+    /// @note Always the subtraction, never AQMS's stored magres.  AQMS
+///       writes magres only on review, so reading it would give a residual
+///       on 4% of what an analyst opens; and the subtraction IS magres -
+///       they agree exactly on all 10,485 reviewed rows in the archive - so
+///       computing it unconditionally costs nothing and gives one
+///       definition instead of two.
     void setResidual(double residual) noexcept;
     /// @result The residual magnitude.
     [[nodiscard]] double getResidual() const;

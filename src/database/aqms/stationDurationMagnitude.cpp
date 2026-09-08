@@ -11,6 +11,8 @@ using namespace AQMSDutyReviewBackend::Database::AQMS;
 class StationDurationMagnitude::StationDurationMagnitudeImpl
 {
 public:
+    StationDurationMagnitude::ReviewStatus mReviewStatus{StationDurationMagnitude::ReviewStatus::Automatic};
+    bool mHasReviewStatus{false};
     StreamIdentifier mStreamIdentifier;
     std::optional<double> mSourceReceiverDistance;
     std::optional<double> mSourceReceiverAzimuth;
@@ -265,4 +267,25 @@ double StationDurationMagnitude::getMagnitude() const
 bool StationDurationMagnitude::hasMagnitude() const noexcept
 {
     return pImpl->mHasMagnitude;
+}
+
+/// Review status of this observation
+void StationDurationMagnitude::setReviewStatus(const ReviewStatus status) noexcept
+{
+    pImpl->mReviewStatus = status;
+    pImpl->mHasReviewStatus = true;
+}
+
+StationDurationMagnitude::ReviewStatus StationDurationMagnitude::getReviewStatus() const
+{
+    if (!hasReviewStatus())
+    {
+        throw std::runtime_error("Review status not set");
+    }
+    return pImpl->mReviewStatus;
+}
+
+bool StationDurationMagnitude::hasReviewStatus() const noexcept
+{
+    return pImpl->mHasReviewStatus;
 }

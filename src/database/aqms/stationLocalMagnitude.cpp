@@ -31,6 +31,8 @@ namespace
 class StationLocalMagnitude::StationLocalMagnitudeImpl
 {
 public:
+    StationLocalMagnitude::ReviewStatus mReviewStatus{StationLocalMagnitude::ReviewStatus::Automatic};
+    bool mHasReviewStatus{false};
         StreamIdentifier mStreamIdentifier;
     std::optional<double> mAmplitude;
     std::optional<double> mSourceReceiverDistance;
@@ -41,9 +43,7 @@ public:
     bool mHasMagnitude{false};
     bool mHasResidual{false};
     bool mHasStreamIdentifier{false};
-std::pair<PeakToPeakAmplitude, PeakToPeakAmplitude> mAmplitudes;
     double mWeight{0};
-    bool mHasAmplitudes{false};
     bool mHasWeight{false};
 };
 
@@ -88,50 +88,7 @@ StationLocalMagnitude::operator=(StationLocalMagnitude &&magnitude) noexcept
 /// Destructor
 StationLocalMagnitude::~StationLocalMagnitude() = default;
 
-/// Peak-to-peak amplitudes
-void StationLocalMagnitude::setPeakToPeakAmplitudes(
-    const std::pair<PeakToPeakAmplitude, PeakToPeakAmplitude> &amplitudes)
-{
-    const auto &first = amplitudes.first;
-    const auto &second = amplitudes.second;
-    if (!first.hasStreamIdentifier() || !second.hasStreamIdentifier())
-    {
-        throw std::invalid_argument(
-            "Both amplitudes must have a stream identifier");
-    }
-    if (streamKey(first.getStreamIdentifier())
-        == streamKey(second.getStreamIdentifier()))
-    {
-        throw std::invalid_argument(
-            "The two amplitudes must be from different streams");
-    }
-    if (!first.hasPeakTimes() || !second.hasPeakTimes())
-    {
-        throw std::invalid_argument("Both amplitudes must have peak times");
-    }
-    if (!first.hasAmplitude() || !second.hasAmplitude())
-    {
-        throw std::invalid_argument(
-            "Both amplitudes must have an amplitude value");
-    }
-    pImpl->mAmplitudes = amplitudes;
-    pImpl->mHasAmplitudes = true;
-}
 
-std::pair<PeakToPeakAmplitude, PeakToPeakAmplitude>
-StationLocalMagnitude::getPeakToPeakAmplitudes() const
-{
-    if (!hasPeakToPeakAmplitudes())
-    {
-        throw std::runtime_error("Peak-to-peak amplitudes not set");
-    }
-    return pImpl->mAmplitudes;
-}
-
-bool StationLocalMagnitude::hasPeakToPeakAmplitudes() const noexcept
-{
-    return pImpl->mHasAmplitudes;
-}
 
 /// Weight
 void StationLocalMagnitude::setWeight(const double weight)
@@ -294,4 +251,25 @@ StreamIdentifier StationLocalMagnitude::getStreamIdentifier() const
 bool StationLocalMagnitude::hasStreamIdentifier() const noexcept
 {
     return pImpl->mHasStreamIdentifier;
+}
+
+/// Review status of this observation
+void StationLocalMagnitude::setReviewStatus(const ReviewStatus status) noexcept
+{
+    pImpl->mReviewStatus = status;
+    pImpl->mHasReviewStatus = true;
+}
+
+StationLocalMagnitude::ReviewStatus StationLocalMagnitude::getReviewStatus() const
+{
+    if (!hasReviewStatus())
+    {
+        throw std::runtime_error("Review status not set");
+    }
+    return pImpl->mReviewStatus;
+}
+
+bool StationLocalMagnitude::hasReviewStatus() const noexcept
+{
+    return pImpl->mHasReviewStatus;
 }

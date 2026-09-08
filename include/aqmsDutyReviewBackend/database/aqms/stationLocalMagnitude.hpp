@@ -12,6 +12,15 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
 /// @class StationLocalMagnitude stationLocalMagnitude.hpp
+/// @brief One CHANNEL's contribution to a local magnitude.
+/// @note One of these per channel, not per station.  AQMS stores
+///       assocamm.mag per component and the components disagree on an
+///       automatic magnitude - they match on 2.8% of stations, with
+///       spreads up to 3.6 magnitude units - so there is no station
+///       value to collapse them into.  This used to hold a PAIR of
+///       peak-to-peak amplitudes, modelling one station magnitude from
+///       two horizontals; that shape was removed because it is not what
+///       the database has.
 /// @brief Defines a local (Richter) magnitude made by an individual stream.
 ///        To compute a local magnitude we use something like:
 ///          M_L = \log_{10} (A) + C_d + C_s
@@ -38,6 +47,18 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 class StationLocalMagnitude
 {
 public:
+    /// @brief The review status of this observation.
+    /// @note Its own status, not the magnitude's.  They differ: the archive
+    ///       holds 5,368 automatic codas under reviewed network magnitudes
+    ///       and 4 finalized amplitudes under automatic ones, so this says
+    ///       something the magnitude's own review status does not.
+    enum class ReviewStatus
+    {
+        Automatic, /*!< Produced by the real-time system. */
+        Human,     /*!< A person reviewed it. */
+        Finalized  /*!< Reviewed and published. */
+    };
+
     /// @brief Constructor.
     StationLocalMagnitude();
     /// @brief Copy constructor.
@@ -45,15 +66,13 @@ public:
     /// @brief Move constructor.
     StationLocalMagnitude(StationLocalMagnitude &&magnitude) noexcept;
 
-    /// @brief Sets the amplitude measurements made on two channels.
-    /// @throws std::invalid_argument if the amplitudes are from the same
-    ///         stream, do not have peak times, or amplitude values.
-    void setPeakToPeakAmplitudes(const std::pair<PeakToPeakAmplitude, PeakToPeakAmplitude> &amplitudes);
-    /// @result The amplitude measurements made on two channels.
-    /// @throws std::runtime_error if \c hasPeakToPeakAmplitudes() is false.
-    [[nodiscard]] std::pair<PeakToPeakAmplitude, PeakToPeakAmplitude> getPeakToPeakAmplitudes() const;
-    /// @result True indicates the channel amplitudes were set.
-    [[nodiscard]] bool hasPeakToPeakAmplitudes() const noexcept;
+    /// @brief Sets the review status of this observation.
+    void setReviewStatus(ReviewStatus status) noexcept;
+    /// @result The review status.
+    /// @throws std::runtime_error if \c hasReviewStatus() is false.
+    [[nodiscard]] ReviewStatus getReviewStatus() const;
+    /// @result True indicates the review status was set.
+    [[nodiscard]] bool hasReviewStatus() const noexcept;
 
     /// @brief Sets this CHANNEL's magnitude - assocamm.mag.
     /// @note Per channel, not per station.  A local magnitude is measured
@@ -76,10 +95,10 @@ public:
 
     /// @brief Sets the residual - this channel's magnitude less the
     ///        network magnitude.
-    /// @note assocamm.magres when AQMS supplied one, and otherwise that
-    ///       same subtraction.  Not an approximation: magres equals it
-    ///       exactly on every reviewed row in the archive.  AQMS writes one
-    ///       only on review, so an automatic magnitude has none.
+    /// @note Always the subtraction, never AQMS's stored magres - see the
+///       note on StationDurationMagnitude::setResidual.  Observed less
+///       estimated: this channel's own magnitude is the observation, the
+///       network magnitude is the estimate.
     void setResidual(double residual) noexcept;
     /// @result The residual.
     /// @throws std::runtime_error if \c hasResidual() is false.

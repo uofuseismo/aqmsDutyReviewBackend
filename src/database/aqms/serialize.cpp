@@ -299,6 +299,36 @@ void writeSamples(boost::json::object &item,
     return item;
 }
 
+[[nodiscard]] std::string toString(
+    const StationDurationMagnitude::ReviewStatus status)
+{
+    switch (status)
+    {
+    case StationDurationMagnitude::ReviewStatus::Automatic:
+        return "automatic";
+    case StationDurationMagnitude::ReviewStatus::Human:
+        return "human";
+    case StationDurationMagnitude::ReviewStatus::Finalized:
+        return "finalized";
+    }
+    return "automatic";
+}
+
+[[nodiscard]] std::string toString(
+    const StationLocalMagnitude::ReviewStatus status)
+{
+    switch (status)
+    {
+    case StationLocalMagnitude::ReviewStatus::Automatic:
+        return "automatic";
+    case StationLocalMagnitude::ReviewStatus::Human:
+        return "human";
+    case StationLocalMagnitude::ReviewStatus::Finalized:
+        return "finalized";
+    }
+    return "automatic";
+}
+
 /// @brief Serializes one coda measurement behind a duration magnitude.
 [[nodiscard]] boost::json::object stationDurationMagnitudeToJSON(
     const StationDurationMagnitude &stationMagnitude)
@@ -333,6 +363,14 @@ void writeSamples(boost::json::object &item,
     if (stationMagnitude.hasMagnitude())
     {
         item["magnitude"] = stationMagnitude.getMagnitude();
+    }
+    if (stationMagnitude.hasReviewStatus())
+    {
+        // This OBSERVATION's status, not the magnitude's.  They differ -
+        // an automatic coda can sit under a reviewed magnitude - so a
+        // client showing "reviewed" from the magnitude alone would be
+        // overstating what a person actually looked at.
+        item["reviewStatus"] = ::toString(stationMagnitude.getReviewStatus());
     }
     if (stationMagnitude.hasDuration())
     {
@@ -406,6 +444,14 @@ void writeSamples(boost::json::object &item,
     if (stationMagnitude.hasMagnitude())
     {
         item["magnitude"] = stationMagnitude.getMagnitude();
+    }
+    if (stationMagnitude.hasReviewStatus())
+    {
+        // This OBSERVATION's status, not the magnitude's.  They differ -
+        // an automatic coda can sit under a reviewed magnitude - so a
+        // client showing "reviewed" from the magnitude alone would be
+        // overstating what a person actually looked at.
+        item["reviewStatus"] = ::toString(stationMagnitude.getReviewStatus());
     }
     if (stationMagnitude.hasResidual())
     {

@@ -710,6 +710,7 @@ namespace
     complete.setStreamIdentifier(streamIdentifier);
     complete.setStartTime(std::chrono::nanoseconds{1'700'000'000'000'000'000});
     complete.setMagnitude(1.46);
+    complete.setReviewStatus(StationDurationMagnitude::ReviewStatus::Human);
     complete.setDuration(70.0);
     complete.setWeight(1.0);
     complete.setResidual(0.15);
@@ -731,6 +732,7 @@ namespace
     sparse.setStreamIdentifier(otherStream);
     sparse.setStartTime(std::chrono::nanoseconds{1'700'000'001'000'000'000});
     sparse.setMagnitude(0.83);
+    sparse.setReviewStatus(StationDurationMagnitude::ReviewStatus::Automatic);
     sparse.setResidual(0.83 - 1.31);
     sparse.setDuration(19.0);
 
@@ -978,6 +980,8 @@ namespace
               stationMagnitude.setStreamIdentifier(streamIdentifier);
               stationMagnitude.setMagnitude(magnitude);
               stationMagnitude.setResidual(magnitude - 0.79);
+              stationMagnitude.setReviewStatus(
+                  StationLocalMagnitude::ReviewStatus::Automatic);
               stationMagnitude.setAmplitude(amplitude);
               stationMagnitude.setWeight(1.0);
               return stationMagnitude;
@@ -1068,5 +1072,62 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS",
         REQUIRE(localJson.at("origins").as_array().at(0).as_object()
                          .at("magnitudes").as_object()
                          .contains("localMagnitude"));
+    }
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS",
+          "[serialize][observationReviewStatus]")
+{
+    SECTION("Each observation carries its own review status")
+    {
+        const auto json = toJSON(::makeEventWithCodaMagnitude());
+        const auto &codas = json.at("origins").as_array().at(0).as_object()
+                                .at("magnitudes").as_object()
+                                .at("durationMagnitude").as_object()
+                                .at("stationMagnitudes").as_array();
+        REQUIRE(codas.at(0).as_object().at("reviewStatus").as_string()
+                == "human");
+        REQUIRE(codas.at(1).as_object().at("reviewStatus").as_string()
+                == "automatic");
+    }
+    SECTION("An observation's status is not the magnitude's")
+    {
+        // The point of sending it: the archive holds automatic codas under
+        // reviewed magnitudes, so a client reading only the magnitude's
+        // status would claim a person looked at picks nobody looked at.
+        const auto json = toJSON(::makeEventWithCodaMagnitude());
+        const auto &magnitude = json.at("origins").as_array().at(0)
+                                    .as_object().at("magnitudes").as_object()
+                                    .at("durationMagnitude").as_object();
+        const auto &codas = magnitude.at("stationMagnitudes").as_array();
+        // The two entries disagree with each other, so they cannot both be
+        // echoing whatever the magnitude says.
+        REQUIRE(codas.at(0).as_object().at("reviewStatus").as_string()
+                != codas.at(1).as_object().at("reviewStatus").as_string());
+    }
+    SECTION("Local observations carry it too")
+    {
+        const auto json = toJSON(::makeEventWithLocalMagnitude());
+        for (const auto &entry : json.at("origins").as_array().at(0)
+                                     .as_object().at("magnitudes").as_object()
+                                     .at("localMagnitude").as_object()
+                                     .at("stationMagnitudes").as_array())
+        {
+            REQUIRE(entry.as_object().at("reviewStatus").as_string()
+                    == "automatic");
+        }
+    }
+    SECTION("An observation with no status simply has no key")
+    {
+        StreamIdentifier streamIdentifier;
+        streamIdentifier.setNetwork("UU");
+        streamIdentifier.setStation("CTU");
+        streamIdentifier.setChannel("HHZ");
+        streamIdentifier.setLocationCode("01");
+        StationDurationMagnitude bare;
+        bare.setStreamIdentifier(streamIdentifier);
+        bare.setDuration(10.0);
+        REQUIRE_FALSE(bare.hasReviewStatus());
+        REQUIRE_THROWS_AS(bare.getReviewStatus(), std::runtime_error);
     }
 }
