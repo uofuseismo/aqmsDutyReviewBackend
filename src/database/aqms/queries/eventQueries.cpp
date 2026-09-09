@@ -196,6 +196,14 @@ CREATE TABLE credit(
         );
 */
 
+/// @brief Maps event.etype onto an event type.
+/// @note The codes come from the eventtype table, whose CHECK constraint
+///       is the authority on what exists.  'so' was mapped here once and
+///       is not one of them.
+/// @note Only five etypes occur in the archive - st, eq, qb, sn and uk - so
+///       the twenty-four unmapped ones cost nothing today.  An unmapped
+///       code is not fatal: the readers catch it, log it and fall back to
+///       Unknown.
 [[nodiscard]] Event::EventType toEventType(const std::string &eventType)
 {
     if (eventType == "eq")
@@ -228,15 +236,17 @@ CREATE TABLE credit(
     }
     else if (eventType == "mi")
     {
+        // WRONG, and left alone pending a decision: eventtype says 'mi' is
+        // 'meteor' - a meteor or comet impact - not a mining induced
+        // event.  There is no mining induced type in the schema at all;
+        // the nearest are 'rb' (rockburst) and 'co' (mine/tunnel
+        // collapse).  Nothing in the archive carries 'mi', so this has never
+        // mislabelled anything, but it would the first time one appeared.
         return Event::EventType::MiningInduced;
     }
     else if (eventType == "nt")
     {
         return Event::EventType::NuclearTest;
-    }
-    else if (eventType == "so")
-    {
-        return Event::EventType::Sonic;
     }
     else if (eventType == "uk")
     {
