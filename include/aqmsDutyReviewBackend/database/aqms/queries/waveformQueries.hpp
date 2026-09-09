@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <vector>
 #include <spdlog/logger.h>
 
@@ -97,6 +98,26 @@ struct FileRoots
 ///         stream - an absent waveform is not an empty one, and returning
 ///         a Waveform with no segments would push that distinction onto
 ///         every caller.
+/// @brief A token that changes when an event's waveforms would come back
+///        different.
+/// @param[in] client           A client connected to an AQMS database.
+/// @param[in] eventIdentifier  The event.
+/// @result An opaque string.  Equal tokens mean the waveform response
+///         would be the same; different tokens mean it may not be.
+/// @note Covers the FILES - count, total bytes, latest write - and the
+///       PICKS, because which channels get drawn comes from the preferred
+///       origin's arrivals.  A new pick changes the response without
+///       touching any waveform row.
+/// @note Bytes as well as timestamps: a file replaced in place keeps its
+///       name, so the name alone would not notice.
+/// @note About 2.5 ms.  The route it guards is roughly 38 ms unthrottled
+///       and several times that under a small CPU limit, most of it
+///       serialization rather than the disk read.
+/// @note Opaque - nothing should parse it or order by it.
+/// @throws std::exception if the query fails.
+[[nodiscard]] std::string queryWaveformFreshness(
+    const Client &client, int64_t eventIdentifier);
+
 [[nodiscard]] Waveform queryWaveform(const Client &client,
                                      std::int64_t eventIdentifier,
                                      const StreamIdentifier &streamIdentifier,

@@ -343,6 +343,54 @@ SELECT encode(wave.get_waveform_blob($1, 0, $2, 0, 4070908800), 'hex')
 ///       has one origin row per location attempt, so joining on evid would
 ///       return a relocated event once per relocation and LIMIT 1 would
 ///       pick an arbitrary one.
+/// A cheap answer to "have this event's waveforms changed?".
+///
+/// Two things decide what the waveform route returns, and both are in
+/// here.
+///
+/// The FILES: how many are associated with the event, how many bytes they
+/// total, and when any of the three rows describing them was last written.
+/// A file replaced in place keeps its name, so the name alone would not
+/// notice; nbytes and lddate together do.
+///
+/// The PICKS: which channels get drawn comes from the preferred origin's
+/// non-zero-weight arrivals, so adding a pick changes the answer without
+/// touching a single waveform row.  Watching the files alone would serve a
+/// stale record section that is missing the channel somebody just picked.
+///
+/// @note Scoped to the whole event rather than to the channels actually
+///       fetched - 186 files against the 6 streams a typical event draws.
+///       Narrowing it would mean passing the stream list in and would only
+///       turn false positives into extra parameters.  A rebuild that was
+///       not strictly needed is the safe way to be wrong.
+///
+/// @note About 2.5 ms, against roughly 38 ms for the route it guards on a
+///       machine that is not CPU throttled - and the route's cost is
+///       mostly serialization, which a 100m CPU limit multiplies by ten.
+constexpr std::string_view WAVEFORM_FRESHNESS_QUERY
+{
+R"""(
+SELECT (SELECT count(*)::text
+            || ':' || coalesce(sum(filename.nbytes),0)::text
+            || ':' || coalesce(to_char(max(greatest(filename.lddate,
+                                                    waveform.lddate,
+                                                    AssocWaE.lddate)),
+                                       'YYYY-MM-DD"T"HH24:MI:SS.US'),'none')
+          FROM AssocWaE
+         INNER JOIN waveform ON waveform.wfid = AssocWaE.wfid
+         INNER JOIN filename ON filename.fileid = waveform.fileid
+         WHERE AssocWaE.evid = $1)
+    || ':' ||
+       (SELECT count(*)::text
+            || ':' || coalesce(to_char(max(assocaro.lddate),
+                                       'YYYY-MM-DD"T"HH24:MI:SS.US'),'none')
+          FROM event
+         INNER JOIN assocaro ON assocaro.orid = event.prefor
+         WHERE event.evid = $1
+           AND (assocaro.wgt IS NULL OR assocaro.wgt > 0)) AS freshness;
+)"""
+};
+
 constexpr std::string_view WAVEFORM_FILE_QUERY
 {
 R"""(
@@ -608,6 +656,14 @@ AQMSDutyReviewBackend::Database::AQMS::queryWaveform(
     constexpr int8_t verbose{0};
     constexpr bool purgeTrailingZeros{true};
     return ::unpack(miniSEED, miniSEED.size(), verbose, purgeTrailingZeros);
+}
+
+std::string
+AQMSDutyReviewBackend::Database::AQMS::queryWaveformFreshness(
+    const DB::Client &client, const std::int64_t eventIdentifier)
+{
+    return client.executeScalar<std::string> (::WAVEFORM_FRESHNESS_QUERY,
+                                              pqxx::params{eventIdentifier});
 }
 
 std::vector<Waveform>

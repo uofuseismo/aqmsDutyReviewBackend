@@ -295,6 +295,7 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
        testing/database/aqms/events.cpp
        testing/database/aqms/stationsAndGeodesic.cpp
        testing/database/aqms/catalog.cpp
+       testing/database/catalogCache.cpp
        testing/database/serialize.cpp
        testing/signalProcessing/signalProcessing.cpp
        testing/database/credentials.cpp

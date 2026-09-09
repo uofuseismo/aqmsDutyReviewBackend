@@ -158,6 +158,16 @@ public:
     /// @warning Declared but not yet implemented - there is no query yet
     ///          that lists which streams an event has, so the caller has
     ///          to say.  Use the overload below.
+    /// @brief A token that changes when an event's waveforms would come
+    ///        back different.
+    /// @param[in] eventIdentifier  The event.
+    /// @result The token, or why it could not be read.
+    /// @note About 2.5 ms, and it covers both the files and the picks -
+    ///       adding a pick changes which channels are drawn without
+    ///       touching a waveform row.  See queryWaveformFreshness.
+    [[nodiscard]] auto getWaveformFreshness(int64_t eventIdentifier) const
+        -> std::expected<std::string, QueryError>;
+
     [[nodiscard]] auto fetchWaveforms(int64_t eventIdentifier) const -> std::expected<std::vector<Waveform>, QueryError>;
     /// @brief Fetches the waveforms for an event - for specific streams.
     /// @param[in] eventIdentifier  The event.

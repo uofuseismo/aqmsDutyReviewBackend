@@ -232,6 +232,25 @@ auto Database::getLockedEvents(
 }
 
 /// Waveforms
+auto Database::getWaveformFreshness(const int64_t eventIdentifier) const
+    -> std::expected<std::string, QueryError>
+{
+    try
+    {
+        return queryWaveformFreshness(*pImpl->mMainClient, eventIdentifier);
+    }
+    catch (const std::exception &e)
+    {
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Could not read the waveform freshness for {} "
+                            "from {} because {}",
+                            eventIdentifier,
+                            pImpl->mMainClient->getName(),
+                            std::string {e.what()});
+        return std::unexpected(QueryError::ConnectionFailed);
+    }
+}
+
 auto Database::fetchWaveforms(
     const int64_t eventIdentifier,
     const std::vector<StreamIdentifier> &identifiers) const
