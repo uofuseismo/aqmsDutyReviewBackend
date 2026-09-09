@@ -333,6 +333,23 @@ struct ProgramOptions
         verbosity
             = propertyTree.get<int> ("General.verbosity", verbosity);
 
+        // How far back the catalog reaches, in days - which is how an
+        // operator thinks about it.
+        const auto catalogDays
+            = propertyTree.get<int>
+              ("General.catalogDurationInDays",
+               static_cast<int>
+               (std::chrono::duration_cast<std::chrono::days>
+                (catalogDuration).count()));
+        if (catalogDays <= 0)
+        {
+            // A window with no time in it returns nothing at all, and
+            // getCatalog would refuse it as a bad request on every call.
+            throw std::invalid_argument(
+                "catalogDurationInDays must be positive");
+        }
+        catalogDuration = std::chrono::days {catalogDays};
+
         stadiaMapsAPIKey
             = propertyTree.get<std::string> ("General.stadiaMapsAPIKey",
                                              stadiaMapsAPIKey);
@@ -497,6 +514,14 @@ struct ProgramOptions
     }
 
     std::string applicationName{APPLICATION_NAME};
+    /// How far back the catalog reaches.  One week by default: a duty
+    /// analyst is looking at what has happened recently, and a longer
+    /// window is a bigger payload of events nobody is going to review.
+    /// Set from General.catalogDurationInDays.
+    /// @note This also bounds the locks query - a lock older than the
+    ///       catalog window belongs to an event that is not on screen.
+    std::chrono::seconds catalogDuration{std::chrono::hours {24*7}};
+
     std::string stadiaMapsAPIKey;
     CrowOptions crowOptions;
     UserManagementOptions userManagementOptions;

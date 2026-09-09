@@ -55,8 +55,13 @@ struct RouteContext
     /// the authenticator judges staleness at another would make every
     /// subsequent login rehash.
     AQMSDutyReviewBackend::Auth::PasswordHashingCost passwordHashingCost;
-    /// How far back the catalog reaches.
-    std::chrono::seconds catalogDuration{std::chrono::hours {24*14}};
+    /// How far back the catalog reaches, and with it how far back a lock
+    /// is worth reporting.  One week by default; set from
+    /// General.catalogDurationInDays.
+    /// @note main initializes this aggregate positionally, so this stays
+    ///       last - and the default is only reached if main stops passing
+    ///       it, which is how it silently sat at a fortnight before.
+    std::chrono::seconds catalogDuration{std::chrono::hours {24*7}};
 };
 
 /// @brief Registers a route that only an authorized caller reaches.

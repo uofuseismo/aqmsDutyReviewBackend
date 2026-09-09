@@ -298,7 +298,8 @@ int main(int argc, char *argv[])
         std::chrono::seconds
             {programOptions.userManagementOptions.passwordResetExpiresAfter},
         programOptions.userManagementOptions.passwordPolicy,
-        programOptions.userManagementOptions.passwordHashingCost
+        programOptions.userManagementOptions.passwordHashingCost,
+        programOptions.catalogDuration
     };
 
     crow::logger::setHandler(&customLogger);

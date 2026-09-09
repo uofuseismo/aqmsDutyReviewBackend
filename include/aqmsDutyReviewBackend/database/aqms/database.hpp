@@ -102,7 +102,7 @@ public:
     ///       arrivals, and station magnitudes underneath it.
     /// @note A row that cannot be read is skipped rather than failing the
     ///       whole catalog, and logged.
-    [[nodiscard]] auto getCatalog(const std::chrono::seconds &duration = std::chrono::weeks {2}) const -> std::expected<std::vector<EventSummary>, QueryError>;
+    [[nodiscard]] auto getCatalog(const std::chrono::seconds &duration = std::chrono::weeks {1}) const -> std::expected<std::vector<EventSummary>, QueryError>;
 
     /// @brief Fetches the alarms for an event from every database.
     /// @note An event picks up alarms on more than one machine over its
