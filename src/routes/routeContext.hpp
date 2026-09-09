@@ -13,6 +13,7 @@
 #include "aqmsDutyReviewBackend/auth/authenticator.hpp"
 #include "aqmsDutyReviewBackend/auth/jsonWebToken.hpp"
 #include "aqmsDutyReviewBackend/auth/password.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/catalogCache.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/database.hpp"
 #include "aqmsDutyReviewBackend/database/drp/userStore.hpp"
 #include "authorizeRoute.hpp"
@@ -55,6 +56,13 @@ struct RouteContext
     /// the authenticator judges staleness at another would make every
     /// subsequent login rehash.
     AQMSDutyReviewBackend::Auth::PasswordHashingCost passwordHashingCost;
+    /// Holds the serialized catalog between requests so that asking
+    /// whether it changed does not rebuild it.  Shared, and mutated
+    /// through the pointer - the context itself is const in the handlers.
+    /// @note Not owned by the context in spirit; main owns it and it
+    ///       outlives app.run(), like the two raw pointers above.
+    std::shared_ptr<AQMSDutyReviewBackend::Database::AQMS::CatalogCache>
+        catalogCache;
     /// How far back the catalog reaches, and with it how far back a lock
     /// is worth reporting.  One week by default; set from
     /// General.catalogDurationInDays.

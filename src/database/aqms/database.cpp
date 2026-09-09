@@ -136,6 +136,24 @@ auto Database::fetchStations() const
 }
 
 /// Catalog
+auto Database::getCatalogFreshness() const
+    -> std::expected<std::string, QueryError>
+{
+    try
+    {
+        return queryCatalogFreshness(*pImpl->mMainClient);
+    }
+    catch (const std::exception &e)
+    {
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Could not read the catalog freshness from {} "
+                            "because {}",
+                            pImpl->mMainClient->getName(),
+                            std::string {e.what()});
+        return std::unexpected(QueryError::ConnectionFailed);
+    }
+}
+
 auto Database::getCatalog(const std::chrono::seconds &duration) const
     -> std::expected<std::vector<EventSummary>, QueryError>
 {

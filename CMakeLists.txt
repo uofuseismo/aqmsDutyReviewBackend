@@ -107,6 +107,7 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/auth/jsonWebTokenOptions.hpp
     include/${PROJECT_NAME}/database/aqms/aqms.hpp
     include/${PROJECT_NAME}/database/aqms/arrival.hpp
+    include/${PROJECT_NAME}/database/aqms/catalogCache.hpp
     include/${PROJECT_NAME}/database/aqms/database.hpp
     include/${PROJECT_NAME}/database/aqms/centroidMomentTensorMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/durationMagnitude.hpp
@@ -152,6 +153,7 @@ set(LIBRARY_SRC
     src/database/aqms/aqms.cpp
     src/database/aqms/arrival.cpp
     src/database/aqms/centroidMomentTensorMagnitude.cpp
+    src/database/aqms/catalogCache.cpp
     src/database/aqms/database.cpp
     src/database/aqms/durationMagnitude.cpp
     src/database/aqms/event.cpp

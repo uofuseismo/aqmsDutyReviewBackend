@@ -102,6 +102,17 @@ public:
     ///       arrivals, and station magnitudes underneath it.
     /// @note A row that cannot be read is skipped rather than failing the
     ///       whole catalog, and logged.
+    /// @brief A token that changes when the catalog does.
+    /// @result The token, or why it could not be read.
+    /// @note About 30 ms against getCatalog's 275, so a caller polling for
+    ///       changes need not rebuild the catalog to find out there were
+    ///       none.
+    /// @note Includes the catalog's window bucket, so it changes when an
+    ///       event ages out as well as when one is written - and two
+    ///       instances agree without sharing anything.
+    [[nodiscard]] auto getCatalogFreshness() const
+        -> std::expected<std::string, QueryError>;
+
     [[nodiscard]] auto getCatalog(const std::chrono::seconds &duration = std::chrono::weeks {1}) const -> std::expected<std::vector<EventSummary>, QueryError>;
 
     /// @brief Fetches the alarms for an event from every database.

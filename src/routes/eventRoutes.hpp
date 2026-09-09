@@ -1,6 +1,7 @@
 #ifndef AQMS_DUTY_REVIEW_BACKEND_ROUTES_EVENT_ROUTES_HPP
 #define AQMS_DUTY_REVIEW_BACKEND_ROUTES_EVENT_ROUTES_HPP
 #include <cstdint>
+#include <expected>
 #include <string>
 #include <crow/app.h>
 #include "aqmsDutyReviewBackend/database/aqms/event.hpp"
@@ -18,6 +19,56 @@ namespace
 ///       their handler signature depends on the parameter type, so
 ///       ::authorizedRoute cannot express them.  They are the exception,
 ///       not the pattern.
+
+/// @brief The catalog and its hash, from cache when nothing has moved.
+///
+/// Both the catalog and the hash endpoints want the same thing, so they
+/// go through here rather than each deciding when to rebuild.  The order
+/// matters: read the freshness token BEFORE building, so the token stored
+/// alongside a catalog can never describe a state newer than the catalog
+/// itself.  Reading it afterwards would let a change that landed mid-query
+/// be recorded as already included.
+///
+/// A freshness read that fails is not fatal - it just means rebuilding,
+/// which is what would have happened anyway.
+[[nodiscard]] std::expected<
+    AQMSDutyReviewBackend::Database::AQMS::CatalogCache::Entry,
+    AQMSDutyReviewBackend::Database::AQMS::Database::QueryError>
+getCachedCatalog(const RouteContext &context)
+{
+    namespace AQMS = AQMSDutyReviewBackend::Database::AQMS;
+    std::string token;
+    const auto freshness = context.aqmsDatabase->getCatalogFreshness();
+    if (freshness)
+    {
+        token = *freshness;
+        if (context.catalogCache != nullptr)
+        {
+            auto cached = context.catalogCache->lookup(token);
+            if (cached){return *cached;}
+        }
+    }
+    else
+    {
+        SPDLOG_LOGGER_WARN(context.logger,
+                           "Could not read the catalog freshness - "
+                           "rebuilding the catalog");
+    }
+
+    const auto catalog
+        = context.aqmsDatabase->getCatalog(context.catalogDuration);
+    if (!catalog){return std::unexpected(catalog.error());}
+    auto [json, hash] = AQMS::toJSON(*catalog);
+    // Only cached when the token is trustworthy.  Storing against an empty
+    // token would make the next lookup a hit on a state nobody vouched
+    // for.
+    if (!token.empty() && context.catalogCache != nullptr)
+    {
+        context.catalogCache->store(token, json, hash);
+    }
+    return AQMS::CatalogCache::Entry {std::move(json), std::move(hash)};
+}
+
 inline void registerEventRoutes(crow::SimpleApp &app,
                                 const RouteContext &context)
 {
@@ -57,8 +108,7 @@ inline void registerEventRoutes(crow::SimpleApp &app,
         {
             SPDLOG_LOGGER_INFO(context.logger, "{} requesting catalog",
                                identity.user);
-            const auto catalog
-                = context.aqmsDatabase->getCatalog(context.catalogDuration);
+            const auto catalog = ::getCachedCatalog(context);
             if (!catalog)
             {
                 SPDLOG_LOGGER_ERROR(context.logger,
@@ -68,14 +118,13 @@ inline void registerEventRoutes(crow::SimpleApp &app,
                     500,
                     "Could not reach the AQMS database - try again shortly");
             }
-            // The hash travels with the catalog rather than being
-            // recomputed here, so /catalog-hash cannot drift from it.
-            auto jsonCatalog
-                = AQMSDutyReviewBackend::Database::AQMS::toJSON(*catalog).first;
+            const auto nEvents
+                = catalog->catalog.contains("events")
+                ? catalog->catalog.at("events").as_array().size() : 0;
             return ::makeDataResponse(
                 200,
-                "Found " + std::to_string(catalog->size()) + " event(s)",
-                std::move(jsonCatalog));
+                "Found " + std::to_string(nEvents) + " event(s)",
+                catalog->catalog);
         });
 
     ::authorizedRoute(
@@ -87,9 +136,13 @@ inline void registerEventRoutes(crow::SimpleApp &app,
             SPDLOG_LOGGER_INFO(context.logger,
                                "{} requesting catalog hash",
                                identity.user);
-            // TODO should be reading from db
-            const auto catalog
-                = context.aqmsDatabase->getCatalog(context.catalogDuration);
+            // Served from the cache whenever the freshness token says
+            // the catalog has not moved, which is nearly always: the archive
+            // writes about two events an hour.  That is the whole point of
+            // this endpoint - a client polls it so it does NOT have to
+            // download the catalog, and rebuilding one to answer would
+            // have made polling more expensive than not polling.
+            const auto catalog = ::getCachedCatalog(context);
             if (!catalog)
             {
                 SPDLOG_LOGGER_ERROR(context.logger,
@@ -99,12 +152,8 @@ inline void registerEventRoutes(crow::SimpleApp &app,
                     500,
                     "Could not reach the AQMS database - try again shortly");
             }
-            // The hash comes back with the catalog, so this and /catalog
-            // cannot disagree about what the client is comparing.
-            auto hash
-                = AQMSDutyReviewBackend::Database::AQMS::toJSON(*catalog).second;
             boost::json::object payload;
-            payload["hash"] = std::move(hash);
+            payload["hash"] = catalog->hash;
             return ::makeDataResponse(200, "Catalog hash", std::move(payload));
         });
 

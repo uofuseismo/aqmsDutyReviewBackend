@@ -429,6 +429,86 @@ WHERE event.evid = $1
 )"""
 };
 
+/// How coarsely the catalog window's end is rounded, in seconds.
+///
+/// The window used to end at "now", which made the catalog a different
+/// thing on every call: two requests a second apart could straddle an
+/// event ageing off the back of a seven-day window and produce different
+/// hashes.  Within one process a cache hid that.  Across two it does not:
+/// both could hold the same freshness token and different hashes, and a
+/// client polling through a load balancer would see the hash flap and
+/// re-download a catalog that never changed.
+///
+/// Rounding the end down makes the catalog a pure function of the AQMS
+/// state and the bucket, so any two instances in the same bucket agree by
+/// construction rather than by luck or by sharing a cache.
+///
+/// Five minutes because that is the rate the catalog is willing to go
+/// stale at anyway, so it costs no extra rebuilds.  A smaller bucket would
+/// buy nothing an analyst can perceive and would rebuild more often; the
+/// catalog is written to about twice an hour.
+constexpr int CATALOG_WINDOW_BUCKET_SECONDS{300};
+
+/// The end of the catalog window, as SQL, rounded down to a bucket.
+///
+/// AQMS's clock, deliberately, not this process's.  The bucket only makes
+/// two instances agree if they agree on which bucket it is, and two pods
+/// with a few milliseconds of clock skew straddling a boundary would not.
+/// The database is the one clock every instance already shares, and the
+/// freshness probe is talking to it anyway.
+///
+/// @note now() is the transaction's start time in Postgres, so this is
+///       stable within a query rather than drifting between the two ends
+///       of a BETWEEN.
+constexpr std::string_view CATALOG_WINDOW_END
+{
+    "(floor(extract(epoch from now())/300)*300)"
+};
+
+/// A cheap answer to "has the catalog changed?".
+///
+/// The catalog query is a five-table join that takes about 275 ms and
+/// returns a few hundred rows.  This is 30 ms and returns one string, so
+/// the frontend can poll the hash endpoint without making AQMS rebuild the
+/// catalog every time.  Worth it because the catalog barely moves: across
+/// a day, the archive sees roughly 43 events, 43 origins and 57 magnitudes
+/// written - about twice an hour.
+///
+/// @note All three tables, not just event.  A magnitude revision bumps
+///       netmag.lddate and leaves event.lddate alone, and netmag is the
+///       busiest of the three - so watching event alone would miss the
+///       most common change there is.
+///
+/// @note The count is what catches DELETIONS.  A row going away lowers
+///       nothing and moves no lddate, so a token built only from
+///       max(lddate) would call a shrunken catalog unchanged.
+///
+/// @note Unscoped by time on purpose.  Narrowing to the catalog window
+///       would still be a sequential scan - lddate is not indexed here,
+///       and this is somebody else's schema - so it would cost the same
+///       and read less clearly.  The price is a false positive when an
+///       event outside the window is touched: the catalog gets rebuilt
+///       for nothing.  That is the safe direction to be wrong in.
+///
+/// @warning This does NOT see the window sliding.  The catalog covers a
+///          rolling seven days, so events age out with no lddate changing
+///          anywhere - about one every thirty-six minutes at the archive's
+///          rate.  Whatever caches this must expire on time as well as on
+///          the token.
+constexpr std::string_view CATALOG_FRESHNESS_QUERY
+{
+R"""(
+SELECT coalesce(to_char(greatest((SELECT max(lddate) FROM event),
+                                 (SELECT max(lddate) FROM origin),
+                                 (SELECT max(lddate) FROM netmag)),
+                        'YYYY-MM-DD"T"HH24:MI:SS.US'),
+                'none')
+    || ':' || (SELECT count(*) FROM event)::text
+    || ':' || (floor(extract(epoch from now())/300)*300)::bigint::text
+       AS freshness;
+)"""
+};
+
 /// This is the high-level catalog.
 ///
 /// Every join hangs off a PREFERRED key on event, because every table it
@@ -498,7 +578,11 @@ LEFT OUTER JOIN origin
     ON event.prefmag = NetMag.magid
     LEFT OUTER JOIN credit
     ON event.prefor = credit.id AND credit.tname = 'origin'
-WHERE origin.datetime BETWEEN TrueTime.nominal2truef($1) AND TrueTime.nominal2Truef($2)
+WHERE origin.datetime
+      BETWEEN TrueTime.nominal2truef(
+                  (floor(extract(epoch from now())/300)*300) - $1)
+          AND TrueTime.nominal2Truef(
+                  (floor(extract(epoch from now())/300)*300))
 )"""
 };
 
@@ -1180,13 +1264,8 @@ namespace
     const std::string query{std::string {::EVENT_QUERY_IN_TIME_RANGE}
                           + std::string {predicate}
                           + std::string {::ORDER_BY_TIME}};
-    // system_clock, not high_resolution_clock: the latter may be
-    // steady_clock, whose epoch has no relation to the wall clock, and
-    // these seconds are going into a time comparison in the database.
-    const auto endTime
-        = std::chrono::duration_cast<std::chrono::seconds>
-          (std::chrono::system_clock::now().time_since_epoch());
-    const auto startTime = endTime - duration;
+    // The window's ends are computed in SQL from AQMS's own clock - see
+    // CATALOG_WINDOW_END - so all this passes is how far back to look.
 
     std::vector<EventSummary> result;
     client.execute(
@@ -1199,8 +1278,7 @@ namespace
             std::vector<EventSummary> rows;
             const pqxx::params parameters
             {
-                static_cast<double> (startTime.count()),
-                static_cast<double> (endTime.count())
+                static_cast<double> (duration.count())
             };
             for (const auto &row : transaction.exec(query, parameters))
             {
@@ -1367,6 +1445,19 @@ AQMSDutyReviewBackend::Database::AQMS::queryEvent(
         },
         ::EVENT_AND_ORIGIN_INFORMATION_QUERY);
     return result;
+}
+
+std::string
+AQMSDutyReviewBackend::Database::AQMS::queryCatalogFreshness(
+    const DB::Client &client)
+{
+    // The window bucket is part of the token, and comes from the same
+    // clock the catalog window does - AQMS's.  Without it the token would
+    // say "unchanged" while the window quietly slid forward and dropped an
+    // event off its back, which is the one way the catalog changes that
+    // touches no lddate and no row count.
+    return client.executeScalar<std::string> (::CATALOG_FRESHNESS_QUERY,
+                                              pqxx::params{});
 }
 
 std::vector<EventSummary>

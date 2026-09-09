@@ -24,6 +24,7 @@
 #include "aqmsDutyReviewBackend/auth/jsonWebToken.hpp"
 #include "aqmsDutyReviewBackend/auth/authNZ.hpp"
 #include "aqmsDutyReviewBackend/database/client.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/catalogCache.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/database.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
 //#include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
@@ -285,6 +286,12 @@ int main(int argc, char *argv[])
     };
 
     // Everything the route handlers share, assembled once.  The two raw
+    // The catalog cache lives as long as the app does; it is what keeps
+    // the hash endpoint from rebuilding a five-table join on every poll.
+    auto catalogCache
+        = std::make_shared<AQMSDutyReviewBackend::Database::AQMS::CatalogCache>
+          ();
+
     // pointers are not owned - main owns those objects and outlives
     // app.run(), which is what makes it safe.
     const ::RouteContext routeContext
@@ -299,6 +306,7 @@ int main(int argc, char *argv[])
             {programOptions.userManagementOptions.passwordResetExpiresAfter},
         programOptions.userManagementOptions.passwordPolicy,
         programOptions.userManagementOptions.passwordHashingCost,
+        catalogCache,
         programOptions.catalogDuration
     };
 

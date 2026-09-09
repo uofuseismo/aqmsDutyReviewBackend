@@ -2,6 +2,7 @@
 #define AQMS_DUTY_REVIEW_BACKEND_DATABASE_AQMS_QUERIES_EVENT_QUERIES_HPP
 #include <chrono>
 #include <optional>
+#include <string>
 #include <memory>
 #include <vector>
 #include <spdlog/logger.h>
@@ -20,6 +21,26 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
+/// @brief A token that changes when the catalog does.
+/// @param[in] client  A client connected to an AQMS database.
+/// @result An opaque string.  Equal tokens mean the catalog is unchanged;
+///         different tokens mean it may have changed.
+/// @note Cheap on purpose - about 30 ms against the catalog query's 275 -
+///       so a client polling for changes does not make AQMS rebuild the
+///       catalog each time.
+/// @note Opaque.  It happens to be a timestamp and a row count today;
+///       nothing should parse it or compare it for ordering.
+/// @note Covers the window as well as the data.  The catalog's window is
+///       rounded down to a five-minute bucket and that bucket is part of
+///       the token, so an event ageing off the back of the window - which
+///       touches no lddate and no row count - still changes it.
+/// @note Therefore identical across instances.  Two backends that have
+///       never spoken produce the same token and the same catalog bytes
+///       for the same AQMS state, which is what keeps a client behind a
+///       load balancer from seeing the hash flap between them.
+/// @throws std::exception if the query fails.
+[[nodiscard]] std::string queryCatalogFreshness(const Client &client);
+
 /// @brief The catalog: one flattened row per event, newest first.
 /// @param[in] client    A client connected to an AQMS database.
 /// @param[in] duration  How far back to look from now.
