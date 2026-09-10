@@ -46,7 +46,7 @@ inline void registerUserRoutes(crow::SimpleApp &app,
     // been told to change the password they were issued.  The policy is
     // not a secret - it is meant to be read.
     ::authorizedRoute(
-        app, "/actions/user/password-requirements", ::readOnlyRequirement,
+        app, "/actions/user/password-requirements", "user-password-requirements", ::readOnlyRequirement,
         context,
         [&context](const crow::request &request,
                    const Claims &identity) -> crow::response
@@ -65,7 +65,7 @@ inline void registerUserRoutes(crow::SimpleApp &app,
             });
 
     ::authorizedRoute(
-        app, "/actions/user/change-password", crow::HTTPMethod::POST,
+        app, "/actions/user/change-password", "user-change-password", crow::HTTPMethod::POST,
         ::changePasswordRequirement, context,
         [&context](const crow::request &request,
                    const Claims &identity) -> crow::response

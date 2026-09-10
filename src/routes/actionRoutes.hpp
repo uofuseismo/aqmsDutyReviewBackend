@@ -66,10 +66,28 @@ constexpr AQMSDutyReviewBackend::Auth::Requirement readWriteRequirement
 /// @brief Registers the analyst action routes.
 /// @note Both carry a url parameter, so they use CROW_ROUTE and authorize
 ///       inline - see the note in eventRoutes.hpp.
+/// @note POST, and CROW_ROUTE defaults to GET, so the .methods() call is
+///       load bearing rather than decorative.  These are not safe: accept
+///       bumps the event version, and cancel posts to PCS, which is what
+///       sends a cancellation message out to whoever is listening.
+///
+///       Idempotency is a separate question and does not license a GET -
+///       PUT and DELETE are idempotent too.  What GET promises is that
+///       nothing happens, and something very much happens here.  Anything
+///       that follows links or prefetches - a browser, a crawler, a
+///       security scanner, a chat client unfurling a pasted URL - would
+///       otherwise cancel events by looking at them.
+///
+/// @note They ARE close to idempotent, which is worth having: accepting an
+///       accepted event answers 1 without bumping the version again, and
+///       cancelling a cancelled one re-posts to PCS but leaves the flag
+///       where it already was.  So a retry after a timeout is safe, even
+///       though a cancel retry may send a second message.
 inline void registerActionRoutes(crow::SimpleApp &app,
                                  const RouteContext &context)
 {
     CROW_ROUTE(app, "/actions/accept/<int>")
+        .methods(crow::HTTPMethod::POST)
     ([&context](const crow::request &request,
                 const int64_t eventIdentifier) -> crow::response
     {
@@ -84,6 +102,7 @@ inline void registerActionRoutes(crow::SimpleApp &app,
     });
 
     CROW_ROUTE(app, "/actions/cancel/<int>")
+        .methods(crow::HTTPMethod::POST)
     ([&context](const crow::request &request,
                 const int64_t eventIdentifier) -> crow::response
     {

@@ -1,3 +1,5 @@
+#include <chrono>
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <map>
@@ -106,6 +108,36 @@ int64_t MetricsSingleton::getUnauthenticatedCounts() const noexcept
 }
 
 /// Reset
+void MetricsSingleton::addRouteDuration(
+    const std::string &route, const std::chrono::nanoseconds &duration)
+{
+    // A negative or zero duration can only be a caller using a wall clock
+    // that stepped, so it is dropped rather than folded into a total that
+    // nobody could then trust.
+    if (duration <= std::chrono::nanoseconds {0}){return;}
+    const std::lock_guard<std::mutex> lock{mMutex};
+    auto &entry = mRouteDurationMap[route];
+    if (entry.count == 0)
+    {
+        entry.minimum = duration;
+        entry.maximum = duration;
+    }
+    else
+    {
+        entry.minimum = std::min(entry.minimum, duration);
+        entry.maximum = std::max(entry.maximum, duration);
+    }
+    entry.total = entry.total + duration;
+    entry.count = entry.count + 1;
+}
+
+std::map<std::string, MetricsSingleton::RouteDuration>
+MetricsSingleton::getRouteDurations() const
+{
+    const std::lock_guard<std::mutex> lock{mMutex};
+    return mRouteDurationMap;
+}
+
 void MetricsSingleton::resetMetrics() noexcept
 {
     mUnauthorizedCounter.store(0);
@@ -123,6 +155,7 @@ void MetricsSingleton::resetMetrics() noexcept
     {
         counter.second = 0;
     }
+    mRouteDurationMap.clear();
 }
 
 /// Initialize

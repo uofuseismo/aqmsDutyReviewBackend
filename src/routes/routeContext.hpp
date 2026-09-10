@@ -17,6 +17,7 @@
 #include "aqmsDutyReviewBackend/database/aqms/database.hpp"
 #include "aqmsDutyReviewBackend/database/drp/userStore.hpp"
 #include "authorizeRoute.hpp"
+#include "routeMetrics.hpp"
 
 namespace
 {
@@ -94,9 +95,20 @@ struct RouteContext
 ///       argument.  Routes with url parameters - /waveforms/<int> - still
 ///       want the macro, since their handler signature depends on the
 ///       parameter types.
+/// @param[in] metricName  What this route is called in the metrics.
+///                        Hyphenated and url-free - "event-information",
+///                        not "/event-information/<int>" - matching the
+///                        auth-login example in metricsSingleton.
+/// @note Named rather than derived from the url, and deliberately.  A url
+///       carrying an event identifier would mint one metric per event and
+///       bury the route's behaviour under a million rows of one hit each,
+///       which is the cardinality mistake that makes a metrics backend
+///       expensive and useless at the same time.  Several urls sharing one
+///       name is fine and often wanted; a name per request never is.
 template<typename Handler>
 void authorizedRoute(crow::SimpleApp &app,
                      const std::string &url,
+                     const std::string &metricName,
                      const crow::HTTPMethod method,
                      const AQMSDutyReviewBackend::Auth::Requirement &requirement,
                      const RouteContext &context,
@@ -104,15 +116,19 @@ void authorizedRoute(crow::SimpleApp &app,
 {
     app.route_dynamic(url)
       .methods(method)
-      ([&context, requirement, handler](const crow::request &request)
-       -> crow::response
+      ([&context, requirement, handler, metricName]
+       (const crow::request &request) -> crow::response
        {
+           ::RouteTimer timer{metricName};
            auto authorization = ::authorizeRoute(request,
                                                  *context.authenticator,
                                                  requirement,
                                                  context.logger);
-           if (!authorization){return std::move(*authorization.rejection);}
-           return handler(request, *authorization.identity);
+           if (!authorization)
+           {
+               return timer.finish(std::move(*authorization.rejection));
+           }
+           return timer.finish(handler(request, *authorization.identity));
        });
 }
 
@@ -120,12 +136,13 @@ void authorizedRoute(crow::SimpleApp &app,
 template<typename Handler>
 void authorizedRoute(crow::SimpleApp &app,
                      const std::string &url,
+                     const std::string &metricName,
                      const AQMSDutyReviewBackend::Auth::Requirement &requirement,
                      const RouteContext &context,
                      Handler handler)
 {
-    ::authorizedRoute(app, url, crow::HTTPMethod::GET, requirement, context,
-                      std::move(handler));
+    ::authorizedRoute(app, url, metricName, crow::HTTPMethod::GET, requirement,
+                      context, std::move(handler));
 }
 
 /// The requirement most read routes use.

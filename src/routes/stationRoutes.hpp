@@ -36,7 +36,7 @@ inline void registerStationRoutes(crow::SimpleApp &app,
     };
 
     ::authorizedRoute(
-        app, "/station-information", ::readOnlyRequirement, context,
+        app, "/station-information", "station-information", ::readOnlyRequirement, context,
         [&context](const crow::request &,
                    const AQMSDutyReviewBackend::Auth::JSONWebToken::Claims
                        &identity) -> crow::response
@@ -65,7 +65,7 @@ inline void registerStationRoutes(crow::SimpleApp &app,
         });
 
     ::authorizedRoute(
-        app, "/station-information-hash", ::readOnlyRequirement, context,
+        app, "/station-information-hash", "station-information-hash", ::readOnlyRequirement, context,
         [&context](const crow::request &,
                    const AQMSDutyReviewBackend::Auth::JSONWebToken::Claims
                        &identity) -> crow::response

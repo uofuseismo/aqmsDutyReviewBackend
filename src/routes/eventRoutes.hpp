@@ -9,6 +9,7 @@
 #include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
 #include "routeContext.hpp"
+#include "routeMetrics.hpp"
 
 namespace
 {
@@ -75,7 +76,7 @@ inline void registerEventRoutes(crow::SimpleApp &app,
     using Claims = AQMSDutyReviewBackend::Auth::JSONWebToken::Claims;
 
     ::authorizedRoute(
-        app, "/event-information/locks", ::readOnlyRequirement, context,
+        app, "/event-information/locks", "event-information-locks", ::readOnlyRequirement, context,
         [&context](const crow::request &,
                    const Claims &identity) -> crow::response
         {
@@ -102,7 +103,7 @@ inline void registerEventRoutes(crow::SimpleApp &app,
         });
 
     ::authorizedRoute(
-        app, "/event-information/catalog", ::readOnlyRequirement, context,
+        app, "/event-information/catalog", "event-information-catalog", ::readOnlyRequirement, context,
         [&context](const crow::request &,
                    const Claims &identity) -> crow::response
         {
@@ -128,7 +129,7 @@ inline void registerEventRoutes(crow::SimpleApp &app,
         });
 
     ::authorizedRoute(
-        app, "/event-information/catalog-hash", ::readOnlyRequirement,
+        app, "/event-information/catalog-hash", "event-information-catalog-hash", ::readOnlyRequirement,
         context,
         [&context](const crow::request &,
                    const Claims &identity) -> crow::response
@@ -169,10 +170,16 @@ inline void registerEventRoutes(crow::SimpleApp &app,
     ([&context](const crow::request &request,
                 const int64_t eventIdentifier) -> crow::response
     {
+        // One name for every event, not one per identifier.  The url carries
+        // an event id; using it would mint a metric per event.
+        ::RouteTimer timer{"event-information"};
         auto authorization = ::authorizeRoute(request, *context.authenticator,
                                               ::readOnlyRequirement,
                                               context.logger);
-        if (!authorization){return std::move(*authorization.rejection);}
+        if (!authorization)
+        {
+            return timer.finish(std::move(*authorization.rejection));
+        }
         SPDLOG_LOGGER_INFO(context.logger, "{} requesting event {}",
                            authorization.identity->user, eventIdentifier);
         const auto event = context.aqmsDatabase->getEvent(eventIdentifier);
@@ -182,9 +189,9 @@ inline void registerEventRoutes(crow::SimpleApp &app,
                                 "Could not fetch event {} for {}",
                                 eventIdentifier,
                                 authorization.identity->user);
-            return ::makeMessageResponse(
+            return timer.finish(::makeMessageResponse(
                 500,
-                "Could not reach the AQMS database - try again shortly");
+                "Could not reach the AQMS database - try again shortly"));
         }
         // An empty optional inside a good expected is "no such event",
         // which is an answer rather than a failure - hence 404 and not
@@ -192,13 +199,13 @@ inline void registerEventRoutes(crow::SimpleApp &app,
         // been merged into another one.
         if (!event->has_value())
         {
-            return ::makeMessageResponse(
-                404, "No event " + std::to_string(eventIdentifier));
+            return timer.finish(::makeMessageResponse(
+                404, "No event " + std::to_string(eventIdentifier)));
         }
-        return ::makeDataResponse(
+        return timer.finish(::makeDataResponse(
             200,
             "Found event " + std::to_string(eventIdentifier),
-            AQMSDutyReviewBackend::Database::AQMS::toJSON(**event));
+            AQMSDutyReviewBackend::Database::AQMS::toJSON(**event)));
     });
 
     CROW_ROUTE(app, "/waveforms-hash/<int>")

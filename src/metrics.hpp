@@ -418,6 +418,15 @@ void createMeters(const ProgramOptions &options)
              nullptr);
     unauthorizedCounter->AddCallback(
         ::observeUnauthorizedCounts, nullptr);
+
+    auto histogramMeter
+        = provider->GetMeter("route_duration_histogram", "1.2.0");
+    routePerformanceHistogram 
+        = histogramMeter->CreateDoubleHistogram(
+            "aqms.drp.route.duration",
+            "Time required for a route to succcessfully complete",
+            "{s}");
+
 }
 
 void recordRequestDuration(const std::chrono::nanoseconds &duration,

@@ -119,11 +119,13 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/database/aqms/localMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/magnitude.hpp
     include/${PROJECT_NAME}/database/aqms/origin.hpp
+    include/${PROJECT_NAME}/database/aqms/quarry.hpp
     include/${PROJECT_NAME}/database/aqms/queries/actions.hpp
     include/${PROJECT_NAME}/database/aqms/queries/alarmQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/eventLockQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/eventQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/magnitudeQueries.hpp
+    include/${PROJECT_NAME}/database/aqms/queries/quarryQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/stationQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/waveformQueries.hpp
     include/${PROJECT_NAME}/database/aqms/serialize.hpp
@@ -165,11 +167,13 @@ set(LIBRARY_SRC
     src/database/aqms/localMagnitude.cpp
     src/database/aqms/magnitude.cpp
     src/database/aqms/origin.cpp
+    src/database/aqms/quarry.cpp
     src/database/aqms/queries/actions.cpp
     src/database/aqms/queries/alarmQueries.cpp
     src/database/aqms/queries/eventLockQueries.cpp
     src/database/aqms/queries/eventQueries.cpp
     src/database/aqms/queries/magnitudeQueries.cpp
+    src/database/aqms/queries/quarryQueries.cpp
     src/database/aqms/queries/stationQueries.cpp
     src/database/aqms/queries/waveformQueries.cpp
     src/database/aqms/serialize.cpp
