@@ -1,6 +1,5 @@
 #include <chrono>
 #include <cstdlib>
-#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <memory>
@@ -29,14 +28,14 @@
 #include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
 //#include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
 //#include "aqmsDutyReviewBackend/database/aqms/station.hpp"
-#include "aqmsDutyReviewBackend/database/drp/serialize.hpp"
+//#include "aqmsDutyReviewBackend/database/drp/serialize.hpp"
 #include "aqmsDutyReviewBackend/database/drp/userStore.hpp"
 //#include "aqmsDutyReviewBackend/auth/password.hpp"
 //#include "aqmsDutyReviewBackend/hash.hpp"
 #include "aqmsDutyReviewBackend/metricsSingleton.hpp"
 #include "aqmsDutyReviewBackend/version.hpp"
 #include "authorizeRoute.hpp"
-#include "requestBody.hpp"
+//#include "requestBody.hpp"
 #include "routes/actionRoutes.hpp"
 #include "routes/adminRoutes.hpp"
 #include "routes/eventRoutes.hpp"
@@ -175,6 +174,19 @@ int main(int argc, char *argv[])
     std::shared_ptr<spdlog::logger> logger
         = AQMSDutyReviewBackend::Logger::initialize(programOptions);
     ::CustomLogger customLogger{logger};
+
+    // Initialize the metrics
+    try
+    {
+        AQMSDutyReviewBackend::Metrics::initialize(programOptions);
+    }
+    catch (const std::exception &e)
+    {
+        SPDLOG_LOGGER_CRITICAL(logger,
+                               "Failed to initialize metrics because {}",
+                               std::string {e.what()});
+        return EXIT_FAILURE;
+    }
 
     // Initialize the main AQMS database connection.  Persistent: this one
     // is talked to constantly, and dialling here means bad credentials or

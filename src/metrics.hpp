@@ -1,8 +1,9 @@
 #ifndef METRICS_HPP
 #define METRICS_HPP
-#include <utility>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 #include <opentelemetry/nostd/shared_ptr.h>
 #include <opentelemetry/metrics/meter_provider.h>
 #include <opentelemetry/exporters/otlp/otlp_http.h>
@@ -18,12 +19,62 @@
 #include <opentelemetry/sdk/metrics/meter_context_factory.h>
 #include <opentelemetry/sdk/metrics/meter_provider_factory.h>
 #include <opentelemetry/sdk/metrics/provider.h>
+#include <opentelemetry/sdk/metrics/view/instrument_selector_factory.h>
+#include <opentelemetry/sdk/metrics/view/meter_selector_factory.h>
+#include <opentelemetry/sdk/metrics/view/view_factory.h>
 #include "otelOptions.hpp"
 
 namespace
 {
 
 bool metricsInitialized{false};
+
+void initializeRouteHistogram(
+    opentelemetry::sdk::metrics::MeterProvider *providerInstance)
+{
+    // Histogram config
+    auto histogramInstrumentSelector
+        = opentelemetry::sdk::metrics::InstrumentSelectorFactory::Create(
+             opentelemetry::sdk::metrics::InstrumentType::kHistogram,
+             "route_duration_histogram",
+             "s");  
+    auto histogramMeterSelector
+        = opentelemetry::sdk::metrics::MeterSelectorFactory::Create(
+             "route_duration",
+             "1.2.0",
+             "https://opentelemetry.io/schemas/1.2.0");
+    auto histogramAggregationConfig
+        = std::make_shared<opentelemetry::sdk::metrics::HistogramAggregationConfig> (); 
+    histogramAggregationConfig->boundaries_
+        = std::vector<double> {
+                               0.00000,
+                               0.00001,
+                               0.00005,
+                               0.00010,
+                               0.00050,
+                               0.00100,
+                               0.00500,
+                               0.01000,
+                               0.05000,
+                               0.10000,
+                               0.50000,
+                               1.00000,
+                               10.0000,
+                               100.000,
+                               1000.00, // Hopefully user gives up now
+                               };
+    auto histogramView 
+        = opentelemetry::sdk::metrics::ViewFactory::Create(
+             "route_duration",
+             "Time required to for a route to succcessfully complete",
+             opentelemetry::sdk::metrics::AggregationType::kHistogram,
+             histogramAggregationConfig);
+
+    providerInstance->AddView(std::move(histogramInstrumentSelector),
+                      std::move(histogramMeterSelector),
+                      std::move(histogramView));
+
+}
 
 void initializeHTTP(
     const bool exportMetrics,
@@ -59,6 +110,8 @@ void initializeHTTP(
     auto metricsProvider
         = otel::sdk::metrics::MeterProviderFactory::Create(
              std::move(context));
+
+    ::initializeRouteHistogram(metricsProvider.get());
 
     const std::shared_ptr<otel::metrics::MeterProvider>
         provider(std::move(metricsProvider));
@@ -104,6 +157,8 @@ void initializeGRPC(
     auto metricsProvider
         = otel::sdk::metrics::MeterProviderFactory::Create(
              std::move(context));
+
+    ::initializeRouteHistogram(metricsProvider.get());
 
     const std::shared_ptr<otel::metrics::MeterProvider>
         provider(std::move(metricsProvider));
