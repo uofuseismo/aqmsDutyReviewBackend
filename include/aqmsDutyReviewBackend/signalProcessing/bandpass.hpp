@@ -13,7 +13,26 @@ namespace AQMSDutyReviewBackend::SignalProcessing
 /// @brief Bandpass filters the input signal using a pre-defined filter.
 /// @param[in] x  The signal to filter.
 /// @param[in] samplingRate  The sampling rate in Hz.  \c getValidSamplingRate().
+/// @param[in] steadyState  Start the filter from the state it would be in
+///                         had it been running on a constant equal to the
+///                         first sample, rather than from rest.
 /// @result The filtered signal.
-[[nodiscard]] std::vector<double> bandpassFilter(const std::vector<double> &x, int samplingRate);
+///
+/// @note Steady state by DEFAULT, and that is a change in what this
+///       returns.  Starting from rest asserts the ground was still for all
+///       time before the first sample; it was not, and the filter answers
+///       that implied step with a transient across the opening seconds -
+///       which is where the first arrival is, and which analysts found
+///       annoying enough to fix in the client first.
+///
+/// @note Pass false to reproduce a bare scipy.signal.sosfilt with no
+///       initial conditions.  That is what the reference impulse responses
+///       in testing/data/signalProcessing were generated with, so the
+///       tests that compare against them ask for it explicitly.
+///       steadyState = true reproduces
+///       sosfilt(sos, x, zi=sosfilt_zi(sos)*x[0]) instead.
+[[nodiscard]] std::vector<double> bandpassFilter(const std::vector<double> &x,
+                                                 int samplingRate,
+                                                 bool steadyState = true);
 }
 #endif
