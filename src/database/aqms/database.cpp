@@ -22,6 +22,7 @@
 #include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/waveform.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/eventLockQueries.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/queries/actions.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/eventQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/waveformQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/stationQueries.hpp"
@@ -296,6 +297,71 @@ auto Database::fetchWaveforms(
                             pImpl->mMainClient->getName(),
                             std::string {e.what()});
         return std::unexpected(QueryError::ConnectionFailed);
+    }
+}
+
+
+auto Database::accept(const int64_t eventIdentifier) const
+    -> std::expected<void, ActionError>
+{
+    try
+    {
+        if (!acceptEvent(*pImpl->mMainClient, eventIdentifier,
+                         pImpl->mLogger.get()))
+        {
+            // epref.accept_event answers 0 or -1 rather than throwing when
+            // the event is not there.
+            return std::unexpected(ActionError::DoesNotExist);
+        }
+        return {};
+    }
+    catch (const pqxx::insufficient_privilege &e)
+    {
+        // The database user is read-only.  Distinct from a route-level
+        // refusal: the caller may be perfectly entitled and the deployment
+        // simply misconfigured.
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "{} may not accept events on {} - {}",
+                            pImpl->mMainClient->getName(),
+                            pImpl->mMainClient->getName(),
+                            std::string {e.what()});
+        return std::unexpected(ActionError::InvalidPermissions);
+    }
+    catch (const std::exception &e)
+    {
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Could not accept event {} because {}",
+                            eventIdentifier, std::string {e.what()});
+        return std::unexpected(ActionError::ConnectionFailed);
+    }
+}
+
+auto Database::cancel(const int64_t eventIdentifier) const
+    -> std::expected<void, ActionError>
+{
+    try
+    {
+        if (!cancelEvent(*pImpl->mMainClient, pImpl->mAuxiliaryClients,
+                         eventIdentifier, pImpl->mLogger.get()))
+        {
+            return std::unexpected(ActionError::DoesNotExist);
+        }
+        return {};
+    }
+    catch (const pqxx::insufficient_privilege &e)
+    {
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "{} may not cancel events - {}",
+                            pImpl->mMainClient->getName(),
+                            std::string {e.what()});
+        return std::unexpected(ActionError::InvalidPermissions);
+    }
+    catch (const std::exception &e)
+    {
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Could not cancel event {} because {}",
+                            eventIdentifier, std::string {e.what()});
+        return std::unexpected(ActionError::ConnectionFailed);
     }
 }
 

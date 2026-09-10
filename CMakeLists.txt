@@ -119,6 +119,7 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/database/aqms/localMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/magnitude.hpp
     include/${PROJECT_NAME}/database/aqms/origin.hpp
+    include/${PROJECT_NAME}/database/aqms/queries/actions.hpp
     include/${PROJECT_NAME}/database/aqms/queries/alarmQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/eventLockQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/eventQueries.hpp
@@ -164,6 +165,7 @@ set(LIBRARY_SRC
     src/database/aqms/localMagnitude.cpp
     src/database/aqms/magnitude.cpp
     src/database/aqms/origin.cpp
+    src/database/aqms/queries/actions.cpp
     src/database/aqms/queries/alarmQueries.cpp
     src/database/aqms/queries/eventLockQueries.cpp
     src/database/aqms/queries/eventQueries.cpp

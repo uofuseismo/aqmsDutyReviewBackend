@@ -189,15 +189,31 @@ public:
     /// @brief Attempts to change the event's status in the database to 
     ///        indicate that the event is unwarranted and "cancel" 
     ///        actions should be taken.
-    /// @param[in] The event identifier.
-    /// @warning Declared but not yet implemented.
-    auto cancel(int64_t eventIdentifier) -> std::expected<void, ActionError>;
+    /// @note const because it changes AQMS, not this object - the same
+    ///       sense in which every query here is const.
+    /// @param[in] eventIdentifier  The event.
+    /// @result Nothing on success, or why it could not be done.
+    /// @note Cancelling has to happen on the machine that raised the
+    ///       alarm.  Which machine that is comes from the origins'
+    ///       subsources - every origin's, not just the preferred one -
+    ///       matched against the database aliases.  Falls back to the main
+    ///       database when no remote succeeded, which is the ordinary path
+    ///       for an event whose subsources are all post-processing.
+    /// @note DoesNotExist means every database refused it, not that the
+    ///       caller did anything wrong.
+    auto cancel(int64_t eventIdentifier) const
+        -> std::expected<void, ActionError>;
     /// @brief Attempts to change the event's status in the database to
     ///        indicate that the event is warranted and "accept"
     ///        actions should be taken.
-    /// @param[in] The event identifier.
-    /// @warning Declared but not yet implemented.
-    auto accept(int64_t eventIdentifier) -> std::expected<void, ActionError>;
+    /// @param[in] eventIdentifier  The event.
+    /// @result Nothing on success, or why it could not be done.
+    /// @note The main database only - accepting issues no alarm, so no
+    ///       other machine needs telling.
+    /// @note Accepting an already-accepted event succeeds and does not
+    ///       bump the version again.
+    auto accept(int64_t eventIdentifier) const
+        -> std::expected<void, ActionError>;
     /// @}
 
     /// @brief Destructor.
