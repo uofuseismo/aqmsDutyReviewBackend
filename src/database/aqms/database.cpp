@@ -4,6 +4,7 @@
 #include <expected>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -17,14 +18,14 @@
 #include "aqmsDutyReviewBackend/database/aqms/eventLock.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
-#include "aqmsDutyReviewBackend/database/aqms/waveform.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/quarry.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/station.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/waveform.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/eventLockQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/actions.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/eventQueries.hpp"
-#include "aqmsDutyReviewBackend/database/aqms/queries/waveformQueries.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/queries/quarryQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/stationQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/waveformQueries.hpp"
 #include "aqmsDutyReviewBackend/database/client.hpp"
@@ -135,6 +136,28 @@ auto Database::fetchStations() const
         return std::unexpected(QueryError::ConnectionFailed);
     }
 }
+
+/// Quarries
+auto Database::fetchQuarries() const
+    -> std::expected<std::vector<Quarry>, QueryError>
+{
+    try 
+    {   
+        return queryQuarries(*pImpl->mMainClient);
+    }   
+    catch (const std::exception &e) 
+    {   
+        // The query itself takes no arguments, so anything that goes wrong
+        // here is the database being unreachable or unwell rather than a
+        // caller asking for something impossible.
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Could not fetch quarries from {} because {}",
+                            pImpl->mMainClient->getName(),
+                            std::string {e.what()});
+        return std::unexpected(QueryError::ConnectionFailed);
+    }   
+}
+
 
 /// Catalog
 auto Database::getCatalogFreshness() const

@@ -39,7 +39,7 @@
 #include "routes/actionRoutes.hpp"
 #include "routes/adminRoutes.hpp"
 #include "routes/eventRoutes.hpp"
-//#include "routes/gazetteerRoutes.hpp"
+#include "routes/gazetteerRoutes.hpp"
 #include "routes/routeContext.hpp"
 #include "routes/stationRoutes.hpp"
 #include "routes/userRoutes.hpp"
@@ -369,7 +369,7 @@ int main(int argc, char *argv[])
 
     // Everything else is grouped by what it is about.  Adding a route
     // means editing one of these files, not this one.
-    //::registerGazetteerRoutes(app, routeContext);
+    ::registerGazetteerRoutes(app, routeContext);
     ::registerStationRoutes(app, routeContext);
     ::registerEventRoutes(app, routeContext);
     ::registerActionRoutes(app, routeContext);

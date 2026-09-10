@@ -19,6 +19,7 @@
 #include "aqmsDutyReviewBackend/database/aqms/stationLocalMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/magnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/quarry.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/station.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/subnetTrigger.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/waveform.hpp"
@@ -909,3 +910,32 @@ AQMSDutyReviewBackend::Database::AQMS::toJSON(
     }
     return result;
 }
+
+boost::json::value
+AQMSDutyReviewBackend::Database::AQMS::toJSON(
+    const std::vector<Quarry> &quarries)
+{
+    boost::json::array result;
+    result.reserve(quarries.size());
+    for (const auto &quarry : quarries)
+    {   
+        boost::json::object item;
+        if (quarry.hasName()){item["name"] = quarry.getName();}
+        if (quarry.hasLatitude()){item["latitude"] = quarry.getLatitude();}
+        if (quarry.hasLongitude())
+        {   
+            item["longitude"] = quarry.getLongitude();
+        }   
+        if (quarry.hasStartAndEndTime())
+        {   
+            const auto [onDate, offDate] = quarry.getStartAndEndTime();
+            // Seconds since the epoch, UTC, as they came out of the
+            // database - the frontend formats them.
+            item["onDate"] = onDate.count();
+            item["offDate"] = offDate.count();
+        }   
+        result.push_back(std::move(item));
+    }
+    return result;
+}
+

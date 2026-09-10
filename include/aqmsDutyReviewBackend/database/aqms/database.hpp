@@ -20,6 +20,7 @@ namespace AQMSDutyReviewBackend::Database::AQMS
  class Event;
  class EventLock;
  class EventSummary;
+ class Quarry;
  class StreamIdentifier;
  class Station;
  class StreamIdentifier;
@@ -92,6 +93,11 @@ public:
     ///       station_data is (net, sta, ondate) - so a station that moved
     ///       has several entries and all of them come back.
     [[nodiscard]] auto fetchStations() const -> std::expected<std::vector<Station>, QueryError>;
+
+    /// @brief Fetches every quarries epoch AQMS knows about.
+    /// @result The quarries, or why the query could not be answered.
+    /// @note One quarry appears once per epoch.
+    [[nodiscard]] auto fetchQuarries() const -> std::expected<std::vector<Quarry>, QueryError>;
 
     /// @brief Generates a catalog between now and now - duration.
     /// @note This will change after an action is performed as the event

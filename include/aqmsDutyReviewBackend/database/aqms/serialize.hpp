@@ -11,6 +11,7 @@ namespace AQMSDutyReviewBackend::Database::AQMS
  class Event;
  class EventLock;
  class EventSummary;
+ class Quarry;
  class Station;
  class SubnetTrigger;
  class Waveform;
@@ -221,5 +222,11 @@ struct WaveformEncoding
 ///       event happened, and plots it.
 /// @note An empty vector serializes to [] and not to null.
 [[nodiscard]] boost::json::value toJSON(const std::vector<Station> &stations);
+
+/// @brief Serializes the quarries.
+/// @result A JSON array of quarry objects.
+/// @note An empty vector serializes to [] and not to null.
+[[nodiscard]] boost::json::value toJSON(const std::vector<Quarry> &quarries);
+
 }
 #endif
