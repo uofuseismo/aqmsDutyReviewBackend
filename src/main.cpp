@@ -329,6 +329,11 @@ int main(int argc, char *argv[])
     crow::SimpleApp app;
     // The default route stays here: it is the only one that is neither
     // authorized nor part of a family.
+    //
+    // Deliberately NOT timed.  This is what a liveness probe hits, so
+    // counting it would bury every real route's traffic under kubelet
+    // polling - and the answer is an unconditional 200 whose duration
+    // measures nothing.
     CROW_ROUTE(app, "/")
     ([&]() -> crow::response
     {
@@ -339,6 +344,9 @@ int main(int argc, char *argv[])
     CROW_ROUTE(app, "/settings")
     ([&](const crow::request &request) -> crow::response
     {
+        return ::timedRoute("settings",
+                            [&]() -> crow::response
+        {
         // TODO must authorize user's jwt
         SPDLOG_LOGGER_DEBUG(customLogger.logger,
                             "Processing settings request");
@@ -358,6 +366,7 @@ int main(int argc, char *argv[])
             settings["primaryDatabase"] = "Unknown";
         }
         return ::makeDataResponse(200, "Settings", std::move(settings));
+        });
     });
 
     // Login is its own shape: it turns a password into a token, so it
@@ -365,7 +374,15 @@ int main(int argc, char *argv[])
     CROW_ROUTE(app, "/auth/login")
     ([&](const crow::request &request) -> crow::response
     {
-        return ::userLoginRoute(request, *authenticator, logger);
+        // Counted like every other route.  This is the one where a 401 is
+        // ordinary traffic rather than a misconfiguration - somebody
+        // mistyped a password - so watching its client errors separately
+        // from the authorized routes' is the point.
+        return ::timedRoute("auth-login",
+                            [&]() -> crow::response
+        {
+            return ::userLoginRoute(request, *authenticator, logger);
+        });
     });
 
     // Everything else is grouped by what it is about.  Adding a route

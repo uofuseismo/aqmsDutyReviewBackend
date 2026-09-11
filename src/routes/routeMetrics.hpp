@@ -6,6 +6,17 @@
 #include <crow/http_response.h>
 #include "aqmsDutyReviewBackend/metricsSingleton.hpp"
 
+namespace AQMSDutyReviewBackend::Metrics
+{
+/// @note Declared rather than included.  recordRequestDuration lives in
+///       metrics.hpp, which needs ProgramOptions and so cannot be included
+///       this early - the route headers are pulled in before
+///       programOptions.hpp.  Everything here is one translation unit, so
+///       the definition further down main.cpp satisfies this.
+void recordRequestDuration(const std::string &route,
+                           const std::chrono::nanoseconds &duration);
+}
+
 namespace
 {
 
@@ -38,9 +49,12 @@ inline void recordRouteOutcome(const std::string &route,
                                const int statusCode,
                                const std::chrono::nanoseconds &duration)
 {
+    // The duration goes to the OTel histogram, which is what anything
+    // downstream actually reads - percentiles and buckets, not a running
+    // total.  The singleton keeps the counters and nothing else.
+    AQMSDutyReviewBackend::Metrics::recordRequestDuration(route, duration);
     auto &metrics
         = AQMSDutyReviewBackend::Metrics::MetricsSingleton::getInstance();
-    metrics.addRouteDuration(route, duration);
     if (statusCode == 401)
     {
         metrics.incrementUnauthenticatedCounter();
@@ -100,10 +114,33 @@ private:
     std::string mRoute;
     std::chrono::steady_clock::time_point mStart
         {std::chrono::steady_clock::now()};
+
+
     /// 500 until a response says otherwise, so a route that throws its way
     /// out is counted as the failure it was rather than not at all.
     int mStatusCode{500};
 };
+
+/// @brief Times a handler and files whatever it returns.
+///
+/// For routes with more than one or two exits.  RouteTimer only learns the
+/// status code from finish(), so a return that forgets to call it is filed
+/// as the default 500 - and a handler with nine returns will eventually
+/// have one that forgets.  Wrapping the body puts finish() on the single
+/// path out.
+///
+/// @code
+///     return ::timedRoute("waveforms", [&]() -> crow::response
+///     {
+///         ... every return in here is counted ...
+///     });
+/// @endcode
+template<typename Handler>
+[[nodiscard]] crow::response timedRoute(std::string route, Handler handler)
+{
+    ::RouteTimer timer{std::move(route)};
+    return timer.finish(handler());
+}
 
 }
 #endif

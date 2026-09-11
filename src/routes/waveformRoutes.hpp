@@ -130,161 +130,165 @@ inline void registerWaveformRoutes(crow::SimpleApp &app,
     ([&context](const crow::request &request,
                 const int64_t eventIdentifier) -> crow::response
     {
-        auto authorization = ::authorizeRoute(request, *context.authenticator,
-                                              ::readOnlyRequirement,
-                                              context.logger);
-        if (!authorization){return std::move(*authorization.rejection);}
-        SPDLOG_LOGGER_INFO(context.logger, "{} getting waveforms for event {}",
-                           authorization.identity->user, eventIdentifier);
-        namespace AQMS = AQMSDutyReviewBackend::Database::AQMS;
+        return ::timedRoute("waveforms",
+                            [&]() -> crow::response
+        {
+            auto authorization = ::authorizeRoute(request, *context.authenticator,
+                                                  ::readOnlyRequirement,
+                                                  context.logger);
+            if (!authorization){return std::move(*authorization.rejection);}
+            SPDLOG_LOGGER_INFO(context.logger, "{} getting waveforms for event {}",
+                               authorization.identity->user, eventIdentifier);
+            namespace AQMS = AQMSDutyReviewBackend::Database::AQMS;
 
-        // How the samples come back.  Both off by default, so a caller
-        // that asks for nothing gets the plain form and nothing it did not
-        // ask for changes under it.  The reply says what was actually
-        // done - see the gain and deltaEncoded on every segment - because
-        // delta encoding is declined on fractional samples.
-        //
-        // Query parameters rather than a body: this is a GET, and these
-        // pick a representation of the same resource rather than changing
-        // it.
-        AQMS::WaveformEncoding encoding;
-        const auto readFlag
-            = [&request](const char *name, const bool fallback)
-              {
-                  const auto value = request.url_params.get(name);
-                  if (value == nullptr){return fallback;}
-                  const std::string text{value};
-                  // "true"/"1" on, "false"/"0" off; anything else is
-                  // treated as unset rather than guessed at.
-                  if (text == "true" || text == "1"){return true;}
-                  if (text == "false" || text == "0"){return false;}
-                  return fallback;
-              };
-        encoding.enableDeltaEncoding
-            = readFlag("enableDeltaEncoding", false);
-        encoding.enableQuantization
-            = readFlag("enableQuantization", false);
-        // Filtering defaults ON - a duty analyst wants the filtered trace
-        // almost always, and asking for it should not be a thing to
-        // remember.  filter=false gives the samples as miniSEED had them.
-        //
-        // Worth knowing that the two options interact: filtering turns
-        // integer counts into fractional doubles, and delta encoding is
-        // declined on fractional samples, so filter=true silently makes
-        // enableDeltaEncoding a no-op.  Unfiltered counts delta-encode
-        // properly.
-        const auto applyFilter = readFlag("filter", true);
+            // How the samples come back.  Both off by default, so a caller
+            // that asks for nothing gets the plain form and nothing it did not
+            // ask for changes under it.  The reply says what was actually
+            // done - see the gain and deltaEncoded on every segment - because
+            // delta encoding is declined on fractional samples.
+            //
+            // Query parameters rather than a body: this is a GET, and these
+            // pick a representation of the same resource rather than changing
+            // it.
+            AQMS::WaveformEncoding encoding;
+            const auto readFlag
+                = [&request](const char *name, const bool fallback)
+                  {
+                      const auto value = request.url_params.get(name);
+                      if (value == nullptr){return fallback;}
+                      const std::string text{value};
+                      // "true"/"1" on, "false"/"0" off; anything else is
+                      // treated as unset rather than guessed at.
+                      if (text == "true" || text == "1"){return true;}
+                      if (text == "false" || text == "0"){return false;}
+                      return fallback;
+                  };
+            encoding.enableDeltaEncoding
+                = readFlag("enableDeltaEncoding", false);
+            encoding.enableQuantization
+                = readFlag("enableQuantization", false);
+            // Filtering defaults ON - a duty analyst wants the filtered trace
+            // almost always, and asking for it should not be a thing to
+            // remember.  filter=false gives the samples as miniSEED had them.
+            //
+            // Worth knowing that the two options interact: filtering turns
+            // integer counts into fractional doubles, and delta encoding is
+            // declined on fractional samples, so filter=true silently makes
+            // enableDeltaEncoding a no-op.  Unfiltered counts delta-encode
+            // properly.
+            const auto applyFilter = readFlag("filter", true);
 
-        // Which channels to draw: the ones the preferred origin was
-        // actually located from.  Deliberately naive - it asks for a
-        // waveform per picked channel and nothing else, so an event
-        // located on eight stations costs eight streams rather than every
-        // channel that was running.
-        const auto event
-            = context.aqmsDatabase->getEvent(eventIdentifier);
-        if (!event)
-        {
-            SPDLOG_LOGGER_ERROR(context.logger,
-                                "Could not fetch event {} for {}",
-                                eventIdentifier,
-                                authorization.identity->user);
-            return ::makeMessageResponse(
-                500,
-                "Could not reach the AQMS database - try again shortly");
-        }
-        if (!event->has_value())
-        {
-            return ::makeMessageResponse(
-                404, "No event " + std::to_string(eventIdentifier));
-        }
-        if (!(*event)->hasOrigins())
-        {
-            return ::makeMessageResponse(
-                404, "Event " + std::to_string(eventIdentifier)
-                   + " has no origin to take waveforms around");
-        }
-        const auto streamIdentifiers
-            = ::streamsFromArrivals((*event)->preferredOrigin());
-        if (streamIdentifiers.empty())
-        {
-            // An origin with no arrivals is a real thing - picks not
-            // associated yet - and there is nothing to draw for it.
-            return ::makeMessageResponse(
-                404, "Event " + std::to_string(eventIdentifier)
-                   + " has no picked channels to draw");
-        }
-        SPDLOG_LOGGER_INFO(context.logger,
-                           "Fetching {} stream(s) for event {}",
-                           streamIdentifiers.size(), eventIdentifier);
-
-        const auto waveforms
-            = context.aqmsDatabase->fetchWaveforms(eventIdentifier,
-                                                   streamIdentifiers);
-        if (!waveforms)
-        {
-            // Two different faults, said differently: the database being
-            // unreachable is worth retrying, a query it refuses is not.
-            using QueryError
-                = AQMS::Database::QueryError;
-            if (waveforms.error() == QueryError::QueryFailed)
+            // Which channels to draw: the ones the preferred origin was
+            // actually located from.  Deliberately naive - it asks for a
+            // waveform per picked channel and nothing else, so an event
+            // located on eight stations costs eight streams rather than every
+            // channel that was running.
+            const auto event
+                = context.aqmsDatabase->getEvent(eventIdentifier);
+            if (!event)
             {
                 SPDLOG_LOGGER_ERROR(context.logger,
-                                    "AQMS refused the waveform query for "
-                                    "event {}", eventIdentifier);
+                                    "Could not fetch event {} for {}",
+                                    eventIdentifier,
+                                    authorization.identity->user);
                 return ::makeMessageResponse(
-                    500, "The AQMS waveform query failed - this is a "
-                         "backend fault, not a missing waveform");
+                    500,
+                    "Could not reach the AQMS database - try again shortly");
             }
-            SPDLOG_LOGGER_ERROR(context.logger,
-                                "Could not fetch waveforms for event {}",
-                                eventIdentifier);
-            return ::makeMessageResponse(
-                500, "Could not reach the AQMS database - try again shortly");
-        }
-        if (waveforms->empty())
-        {
-            // AQMS was reached and had nothing for the stream.  The reason
-            // is in the log - fetchWaveforms records why each stream was
-            // skipped, which is what distinguishes "the query returned no
-            // rows" from "the miniSEED would not parse".
-            return ::makeMessageResponse(
-                404, "No waveform data for that event and stream");
-        }
-        std::size_t nSegments{0};
-        for (const auto &waveform : *waveforms)
-        {
-            nSegments = nSegments + waveform.size();
-        }
-        SPDLOG_LOGGER_INFO(context.logger,
-                           "Returning {} waveform(s) and {} segment(s) for "
-                           "{} (filter={}, delta={}, quantized={})",
-                           waveforms->size(), nSegments,
-                           authorization.identity->user,
-                           applyFilter,
-                           encoding.enableDeltaEncoding,
-                           encoding.enableQuantization);
-        // Demeaned then bandpass filtered, per segment.  A segment that
-        // cannot be filtered goes out as it arrived rather than failing
-        // the request - see filterWaveform.
-        std::vector<AQMS::Waveform> filtered;
-        if (applyFilter)
-        {
-            filtered.reserve(waveforms->size());
+            if (!event->has_value())
+            {
+                return ::makeMessageResponse(
+                    404, "No event " + std::to_string(eventIdentifier));
+            }
+            if (!(*event)->hasOrigins())
+            {
+                return ::makeMessageResponse(
+                    404, "Event " + std::to_string(eventIdentifier)
+                       + " has no origin to take waveforms around");
+            }
+            const auto streamIdentifiers
+                = ::streamsFromArrivals((*event)->preferredOrigin());
+            if (streamIdentifiers.empty())
+            {
+                // An origin with no arrivals is a real thing - picks not
+                // associated yet - and there is nothing to draw for it.
+                return ::makeMessageResponse(
+                    404, "Event " + std::to_string(eventIdentifier)
+                       + " has no picked channels to draw");
+            }
+            SPDLOG_LOGGER_INFO(context.logger,
+                               "Fetching {} stream(s) for event {}",
+                               streamIdentifiers.size(), eventIdentifier);
+
+            const auto waveforms
+                = context.aqmsDatabase->fetchWaveforms(eventIdentifier,
+                                                       streamIdentifiers);
+            if (!waveforms)
+            {
+                // Two different faults, said differently: the database being
+                // unreachable is worth retrying, a query it refuses is not.
+                using QueryError
+                    = AQMS::Database::QueryError;
+                if (waveforms.error() == QueryError::QueryFailed)
+                {
+                    SPDLOG_LOGGER_ERROR(context.logger,
+                                        "AQMS refused the waveform query for "
+                                        "event {}", eventIdentifier);
+                    return ::makeMessageResponse(
+                        500, "The AQMS waveform query failed - this is a "
+                             "backend fault, not a missing waveform");
+                }
+                SPDLOG_LOGGER_ERROR(context.logger,
+                                    "Could not fetch waveforms for event {}",
+                                    eventIdentifier);
+                return ::makeMessageResponse(
+                    500, "Could not reach the AQMS database - try again shortly");
+            }
+            if (waveforms->empty())
+            {
+                // AQMS was reached and had nothing for the stream.  The reason
+                // is in the log - fetchWaveforms records why each stream was
+                // skipped, which is what distinguishes "the query returned no
+                // rows" from "the miniSEED would not parse".
+                return ::makeMessageResponse(
+                    404, "No waveform data for that event and stream");
+            }
+            std::size_t nSegments{0};
             for (const auto &waveform : *waveforms)
             {
-                filtered.push_back(::filterWaveform(waveform,
-                                                    context.logger.get()));
+                nSegments = nSegments + waveform.size();
             }
-        }
-        else
-        {
-            filtered = *waveforms;
-        }
-        return ::makeDataResponse(
-            200,
-            "Found " + std::to_string(filtered.size()) + " waveform(s) in "
-                     + std::to_string(nSegments) + " segment(s)",
-            AQMS::toJSON(filtered, encoding));
+            SPDLOG_LOGGER_INFO(context.logger,
+                               "Returning {} waveform(s) and {} segment(s) for "
+                               "{} (filter={}, delta={}, quantized={})",
+                               waveforms->size(), nSegments,
+                               authorization.identity->user,
+                               applyFilter,
+                               encoding.enableDeltaEncoding,
+                               encoding.enableQuantization);
+            // Demeaned then bandpass filtered, per segment.  A segment that
+            // cannot be filtered goes out as it arrived rather than failing
+            // the request - see filterWaveform.
+            std::vector<AQMS::Waveform> filtered;
+            if (applyFilter)
+            {
+                filtered.reserve(waveforms->size());
+                for (const auto &waveform : *waveforms)
+                {
+                    filtered.push_back(::filterWaveform(waveform,
+                                                        context.logger.get()));
+                }
+            }
+            else
+            {
+                filtered = *waveforms;
+            }
+            return ::makeDataResponse(
+                200,
+                "Found " + std::to_string(filtered.size()) + " waveform(s) in "
+                         + std::to_string(nSegments) + " segment(s)",
+                AQMS::toJSON(filtered, encoding));
+        });
     }); 
 }
 }

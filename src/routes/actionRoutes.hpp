@@ -91,14 +91,18 @@ inline void registerActionRoutes(crow::SimpleApp &app,
     ([&context](const crow::request &request,
                 const int64_t eventIdentifier) -> crow::response
     {
-        auto authorization = ::authorizeRoute(request, *context.authenticator,
-                                              ::readWriteRequirement,
-                                              context.logger);
-        if (!authorization){return std::move(*authorization.rejection);}
-        SPDLOG_LOGGER_INFO(context.logger, "{} accepting event {}",
-                           authorization.identity->user, eventIdentifier);
-        return ::actionResponse(context.aqmsDatabase->accept(eventIdentifier),
-                                "accepted", eventIdentifier, context.logger);
+        return ::timedRoute("action-accept",
+                            [&]() -> crow::response
+        {
+            auto authorization = ::authorizeRoute(request, *context.authenticator,
+                                                  ::readWriteRequirement,
+                                                  context.logger);
+            if (!authorization){return std::move(*authorization.rejection);}
+            SPDLOG_LOGGER_INFO(context.logger, "{} accepting event {}",
+                               authorization.identity->user, eventIdentifier);
+            return ::actionResponse(context.aqmsDatabase->accept(eventIdentifier),
+                                    "accepted", eventIdentifier, context.logger);
+        });
     });
 
     CROW_ROUTE(app, "/actions/cancel/<int>")
@@ -106,14 +110,18 @@ inline void registerActionRoutes(crow::SimpleApp &app,
     ([&context](const crow::request &request,
                 const int64_t eventIdentifier) -> crow::response
     {
-        auto authorization = ::authorizeRoute(request, *context.authenticator,
-                                              ::readWriteRequirement,
-                                              context.logger);
-        if (!authorization){return std::move(*authorization.rejection);}
-        SPDLOG_LOGGER_INFO(context.logger, "{} cancelling event {}",
-                           authorization.identity->user, eventIdentifier);
-        return ::actionResponse(context.aqmsDatabase->cancel(eventIdentifier),
-                                "cancelled", eventIdentifier, context.logger);
+        return ::timedRoute("action-cancel",
+                            [&]() -> crow::response
+        {
+            auto authorization = ::authorizeRoute(request, *context.authenticator,
+                                                  ::readWriteRequirement,
+                                                  context.logger);
+            if (!authorization){return std::move(*authorization.rejection);}
+            SPDLOG_LOGGER_INFO(context.logger, "{} cancelling event {}",
+                               authorization.identity->user, eventIdentifier);
+            return ::actionResponse(context.aqmsDatabase->cancel(eventIdentifier),
+                                    "cancelled", eventIdentifier, context.logger);
+        });
     });
 }
 

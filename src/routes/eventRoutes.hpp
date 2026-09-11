@@ -211,14 +211,18 @@ inline void registerEventRoutes(crow::SimpleApp &app,
     ([&context](const crow::request &request,
                 const int64_t eventIdentifier) -> crow::response
     {
-        auto authorization = ::authorizeRoute(request, *context.authenticator,
-                                              ::readOnlyRequirement,
-                                              context.logger);
-        if (!authorization){return std::move(*authorization.rejection);}
-        SPDLOG_LOGGER_DEBUG(context.logger,
-                            "{} requesting waveforms hash for {}...",
-                            authorization.identity->user, eventIdentifier);
-        return crow::response(200);
+        return ::timedRoute("waveforms-hash",
+                            [&]() -> crow::response
+        {
+            auto authorization = ::authorizeRoute(request, *context.authenticator,
+                                                  ::readOnlyRequirement,
+                                                  context.logger);
+            if (!authorization){return std::move(*authorization.rejection);}
+            SPDLOG_LOGGER_DEBUG(context.logger,
+                                "{} requesting waveforms hash for {}...",
+                                authorization.identity->user, eventIdentifier);
+            return crow::response(200);
+        });
     });
 }
 

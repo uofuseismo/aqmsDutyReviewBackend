@@ -429,9 +429,10 @@ void createMeters(const ProgramOptions &options)
 
 }
 
-void recordRequestDuration(const std::chrono::nanoseconds &duration,
-                           const std::string &route)
+void recordRequestDuration(const std::string &route,
+                           const std::chrono::nanoseconds &duration)
 {
+    if (!metricsInitialized){return;}
     auto durationSeconds = static_cast<double> (duration.count())*1.e-9;
     // TODO do i need a context auto otelContext = opentelemetry::context::Context {};
     std::map<std::string, std::string> histogramKey{ {"route", route} };
