@@ -114,6 +114,37 @@ public:
     /// @result True indicates the origin time was set.
     [[nodiscard]] bool hasTime() const noexcept;
  
+    /// @brief Sets the maximum azimuthal gap in degrees.
+    /// @param[in] gap   A gap is the difference in (source-to-receiver)
+    ///                  back-azimuths between successive stations used
+    ///                  during location.  This gap is the maximum of those
+    ///                  observations.
+    /// @throws std::invalid_argument if this is not in the range [0,360].
+    /// @note Closed at both ends: an origin located by a single station
+    ///       has no second azimuth to close the gap with, so its gap is
+    ///       the whole circle.
+    void setMaximumAzimuthalGap(double gap);
+    /// @result The maximum azimuthal gap in degrees, if it was set.
+    [[nodiscard]] std::optional<double> getMaximumAzimuthalGap() const noexcept;
+
+    /// @brief Sets the weighted RMS error.
+    /// @param[in] wrmse   The weighted RMS error in seconds.
+    /// @throws std::invalid_argument if the RMSe is negative.
+    void setWeightedRootMeanSquaredError(double wrmse);
+    /// @result The weighted RMS error in seconds, if it was set.
+    [[nodiscard]] std::optional<double>
+        getWeightedRootMeanSquaredError() const noexcept;
+
+    /// @brief Sets the number of phases used in location and that were not
+    ///        discounted by the locator.
+    /// @param[in] nDefiningPhases   The number of defining phases.
+    /// @throws std::invalid_argument if this is not positive.
+    void setNumberOfDefiningPhases(int nDefiningPhases);
+    /// @result The number of phases actually used by the locator, if it
+    ///         was set.
+    [[nodiscard]] std::optional<int>
+        getNumberOfDefiningPhases() const noexcept;
+
     /// @brief Sets the arrivals.
     void setArrivals(const std::vector<Arrival> &arrivals);
     /// @brief Sets the arrivals.

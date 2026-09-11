@@ -19,6 +19,7 @@
 #include "aqmsDutyReviewBackend/database/aqms/stationLocalMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/magnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/queries/alarmQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/quarry.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/station.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/subnetTrigger.hpp"
@@ -579,6 +580,20 @@ void writeSamples(boost::json::object &item,
     {
         item["originTime"] = origin.getTime().count();
     }
+    // The same keys the catalog uses for the same three quantities, so a
+    // client reads them one way whichever endpoint it came from.
+    if (const auto gap = origin.getMaximumAzimuthalGap(); gap)
+    {
+        item["maximumAzimuthalGap"] = *gap;
+    }
+    if (const auto rms = origin.getWeightedRootMeanSquaredError(); rms)
+    {
+        item["weightedRootMeanSquaredError"] = *rms;
+    }
+    if (const auto n = origin.getNumberOfDefiningPhases(); n)
+    {
+        item["numberOfDefiningPhases"] = *n;
+    }
     if (origin.hasGeographicType())
     {
         item["geographicType"] = ::toString(origin.getGeographicType());
@@ -906,6 +921,41 @@ AQMSDutyReviewBackend::Database::AQMS::toJSON(
         // looked.  The frontend lifts the network and station off this,
         // asks where that station was when the event happened, and plots
         // it - none of which the load date bears on.
+        result.push_back(std::move(item));
+    }
+    return result;
+}
+
+/// Every field goes out unexamined, including the action and state names.
+/// AQMS runs alarms as a state machine and those strings are its
+/// vocabulary; mapping them onto an enum of the states we happen to have
+/// seen would turn a new state from AQMS into a parse failure here rather
+/// than a word the frontend shows.
+///
+/// The database name is not a column - ALARM_ACTION records what ran and
+/// when, never where - so it is attached by the reader and is the only
+/// thing distinguishing two machines' rows once they are concatenated.
+boost::json::value
+AQMSDutyReviewBackend::Database::AQMS::toJSON(
+    const std::vector<AlarmAction> &alarms)
+{
+    boost::json::array result;
+    result.reserve(alarms.size());
+    for (const auto &alarm : alarms)
+    {
+        boost::json::object item;
+        item["database"] = alarm.database;
+        item["eventIdentifier"] = alarm.eventIdentifier;
+        item["action"] = alarm.action;
+        item["state"] = alarm.state;
+        item["modificationCount"] = alarm.modificationCount;
+        // Absent rather than null when AQMS left mod_time empty - the
+        // same convention every other serializer here uses for a column
+        // the database had nothing to say about.
+        if (alarm.modificationTime)
+        {
+            item["modificationTime"] = alarm.modificationTime->count();
+        }
         result.push_back(std::move(item));
     }
     return result;

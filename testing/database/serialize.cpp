@@ -25,6 +25,7 @@
 #include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/magnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/queries/alarmQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/quarry.hpp"
 #include "aqmsDutyReviewBackend/hash.hpp"
 
@@ -1248,5 +1249,228 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS", "[serialize][quarries]")
         REQUIRE(json.as_array().at(0).as_object().at("latitude").as_double()
                 != json.as_array().at(1).as_object().at("latitude")
                                                     .as_double());
+    }
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Origin",
+          "[origin][solutionQuality]")
+{
+    SECTION("Defaults - absent, not zero")
+    {
+        const Origin origin;
+        REQUIRE_FALSE(origin.getMaximumAzimuthalGap().has_value());
+        REQUIRE_FALSE(origin.getWeightedRootMeanSquaredError().has_value());
+        REQUIRE_FALSE(origin.getNumberOfDefiningPhases().has_value());
+    }
+    SECTION("Set and get")
+    {
+        Origin origin;
+        origin.setMaximumAzimuthalGap(142.5);
+        origin.setWeightedRootMeanSquaredError(0.18);
+        origin.setNumberOfDefiningPhases(23);
+        REQUIRE(*origin.getMaximumAzimuthalGap() == Catch::Approx(142.5));
+        REQUIRE(*origin.getWeightedRootMeanSquaredError()
+                == Catch::Approx(0.18));
+        REQUIRE(*origin.getNumberOfDefiningPhases() == 23);
+    }
+    SECTION("A single-station origin has the whole circle for a gap")
+    {
+        // 360 is legitimate and not an off-by-one: one station has no
+        // second azimuth to close the gap with.
+        Origin origin;
+        REQUIRE_NOTHROW(origin.setMaximumAzimuthalGap(360.0));
+        REQUIRE(*origin.getMaximumAzimuthalGap() == Catch::Approx(360.0));
+        REQUIRE_NOTHROW(origin.setMaximumAzimuthalGap(0.0));
+        REQUIRE_THROWS_AS(origin.setMaximumAzimuthalGap(-0.0001),
+                          std::invalid_argument);
+        REQUIRE_THROWS_AS(origin.setMaximumAzimuthalGap(360.0001),
+                          std::invalid_argument);
+    }
+    SECTION("Bounds on the other two")
+    {
+        Origin origin;
+        REQUIRE_THROWS_AS(origin.setWeightedRootMeanSquaredError(-0.1),
+                          std::invalid_argument);
+        REQUIRE_NOTHROW(origin.setWeightedRootMeanSquaredError(0.0));
+        REQUIRE_THROWS_AS(origin.setNumberOfDefiningPhases(0),
+                          std::invalid_argument);
+        REQUIRE_THROWS_AS(origin.setNumberOfDefiningPhases(-1),
+                          std::invalid_argument);
+    }
+    SECTION("They survive a copy")
+    {
+        // OriginImpl's copy assignment names every member by hand, so a
+        // field added without being added there is silently dropped by
+        // every copy - which is exactly how an origin would reach the
+        // serializer with its gap missing.
+        Origin origin;
+        origin.setIdentifier(12345);
+        origin.setMaximumAzimuthalGap(142.5);
+        origin.setWeightedRootMeanSquaredError(0.18);
+        origin.setNumberOfDefiningPhases(23);
+
+        const auto copy = origin;
+        REQUIRE(*copy.getMaximumAzimuthalGap() == Catch::Approx(142.5));
+        REQUIRE(*copy.getWeightedRootMeanSquaredError()
+                == Catch::Approx(0.18));
+        REQUIRE(*copy.getNumberOfDefiningPhases() == 23);
+
+        Origin assigned;
+        assigned = origin;
+        REQUIRE(*assigned.getMaximumAzimuthalGap() == Catch::Approx(142.5));
+        REQUIRE(*assigned.getWeightedRootMeanSquaredError()
+                == Catch::Approx(0.18));
+        REQUIRE(*assigned.getNumberOfDefiningPhases() == 23);
+    }
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS",
+          "[serialize][originSolutionQuality]")
+{
+    SECTION("An origin carries its solution quality to the frontend")
+    {
+        Event event;
+        event.setIdentifier(80001234);
+        Origin origin;
+        origin.setIdentifier(55501);
+        origin.setLatitude(40.5);
+        origin.setLongitude(-111.9);
+        origin.setTime(std::chrono::nanoseconds {1700000000000000000});
+        origin.setMaximumAzimuthalGap(142.5);
+        origin.setWeightedRootMeanSquaredError(0.18);
+        origin.setNumberOfDefiningPhases(23);
+        origin.setIsPreferred();
+        event.setOrigins(std::vector<Origin> {origin});
+
+        const auto json = toJSON(event);
+        const auto originJSON
+            = json.at("origins").as_array().at(0).as_object();
+        // The same key names the catalog uses, so a client reads them one
+        // way whichever endpoint they came from.
+        REQUIRE(originJSON.at("maximumAzimuthalGap").as_double()
+                == Catch::Approx(142.5));
+        REQUIRE(originJSON.at("weightedRootMeanSquaredError").as_double()
+                == Catch::Approx(0.18));
+        REQUIRE(originJSON.at("numberOfDefiningPhases").as_int64() == 23);
+    }
+    SECTION("An origin AQMS said nothing about has no such keys")
+    {
+        // All three columns are nullable.  A zero gap would read as a
+        // perfectly surrounded event and a zero rms as a perfect fit.
+        Event event;
+        event.setIdentifier(80001234);
+        Origin origin;
+        origin.setIdentifier(55501);
+        origin.setLatitude(40.5);
+        origin.setLongitude(-111.9);
+        origin.setTime(std::chrono::nanoseconds {1700000000000000000});
+        origin.setIsPreferred();
+        event.setOrigins(std::vector<Origin> {origin});
+
+        const auto json = toJSON(event);
+        const auto originJSON
+            = json.at("origins").as_array().at(0).as_object();
+        REQUIRE_FALSE(originJSON.contains("maximumAzimuthalGap"));
+        REQUIRE_FALSE(originJSON.contains("weightedRootMeanSquaredError"));
+        REQUIRE_FALSE(originJSON.contains("numberOfDefiningPhases"));
+    }
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS", "[serialize][alarms]")
+{
+    const auto makeAlarm
+        = [](const std::string &database,
+             const std::string &action,
+             const std::string &state,
+             const int modificationCount) -> AlarmAction
+    {
+        AlarmAction alarm;
+        alarm.database = database;
+        alarm.eventIdentifier = 80001234;
+        alarm.action = action;
+        alarm.state = state;
+        alarm.modificationCount = modificationCount;
+        alarm.modificationTime = std::chrono::seconds {1678127941};
+        return alarm;
+    };
+
+    SECTION("An empty list serializes to an array, not null")
+    {
+        const std::vector<AlarmAction> alarms;
+        const auto json = toJSON(alarms);
+        REQUIRE(json.is_array());
+        REQUIRE(json.as_array().empty());
+    }
+    SECTION("Every field reaches the frontend under the agreed name")
+    {
+        const std::vector<AlarmAction> alarms
+            {makeAlarm("PPT", "AlarmDist", "completed", 2)};
+        const auto json = toJSON(alarms);
+        REQUIRE(json.as_array().size() == 1);
+        const auto alarm = json.as_array().at(0).as_object();
+        REQUIRE(alarm.at("database").as_string() == "PPT");
+        REQUIRE(alarm.at("eventIdentifier").as_int64() == 80001234);
+        REQUIRE(alarm.at("action").as_string() == "AlarmDist");
+        REQUIRE(alarm.at("state").as_string() == "completed");
+        REQUIRE(alarm.at("modificationCount").as_int64() == 2);
+        REQUIRE(alarm.at("modificationTime").as_int64() == 1678127941);
+    }
+    SECTION("A row with no modification time simply has no key")
+    {
+        // mod_time is nullable and is not part of the primary key, so it
+        // really can be absent.  Absent, not null and not zero - zero is
+        // 1970 and would sort to the top of a history.
+        auto alarm = makeAlarm("PPT", "AlarmDist", "processing", 1);
+        alarm.modificationTime.reset();
+        const std::vector<AlarmAction> alarms{alarm};
+        const auto json = toJSON(alarms);
+        const auto item = json.as_array().at(0).as_object();
+        REQUIRE_FALSE(item.contains("modificationTime"));
+        // The rest of the row still arrives.
+        REQUIRE(item.at("action").as_string() == "AlarmDist");
+        REQUIRE(item.at("modificationCount").as_int64() == 1);
+    }
+    SECTION("One alarm's states are several rows, and all of them survive")
+    {
+        // The primary key is (event_id, alarm_action, action_state,
+        // modcount), so an alarm that went from processing to completed is
+        // two rows.  Neither is a duplicate of the other and the
+        // serializer must not collapse them.
+        const std::vector<AlarmAction> alarms
+            {makeAlarm("PPT", "AlarmDist", "processing", 1),
+             makeAlarm("PPT", "AlarmDist", "completed",  2)};
+        const auto json = toJSON(alarms);
+        REQUIRE(json.as_array().size() == 2);
+        REQUIRE(json.as_array().at(0).as_object().at("state").as_string()
+                == "processing");
+        REQUIRE(json.as_array().at(1).as_object().at("state").as_string()
+                == "completed");
+    }
+    SECTION("Rows from different databases stay distinguishable")
+    {
+        // The whole reason the gather tags rows: alarm_action records what
+        // ran and when, never where, so once two machines' rows are
+        // concatenated this field is the only thing telling them apart.
+        const std::vector<AlarmAction> alarms
+            {makeAlarm("PPT", "AlarmDist", "completed", 1),
+             makeAlarm("RTT", "AlarmDist", "completed", 1)};
+        const auto json = toJSON(alarms);
+        REQUIRE(json.as_array().size() == 2);
+        REQUIRE(json.as_array().at(0).as_object().at("database").as_string()
+                == "PPT");
+        REQUIRE(json.as_array().at(1).as_object().at("database").as_string()
+                == "RTT");
+    }
+    SECTION("Action and state names are passed through unexamined")
+    {
+        // AQMS's vocabulary, not ours.  A state this backend has never
+        // seen must reach the frontend as the word it is rather than
+        // failing to parse.
+        const std::vector<AlarmAction> alarms
+            {makeAlarm("PPT", "SomeFutureAction", "a-state-we-invented", 7)};
+        const auto json = toJSON(alarms);
+        const auto alarm = json.as_array().at(0).as_object();
+        REQUIRE(alarm.at("action").as_string() == "SomeFutureAction");
+        REQUIRE(alarm.at("state").as_string() == "a-state-we-invented");
     }
 }

@@ -76,30 +76,41 @@ struct AlarmAction
 [[nodiscard]] bool hasAlarmActions(const Client &client,
                                    std::int64_t eventIdentifier);
 
+/// @brief What a gather across several databases produced.
+struct AlarmActionGather
+{
+    /// The rows from every database that answered, in client order.
+    std::vector<AlarmAction> actions;
+    /// How many databases were asked.
+    int databasesAsked{0};
+    /// How many of them answered.  Fewer than \c databasesAsked means one
+    /// was skipped; ZERO means none could be reached, which is the case a
+    /// caller must not confuse with an event that simply has no alarms.
+    int databasesAnswered{0};
+};
+
 /// @brief Every alarm action for an event, gathered from every database.
 /// @param[in] clients          The databases to ask, in the order to ask
 ///                             them.
 /// @param[in] eventIdentifier  The event.
 /// @param[in] logger           Where a skipped database is recorded.
 ///                             Borrowed, not owned, and must not be null.
-/// @result The rows from every database that answered, concatenated in
-///         client order and each tagged with the database it came from.
+/// @result The rows each database had, concatenated in client order and
+///         each tagged with the database it came from, along with how many
+///         databases were asked and how many answered.
 /// @note A database that cannot be reached is skipped, not fatal.  The
 ///       alternative - failing the whole gather - would throw away the
 ///       history that did come back, and an ancillary machine being down
 ///       is far more likely than that machine holding the one alarm
-///       somebody needed at that moment.  The frontend simply shows no
-///       alarms from that computer.
-/// @warning The skip is only recorded in the log, so a missing machine is
-///          indistinguishable from a machine with nothing to say when
-///          looking at the result alone.  That is the deliberate trade;
-///          if the frontend ever needs to draw the difference, this has to
-///          report which databases were skipped.
+///       somebody needed at that moment.
+/// @warning An empty \c actions is not by itself an answer.  Check
+///          \c databasesAnswered: zero means nothing was reachable and
+///          nothing is known about this event's alarms.
 /// @note The databases are asked one after another, so an unreachable one
 ///       costs its connection timeout before the next is tried.  Keep that
 ///       timeout short on ancillary credentials - several down machines
 ///       otherwise add up to a visible stall.
-[[nodiscard]] std::vector<AlarmAction> queryAlarmActions(
+[[nodiscard]] AlarmActionGather queryAlarmActions(
     std::span<const std::shared_ptr<Client>> clients,
     std::int64_t eventIdentifier,
     spdlog::logger *logger);

@@ -27,6 +27,7 @@
 #include "aqmsDutyReviewBackend/database/aqms/queries/eventQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/quarryQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/stationQueries.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/queries/alarmQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/waveformQueries.hpp"
 #include "aqmsDutyReviewBackend/database/client.hpp"
 
@@ -158,6 +159,64 @@ auto Database::fetchQuarries() const
     }   
 }
 
+
+/// Alarms
+auto Database::getAlarms(const int64_t eventIdentifier) const
+    -> std::expected<std::vector<AlarmAction>, QueryError>
+{
+    // Main first, then the ancillary machines in configuration order.  An
+    // event picks up alarms on whichever machine was running them at the
+    // time, and the alarm tables are not replicated, so the whole history
+    // only exists as the concatenation of what each one holds.
+    std::vector<std::shared_ptr<DB::Client>> clients;
+    clients.reserve(1 + pImpl->mAuxiliaryClients.size());
+    clients.push_back(pImpl->mMainClient);
+    clients.insert(clients.end(),
+                   pImpl->mAuxiliaryClients.begin(),
+                   pImpl->mAuxiliaryClients.end());
+    try
+    {
+        auto gather = queryAlarmActions(clients, eventIdentifier,
+                                        pImpl->mLogger.get());
+        // Nobody answered, so nothing is known.  Reporting the empty
+        // gather would tell the caller this event has no alarms, which is
+        // a claim no database was available to support.  One machine being
+        // down is still a skip - it is only when none answered that there
+        // is no answer to give.
+        if (gather.databasesAsked > 0 && gather.databasesAnswered == 0)
+        {
+            SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                                "No AQMS database could be reached for the "
+                                "alarms of event {} - asked {}",
+                                eventIdentifier, gather.databasesAsked);
+            return std::unexpected(QueryError::ConnectionFailed);
+        }
+        if (gather.databasesAnswered < gather.databasesAsked)
+        {
+            // Partial, and deliberately still a success: the history that
+            // did come back is worth more than the certainty that it is
+            // complete.  Which machine was skipped is in the warning the
+            // gather already logged.
+            SPDLOG_LOGGER_WARN(pImpl->mLogger,
+                               "Gathered alarms for event {} from {} of {} "
+                               "databases",
+                               eventIdentifier,
+                               gather.databasesAnswered,
+                               gather.databasesAsked);
+        }
+        return std::move(gather.actions);
+    }
+    catch (const std::exception &e)
+    {
+        // The gather skips a database it cannot reach, so reaching this
+        // means something other than a machine being down.
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Could not gather alarms for event {} because {}",
+                            eventIdentifier,
+                            std::string {e.what()});
+        return std::unexpected(QueryError::QueryFailed);
+    }
+}
 
 /// Catalog
 auto Database::getCatalogFreshness() const

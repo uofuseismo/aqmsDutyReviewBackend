@@ -122,13 +122,20 @@ public:
     [[nodiscard]] auto getCatalog(const std::chrono::seconds &duration = std::chrono::weeks {1}) const -> std::expected<std::vector<EventSummary>, QueryError>;
 
     /// @brief Fetches the alarms for an event from every database.
+    /// @param[in] eventIdentifier  The event.
+    /// @result Every alarm action found, main database first and then the
+    ///         auxiliary ones in configuration order, each tagged with the
+    ///         database it came from.
     /// @note An event picks up alarms on more than one machine over its
     ///       life and the alarm tables are not replicated, so this asks
-    ///       the main database and every auxiliary one.  A machine that
-    ///       cannot be reached is skipped rather than failing the lot.
-    /// @warning Declared but not yet implemented - calling it will not
-    ///          link.  The underlying query exists; see
-    ///          queries/alarmQueries.hpp.
+    ///       the main database and every auxiliary one.
+    /// @note A database that cannot be reached is skipped rather than
+    ///       failing the gather, so a result may be partial and does not
+    ///       say which databases answered - only the log does.
+    /// @note An unexpected ConnectionFailed means NO database answered, so
+    ///       nothing is known about this event's alarms.  An empty result
+    ///       inside a good expected means at least one database answered
+    ///       and had nothing.
     [[nodiscard]] auto getAlarms(int64_t eventIdentifier) const -> std::expected<std::vector<AlarmAction>, QueryError>;
 
     /// @brief Fetches the currently locked events (and who owns the lock).

@@ -28,6 +28,8 @@ constexpr double maximumLatitude{90};
 // or one odd row costs the analyst their whole catalog.
 constexpr double minimumDepth{-10000};
 constexpr double maximumDepth{1000000};
+constexpr double minimumAzimuthalGap{0};
+constexpr double maximumAzimuthalGap{360};
 }
 
 namespace
@@ -66,6 +68,9 @@ public:
         mArrivals = impl.mArrivals;
         mMagnitudes = ::cloneMagnitudes(impl.mMagnitudes);
         mCredit = impl.mCredit;
+        mMaximumAzimuthalGap = impl.mMaximumAzimuthalGap;
+        mWeightedRootMeanSquaredError = impl.mWeightedRootMeanSquaredError;
+        mNumberOfDefiningPhases = impl.mNumberOfDefiningPhases;
         mTime = impl.mTime;
         mIdentifier = impl.mIdentifier;
         mLatitude = impl.mLatitude;
@@ -89,6 +94,9 @@ public:
     std::vector<Arrival> mArrivals;
     std::vector<std::unique_ptr<IMagnitude>> mMagnitudes;
     std::optional<std::string> mCredit;
+    std::optional<double> mMaximumAzimuthalGap;
+    std::optional<double> mWeightedRootMeanSquaredError;
+    std::optional<int> mNumberOfDefiningPhases;
     std::chrono::nanoseconds mTime{0};
     int64_t mIdentifier{0};
     double mLatitude{0};
@@ -105,6 +113,59 @@ public:
     bool mHasReviewStatus{false};
     bool mPreferred{true};
 };
+
+/// Azimuthal gap
+void Origin::setMaximumAzimuthalGap(const double gap)
+{
+    // Closed at both ends.  A single station has no second azimuth to
+    // close the gap with, so its gap really is the whole circle - 360 is a
+    // legitimate value and not an off-by-one.
+    if (gap < minimumAzimuthalGap || gap > maximumAzimuthalGap)
+    {
+        throw std::invalid_argument("Maximum azimuthal gap must be in range ["
+                                  + std::to_string(minimumAzimuthalGap) + ","
+                                  + std::to_string(maximumAzimuthalGap) + "]");
+    }
+    pImpl->mMaximumAzimuthalGap = std::make_optional<double> (gap);
+}
+
+std::optional<double> Origin::getMaximumAzimuthalGap() const noexcept
+{
+    return pImpl->mMaximumAzimuthalGap;
+}
+
+/// Weighted RMS error
+void Origin::setWeightedRootMeanSquaredError(const double wrmse)
+{
+    if (wrmse < 0)
+    {
+        throw std::invalid_argument(
+            "Weighted root mean squared error cannot be negative");
+    }
+    pImpl->mWeightedRootMeanSquaredError = std::make_optional<double> (wrmse);
+}
+
+std::optional<double>
+Origin::getWeightedRootMeanSquaredError() const noexcept
+{
+    return pImpl->mWeightedRootMeanSquaredError;
+}
+
+/// Defining phases
+void Origin::setNumberOfDefiningPhases(const int nDefiningPhases)
+{
+    if (nDefiningPhases <= 0)
+    {
+        throw std::invalid_argument(
+            "Number of defining phases must be positive");
+    }
+    pImpl->mNumberOfDefiningPhases = std::make_optional<int> (nDefiningPhases);
+}
+
+std::optional<int> Origin::getNumberOfDefiningPhases() const noexcept
+{
+    return pImpl->mNumberOfDefiningPhases;
+}
 
 /// Constructor
 Origin::Origin() :

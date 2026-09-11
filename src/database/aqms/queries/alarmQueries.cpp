@@ -94,22 +94,28 @@ bool AQMSDutyReviewBackend::Database::AQMS::hasAlarmActions(
                                        pqxx::params{eventIdentifier});
 }
 
-std::vector<AlarmAction>
+AlarmActionGather
 AQMSDutyReviewBackend::Database::AQMS::queryAlarmActions(
     const std::span<const std::shared_ptr<DB::Client>> clients,
     const std::int64_t eventIdentifier,
     spdlog::logger *logger)
 {
-    std::vector<AlarmAction> result;
+    AlarmActionGather result;
     for (const auto &client : clients)
     {
+        // A null is not a database that failed - it is one that was never
+        // configured - so it counts as neither asked nor answered.
         if (client == nullptr){continue;}
+        result.databasesAsked = result.databasesAsked + 1;
         try
         {
             auto actions = queryAlarmActions(*client, eventIdentifier);
-            result.insert(result.end(),
-                          std::make_move_iterator(actions.begin()),
-                          std::make_move_iterator(actions.end()));
+            result.actions.insert(result.actions.end(),
+                                  std::make_move_iterator(actions.begin()),
+                                  std::make_move_iterator(actions.end()));
+            // Answered, whether or not it had anything to say - an empty
+            // result from a reachable database IS an answer.
+            result.databasesAnswered = result.databasesAnswered + 1;
         }
         catch (const std::exception &e)
         {

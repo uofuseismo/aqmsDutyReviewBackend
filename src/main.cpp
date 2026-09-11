@@ -36,6 +36,7 @@
 #include "aqmsDutyReviewBackend/version.hpp"
 #include "authorizeRoute.hpp"
 //#include "requestBody.hpp"
+#include "routes/alarmRoutes.hpp"
 #include "routes/actionRoutes.hpp"
 #include "routes/adminRoutes.hpp"
 #include "routes/eventRoutes.hpp"
@@ -369,6 +370,7 @@ int main(int argc, char *argv[])
 
     // Everything else is grouped by what it is about.  Adding a route
     // means editing one of these files, not this one.
+    ::registerAlarmRoutes(app, routeContext);
     ::registerGazetteerRoutes(app, routeContext);
     ::registerStationRoutes(app, routeContext);
     ::registerEventRoutes(app, routeContext);

@@ -8,6 +8,7 @@
 
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
+ struct AlarmAction;
  class Event;
  class EventLock;
  class EventSummary;
@@ -222,6 +223,20 @@ struct WaveformEncoding
 ///       event happened, and plots it.
 /// @note An empty vector serializes to [] and not to null.
 [[nodiscard]] boost::json::value toJSON(const std::vector<Station> &stations);
+
+/// @brief Serializes the alarm actions.
+/// @result A JSON array of {database, eventIdentifier, action, state,
+///         modificationCount, modificationTime} objects.
+///         modificationTime is seconds since the epoch, UTC, and is
+///         absent when AQMS left it null.
+/// @note Several rows per event is normal.  One alarm moving from
+///       processing to completed is two rows, and a re-run is more; the
+///       history is the point.
+/// @note \c database says which AQMS machine a row came from, since the
+///       rows themselves do not.
+/// @note An empty vector serializes to [] and not to null.
+[[nodiscard]] boost::json::value toJSON(
+    const std::vector<AlarmAction> &alarms);
 
 /// @brief Serializes the quarries.
 /// @result A JSON array of {name, latitude, longitude, onDate, offDate}

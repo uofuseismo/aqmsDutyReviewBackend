@@ -1010,6 +1010,23 @@ readMagnitudes(const pqxx::result &rows, spdlog::logger *logger)
         = static_cast<std::int64_t>
           (std::round(row.at("origin_time").as<double> ()*1.e9));
     origin.setTime(std::chrono::nanoseconds {originTimeNanoSeconds});
+    // All three are nullable: an origin that never converged has no
+    // residual to report, and an automatic solution may have neither a gap
+    // nor a phase count.  Absent rather than zero - a zero gap would read
+    // as a perfectly surrounded event.
+    if (!row.at("azimuthal_gap").is_null())
+    {
+        origin.setMaximumAzimuthalGap(row.at("azimuthal_gap").as<double> ());
+    }
+    if (!row.at("rms").is_null())
+    {
+        origin.setWeightedRootMeanSquaredError(row.at("rms").as<double> ());
+    }
+    if (!row.at("n_defining_phases").is_null())
+    {
+        origin.setNumberOfDefiningPhases(
+            row.at("n_defining_phases").as<int> ());
+    }
     if (!row.at("geographic_type").is_null())
     {
         origin.setGeographicType(
