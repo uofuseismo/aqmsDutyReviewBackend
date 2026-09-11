@@ -62,7 +62,7 @@ SELECT gazetteerpt.lat as latitude,
        EXTRACT(EPOCH FROM gazetteerquarry.lddate)::BIGINT as lddate
 FROM gazetteerpt 
 INNER JOIN gazetteerquarry 
- ON gazetteerquarry.gazid = gazetteerpt.gazid;
+ ON gazetteerquarry.gazid = gazetteerpt.gazid
 ORDER BY ondate, name;
 )"""
 };
@@ -81,8 +81,16 @@ ORDER BY ondate, name;
                        ? ::FAR_FUTURE
                        : std::chrono::seconds{row.at("offdate").as<long long> ()};
     quarry.setStartAndEndTime({onDate, offDate});
-    const std::chrono::seconds loadTime{row.at("lddate").as<long long> ()};
-    quarry.setLoadTime(loadTime);
+    // Guarded like every other nullable column here: lddate carries a
+    // default rather than NOT NULL, so a row written by something that
+    // set it explicitly to null would otherwise throw out of the
+    // conversion and take the whole query with it.
+    if (!row.at("lddate").is_null())
+    {
+        const std::chrono::seconds
+            loadTime{row.at("lddate").as<long long> ()};
+        quarry.setLoadTime(loadTime);
+    }
     return quarry;
 }
 

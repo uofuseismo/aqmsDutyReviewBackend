@@ -225,6 +225,23 @@ struct WaveformEncoding
 
 /// @brief Serializes the quarries.
 /// @result A JSON array of quarry objects.
+/// @note Only the fields a quarry actually has are emitted.  Every column
+///       behind these is NOT NULL in the gazetteer DDL, so in practice a
+///       quarry arrives whole - but a missing key still means AQMS had
+///       nothing to say rather than zero, because zero is a place.
+/// @note Longitude is in [0, 360), matching what Origin uses.  This is the
+///       point of sending quarries at all - the frontend plots them
+///       against origins to ask whether a given event was a blast - and
+///       two conventions in one payload would put Bingham 224 degrees from
+///       the event sitting on top of it.
+/// @note The name keeps its case.  Unlike a network or station code it is
+///       a label off a map, not an identifier, and it is not unique:
+///       the archive carries 494 quarries under 492 distinct names, so a
+///       client must not key on it.
+/// @note The load date is not emitted, for the same reason a station's is
+///       not: it is lddate, it exists so a poller can ask for only the
+///       rows that changed since it last looked, and drawing a marker does
+///       not depend on it.
 /// @note An empty vector serializes to [] and not to null.
 [[nodiscard]] boost::json::value toJSON(const std::vector<Quarry> &quarries);
 

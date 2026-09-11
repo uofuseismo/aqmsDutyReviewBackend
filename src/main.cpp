@@ -388,9 +388,10 @@ int main(int argc, char *argv[])
         app.bindaddr(programOptions.crowOptions.bindAddress)
            .port(programOptions.crowOptions.port)
            .server_name(programOptions.crowOptions.serverName);
+        app.concurrency(programOptions.crowOptions.nThreads);
         if (programOptions.crowOptions.nThreads > 1)
         {
-           app.concurrency(programOptions.crowOptions.nThreads);
+           SPDLOG_LOGGER_INFO(consoleLogger, "Enabling concurrency");
            app.multithreaded();
         }
 #ifdef CROW_ENABLE_COMPRESSION

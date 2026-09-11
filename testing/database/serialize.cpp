@@ -25,6 +25,7 @@
 #include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/magnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/quarry.hpp"
 #include "aqmsDutyReviewBackend/hash.hpp"
 
 using namespace AQMSDutyReviewBackend::Database::AQMS;
@@ -1129,5 +1130,123 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS",
         bare.setDuration(10.0);
         REQUIRE_FALSE(bare.hasReviewStatus());
         REQUIRE_THROWS_AS(bare.getReviewStatus(), std::runtime_error);
+    }
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS", "[serialize][quarries]")
+{
+    // Shaped after the real the archive rows: 494 quarries, one epoch each,
+    // ondate 2022-01-01 and offdate the 3000-01-01 sentinel the column
+    // defaults to.
+    const auto makeQuarry
+        = [](const std::string &name,
+             const double latitude,
+             const double longitude) -> Quarry
+    {
+        Quarry quarry;
+        quarry.setName(name);
+        quarry.setLatitude(latitude);
+        quarry.setLongitude(longitude);
+        quarry.setStartAndEndTime({std::chrono::seconds {1640995200},
+                                   std::chrono::seconds {32503680000}});
+        quarry.setLoadTime(std::chrono::seconds {1678127941});
+        return quarry;
+    };
+
+    SECTION("An empty list serializes to an array, not null")
+    {
+        const std::vector<Quarry> quarries;
+        const auto json = toJSON(quarries);
+        REQUIRE(json.is_array());
+        REQUIRE(json.as_array().empty());
+    }
+    SECTION("Every field reaches the frontend under the agreed name")
+    {
+        const std::vector<Quarry> quarries
+            {makeQuarry("BINGHAM", 40.5231, -112.1508)};
+        const auto json = toJSON(quarries);
+        REQUIRE(json.as_array().size() == 1);
+        const auto quarry = json.as_array().at(0).as_object();
+        REQUIRE(quarry.at("name").as_string() == "BINGHAM");
+        REQUIRE(quarry.at("latitude").as_double()
+                == Catch::Approx(40.5231));
+        REQUIRE(quarry.at("longitude").as_double()
+                == Catch::Approx(247.8492));
+        REQUIRE(quarry.at("onDate").as_int64() == 1640995200);
+        REQUIRE(quarry.at("offDate").as_int64() == 32503680000);
+    }
+    SECTION("The load date is not sent")
+    {
+        // It is lddate, and it exists so a poller can ask for only the
+        // rows that changed since it last looked.  The frontend draws a
+        // marker at a latitude and a longitude; when the row was last
+        // touched bears on none of that.
+        const std::vector<Quarry> quarries
+            {makeQuarry("BINGHAM", 40.5231, -112.1508)};
+        const auto json = toJSON(quarries);
+        const auto quarry = json.as_array().at(0).as_object();
+        REQUIRE_FALSE(quarry.contains("loadTime"));
+        REQUIRE_FALSE(quarry.contains("lddate"));
+    }
+    SECTION("Nothing AQMS did not say gets a key")
+    {
+        // Every column behind this is NOT NULL in the DDL, so in practice
+        // a quarry arrives whole - but the serializer must not invent a
+        // zero latitude for one that did not, because zero is a place.
+        const Quarry bare;
+        const std::vector<Quarry> quarries{bare};
+        const auto json = toJSON(quarries);
+        const auto quarry = json.as_array().at(0).as_object();
+        REQUIRE(quarry.empty());
+        REQUIRE_FALSE(quarry.contains("name"));
+        REQUIRE_FALSE(quarry.contains("latitude"));
+        REQUIRE_FALSE(quarry.contains("longitude"));
+        REQUIRE_FALSE(quarry.contains("onDate"));
+        REQUIRE_FALSE(quarry.contains("offDate"));
+    }
+    SECTION("Longitude is normalized, as it is everywhere else")
+    {
+        // The frontend plots a quarry against an origin, and an origin's
+        // longitude is already in [0, 360).  Two conventions in one
+        // payload would put Bingham 224 degrees from the blast.
+        const std::vector<Quarry> quarries
+            {makeQuarry("BINGHAM", 40.5231, -112.1508)};
+        const auto json = toJSON(quarries);
+        const auto longitude
+            = json.as_array().at(0).as_object().at("longitude").as_double();
+        REQUIRE(longitude > 0);
+        REQUIRE(longitude == Catch::Approx(247.8492));
+    }
+    SECTION("The quarries keep the order the database returned")
+    {
+        // The query orders by ondate then name; the serializer must not
+        // reshuffle that, or a client diffing two payloads sees changes
+        // that are not there.
+        const std::vector<Quarry> quarries
+            {makeQuarry("5 MILE SHALE",  40.2480, -112.1931),
+             makeQuarry("ACADEMIC-ONE",  40.8516, -113.2324),
+             makeQuarry("APEX MINE",     37.0697, -113.8007)};
+        const auto json = toJSON(quarries);
+        const auto &array = json.as_array();
+        REQUIRE(array.size() == 3);
+        REQUIRE(array.at(0).as_object().at("name").as_string()
+                == "5 MILE SHALE");
+        REQUIRE(array.at(1).as_object().at("name").as_string()
+                == "ACADEMIC-ONE");
+        REQUIRE(array.at(2).as_object().at("name").as_string()
+                == "APEX MINE");
+    }
+    SECTION("Two quarries sharing a name are still two quarries")
+    {
+        // the archive holds 494 rows under 492 distinct names, so a client
+        // must not key on the name.
+        const std::vector<Quarry> quarries
+            {makeQuarry("ANTELOPE QUARRY", 39.1805, -111.7744),
+             makeQuarry("ANTELOPE QUARRY", 39.1838, -111.7662)};
+        const auto json = toJSON(quarries);
+        REQUIRE(json.as_array().size() == 2);
+        REQUIRE(json.as_array().at(0).as_object().at("latitude").as_double()
+                != json.as_array().at(1).as_object().at("latitude")
+                                                    .as_double());
     }
 }

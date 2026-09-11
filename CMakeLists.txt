@@ -300,6 +300,7 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
        testing/database/aqms/origins.cpp
        testing/database/aqms/events.cpp
        testing/database/aqms/stationsAndGeodesic.cpp
+       testing/database/aqms/quarries.cpp
        testing/database/aqms/catalog.cpp
        testing/database/catalogCache.cpp
        testing/database/serialize.cpp

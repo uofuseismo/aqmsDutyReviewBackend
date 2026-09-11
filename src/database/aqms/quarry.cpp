@@ -21,7 +21,6 @@ constexpr double maximumLatitude{90};
 class Quarry::QuarryImpl
 {
 public:
-    std::string mNetwork;
     std::string mName;
     std::pair<std::chrono::seconds, std::chrono::seconds> mStartAndEndTime;
     std::chrono::seconds mLoadTime{0};
@@ -76,6 +75,16 @@ void Quarry::setName(const std::string &name)
 {
     auto normalized = name;
     boost::algorithm::trim(normalized);
+    if (normalized.empty())
+    {
+        throw std::invalid_argument("Quarry name is empty");
+    }
+    // Deliberately NOT upper-cased, which is where this parts company
+    // with Station.  A network or station code is an identifier and
+    // "uu" and "UU" are the same one; a quarry name is prose that a
+    // person reads off a map - "arizona #1 AZ (Old List)" is in the
+    // table exactly like that - and shouting it back is not this
+    // layer's call.
     pImpl->mName = std::move(normalized);
     pImpl->mHasName = true;
 }

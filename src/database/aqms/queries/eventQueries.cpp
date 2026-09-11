@@ -578,7 +578,8 @@ LEFT OUTER JOIN origin
     ON event.prefmag = NetMag.magid
     LEFT OUTER JOIN credit
     ON event.prefor = credit.id AND credit.tname = 'origin'
-WHERE origin.datetime
+WHERE event.selectflag = 1 AND
+      origin.datetime
       BETWEEN TrueTime.nominal2truef(
                   (floor(extract(epoch from now())/300)*300) - $1)
           AND TrueTime.nominal2Truef(

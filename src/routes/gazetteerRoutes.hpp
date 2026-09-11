@@ -7,14 +7,21 @@
 #include <crow/app.h>
 #include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/quarry.hpp"
+#include "aqmsDutyReviewBackend/hash.hpp"
 #include "routeContext.hpp"
 
 namespace
 {
 
 /// @brief Registers the gazetteer routes.
+/// @note Nested as /gazetteer/quarries rather than flat, because the
+///       gazetteer is not the quarries.  gazetteerpt holds 4302 points in
+///       the archive and only 494 of them join gazetteerquarry, so "gazetteer"
+///       alone would name the whole table after one of the things in it -
+///       and the next point type would have nowhere to go without moving
+///       a url the frontend had already learned.
 inline void registerGazetteerRoutes(crow::SimpleApp &app,
-                                   const RouteContext &context)
+                                    const RouteContext &context)
 {
     /// @brief Fetches the quarries and serializes them.
     /// @result The JSON, or nullopt if AQMS could not be reached.
@@ -35,7 +42,8 @@ inline void registerGazetteerRoutes(crow::SimpleApp &app,
     };
 
     ::authorizedRoute(
-        app, "/gazetteer", "quarries", ::readOnlyRequirement, context,
+        app, "/gazetteer/quarries", "gazetteer-quarries",
+        ::readOnlyRequirement, context,
         [&context](const crow::request &,
                    const AQMSDutyReviewBackend::Auth::JSONWebToken::Claims
                        &identity) -> crow::response
@@ -63,6 +71,34 @@ inline void registerGazetteerRoutes(crow::SimpleApp &app,
                 *quarries);
         });
 
+    ::authorizedRoute(
+        app, "/gazetteer/quarries-hash", "gazetteer-quarries-hash",
+        ::readOnlyRequirement, context,
+        [&context](const crow::request &,
+                   const AQMSDutyReviewBackend::Auth::JSONWebToken::Claims
+                       &identity) -> crow::response
+        {
+            SPDLOG_LOGGER_DEBUG(context.logger,
+                                "{} requesting quarries hash...",
+                                identity.user);
+            const auto quarries = fetchQuarriesJSON(context);
+            if (!quarries)
+            {
+                SPDLOG_LOGGER_ERROR(context.logger,
+                                    "Could not fetch quarries for {}",
+                                    identity.user);
+                return ::makeMessageResponse(
+                    500,
+                    "Could not reach the AQMS database - try again shortly");
+            }
+            // Hashed over the same serialization the body route sends,
+            // which is why both go through fetchQuarriesJSON.
+            boost::json::object payload;
+            payload["hash"] = AQMSDutyReviewBackend::hash(
+                                  boost::json::serialize(*quarries));
+            return ::makeDataResponse(200, "Quarry information hash",
+                                      std::move(payload));
+        });
 }
 
 }
