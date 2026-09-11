@@ -75,6 +75,19 @@ CREATE OR REPLACE FUNCTION epref.cancel_event(p_evid Event.evid%TYPE) RETURNS BI
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION pcs.putState
+  ( p_group pcs_state.controlgroup%TYPE,
+    p_source pcs_state.sourcetable%TYPE,
+    p_id pcs_state.id%TYPE,
+    p_state pcs_state.state%TYPE,
+    p_rank pcs_state.rank%TYPE) RETURNS INTEGER AS $$
+ BEGIN
+   -- RAISE NOTICE USING MESSAGE = 'putState:p_group: ' || p_group || ' p_source: ' || p_source || ' p_state: ' || p_state || ' p_rank: ' || p_rank;
+   RETURN pcs.post_id(p_group, p_source, p_id, p_state, p_rank, 0.0, 1.0); -- result 0, commit
+ END
+$$ LANGUAGE plpgsql;
+
+
  */
 
 namespace
@@ -84,6 +97,13 @@ constexpr std::string_view ACCEPT_EVENT_QUERY
 {
 R"""(
 SELECT epref.accept_event($1);
+)"""
+};
+
+constexpr std::string_view POST_ACCEPT_QUERY
+{
+R"""(
+SELECT pcs.putState($1, $2, $3, $4, $5);
 )"""
 };
 
@@ -184,6 +204,57 @@ SELECT DISTINCT origin.subsource as subsource
     return succeeded;
 }
 
+/// The PCS post that follows an accept.
+///
+/// epref.accept_event does NOT post - it flips origin.rflag to 'H' and
+/// bumps the version, and that is all.  epref.cancel_event, by contrast,
+/// posts 'DELETED' itself before setting its flag.  So the post lives out
+/// here for accept and nowhere for cancel, which is exactly what the PHP
+/// does and is easy to misread as an inconsistency.
+///
+/// TPP/TPP/100 are the PCS alarm-processing defaults, straight from
+/// quickPost.
+constexpr std::string_view PCS_CONTROL_GROUP{"TPP"};
+constexpr std::string_view PCS_SOURCE_TABLE{"TPP"};
+constexpr std::string_view PCS_FINALIZE_STATE{"FINALIZE"};
+constexpr int PCS_RANK{100};
+
+/// @brief Posts a state to PCS so the alarm processes pick the event up.
+/// @result True if PCS accepted the post.
+/// @note Its OWN transaction, deliberately separate from the action that
+///       preceded it.  Two reasons.  The accept must stand even if this
+///       fails - an analyst's decision should not be undone because a
+///       notification did not go out, and re-accepting is a no-op so a
+///       retry costs nothing.  And post_id is the statement worth being
+///       careful with: running it inside the accept's transaction would
+///       hold the write lock on the origin row for however long the post
+///       takes, which is the wrong row to be sitting on.
+[[nodiscard]] bool postState(const DB::Client &client,
+                             const int64_t eventIdentifier,
+                             const std::string_view state)
+{
+    // Assigned rather than accumulated: Client::execute may run the
+    // operation twice after re-dialling a dropped connection.
+    bool succeeded{false};
+    client.execute(
+        [&](pqxx::connection &connection)
+        {
+            pqxx::work transaction(connection);
+            const auto status
+                = transaction.query_value<long long>
+                  (std::string {::POST_ACCEPT_QUERY},
+                   pqxx::params{std::string {::PCS_CONTROL_GROUP},
+                                std::string {::PCS_SOURCE_TABLE},
+                                eventIdentifier,
+                                std::string {state},
+                                ::PCS_RANK});
+            transaction.commit();
+            succeeded = (status > 0);
+        },
+        ::POST_ACCEPT_QUERY);
+    return succeeded;
+}
+
 }
 
 bool AQMSDutyReviewBackend::Database::AQMS::acceptEvent(
@@ -193,14 +264,9 @@ bool AQMSDutyReviewBackend::Database::AQMS::acceptEvent(
 {
     const auto accepted = ::runAction(client, ::ACCEPT_EVENT_QUERY,
                                       eventIdentifier);
-    if (logger != nullptr)
+    if (!accepted)
     {
-        if (accepted)
-        {
-            SPDLOG_LOGGER_INFO(logger, "Accepted event {} on {}",
-                               eventIdentifier, client.getName());
-        }
-        else
+        if (logger != nullptr)
         {
             // epref.accept_event answers 0 for a bad identifier and -1
             // when the event is not there.
@@ -208,6 +274,55 @@ bool AQMSDutyReviewBackend::Database::AQMS::acceptEvent(
                                "{} would not accept event {} - it may not "
                                "exist there",
                                client.getName(), eventIdentifier);
+        }
+        // Nothing to post about: the event was not accepted, so telling
+        // the alarm processes to refresh its products would be announcing
+        // a decision nobody made.
+        return false;
+    }
+    if (logger != nullptr)
+    {
+        SPDLOG_LOGGER_INFO(logger, "Accepted event {} on {}",
+                           eventIdentifier, client.getName());
+    }
+
+    // The post is what makes the accept visible outside the database -
+    // it refreshes the products and resends the notifications.  Its
+    // failure is reported but does not fail the accept, matching the PHP:
+    // the event IS accepted at this point and saying otherwise would have
+    // an analyst accept it again to fix something already done.
+    try
+    {
+        if (::postState(client, eventIdentifier, ::PCS_FINALIZE_STATE))
+        {
+            if (logger != nullptr)
+            {
+                SPDLOG_LOGGER_INFO(logger,
+                                   "Posted {} for event {} on {}",
+                                   ::PCS_FINALIZE_STATE, eventIdentifier,
+                                   client.getName());
+            }
+        }
+        else if (logger != nullptr)
+        {
+            SPDLOG_LOGGER_WARN(logger,
+                               "Event {} was accepted on {} but PCS refused "
+                               "the {} post - products and notifications may "
+                               "not have refreshed",
+                               eventIdentifier, client.getName(),
+                               ::PCS_FINALIZE_STATE);
+        }
+    }
+    catch (const std::exception &e)
+    {
+        if (logger != nullptr)
+        {
+            SPDLOG_LOGGER_ERROR(logger,
+                                "Event {} was accepted on {} but the {} post "
+                                "threw because {} - products and "
+                                "notifications may not have refreshed",
+                                eventIdentifier, client.getName(),
+                                ::PCS_FINALIZE_STATE, std::string {e.what()});
         }
     }
     return accepted;
