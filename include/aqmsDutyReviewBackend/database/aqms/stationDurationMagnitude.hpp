@@ -22,10 +22,9 @@ class StationDurationMagnitude
 {
 public:
     /// @brief The review status of this observation.
-    /// @note Its own status, not the magnitude's.  They differ: the archive
-    ///       holds 5,368 automatic codas under reviewed network magnitudes
-    ///       and 4 finalized amplitudes under automatic ones, so this says
-    ///       something the magnitude's own review status does not.
+    /// @note Its own status, not the magnitude's.  The two differ: a
+    ///       reviewed network magnitude may rest on automatic
+    ///       observations, and the reverse happens too.
     enum class ReviewStatus
     {
         Automatic, /*!< Produced by the real-time system. */
@@ -80,14 +79,11 @@ public:
     ///         are not used at UUSS. 
     [[nodiscard]] double getCorrection() const noexcept;
 
-    /// @brief Sets the residual magnitude - this channel's magnitude less
-    ///        the network magnitude.
-    /// @note Always the subtraction, never AQMS's stored magres.  AQMS
-///       writes magres only on review, so reading it would give a residual
-///       on 4% of what an analyst opens; and the subtraction IS magres -
-///       they agree exactly on all 10,485 reviewed rows in the archive - so
-///       computing it unconditionally costs nothing and gives one
-///       definition instead of two.
+    /// @brief Sets the residual magnitude - this observation's magnitude
+    ///        less the network magnitude.
+    /// @note This subtraction, not AQMS's stored magres, and it is always
+    ///       computed rather than read.  The two agree where AQMS has a
+    ///       value; AQMS only has one after review.
     void setResidual(double residual) noexcept;
     /// @result The residual magnitude.
     [[nodiscard]] double getResidual() const;

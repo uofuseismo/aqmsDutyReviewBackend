@@ -63,7 +63,7 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Quarry", "[quarry]")
     }
     SECTION("The name keeps its case")
     {
-        // Unlike a network or station code.  the archive really does hold
+        // Unlike a network or station code.  The gazetteer really holds
         // "arizona #1 AZ (Old List)", and it is a label a person reads
         // rather than an identifier anything matches on.
         Quarry quarry;

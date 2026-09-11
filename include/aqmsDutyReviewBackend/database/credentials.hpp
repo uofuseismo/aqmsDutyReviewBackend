@@ -107,9 +107,8 @@ public:
     /// @brief Sets a friendly name for this database - e.g., "rtdb1".
     /// @param[in] alias  The alias.  Surrounding blanks are trimmed.
     /// @note Worth setting on anything an operator or a frontend will see
-    ///       named: "rtdb1" travels better than
-    ///       "database@host", and it is what tags a row with
-    ///       the database it came from.
+    ///       named: a short name travels better than "database@host", and
+    ///       it is what tags a row with the database it came from.
     /// @warning Aliases must be unique across the databases one
     ///          application talks to, because that string is what routes
     ///          follow-up work back to the right machine.  Nothing here

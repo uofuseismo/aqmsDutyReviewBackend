@@ -929,7 +929,7 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS",
     SECTION("The residual is the station magnitude less the network one")
     {
         // The definition, and it is not an approximation: on every
-        // reviewed row in the archive magres equals exactly this subtraction,
+        // reviewed row measured, magres equals exactly this subtraction,
         // so deriving it where AQMS left it out gives the same quantity.
         const auto json = toJSON(::makeEventWithCodaMagnitude());
         const auto &magnitude = json.at("origins").as_array().at(0)
@@ -1051,7 +1051,7 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS",
     }
     SECTION("The amplitude is millimetres whatever amp.units said")
     {
-        // the archive holds Wood-Anderson amplitudes in both mm and cm; the
+        // The archive holds Wood-Anderson amplitudes in both mm and cm; the
         // reader normalises so the wire carries one unit.
         const auto json = toJSON(::makeEventWithLocalMagnitude());
         const auto &channels = json.at("origins").as_array().at(0)
@@ -1135,7 +1135,7 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS",
 
 TEST_CASE("AQMSDutyReviewBackend::Database::AQMS", "[serialize][quarries]")
 {
-    // Shaped after the real the archive rows: 494 quarries, one epoch each,
+    // Shaped after real gazetteer rows: one epoch each,
     // ondate 2022-01-01 and offdate the 3000-01-01 sentinel the column
     // defaults to.
     const auto makeQuarry
@@ -1238,7 +1238,7 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS", "[serialize][quarries]")
     }
     SECTION("Two quarries sharing a name are still two quarries")
     {
-        // the archive holds 494 rows under 492 distinct names, so a client
+        // The gazetteer holds several quarries under one name, so a client
         // must not key on the name.
         const std::vector<Quarry> quarries
             {makeQuarry("ANTELOPE QUARRY", 39.1805, -111.7744),

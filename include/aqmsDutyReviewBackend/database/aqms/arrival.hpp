@@ -104,10 +104,8 @@ public:
     /// @brief Sets the source-receiver distance (assocaro.delta).
     /// @param[in] distance  The distance in meters.
     /// @throws std::invalid_argument if the distance is negative.
-    /// @note Meters, like depth and like every other distance in these
-    ///       models.  assocaro.delta is in KILOMETRES - checked against
-    ///       the archive - so the reader multiplies by a thousand on the way
-    ///       in, exactly as it does for origin.depth.
+    /// @note Meters, like every other distance in these models.  The
+    ///       column it comes from is in kilometres; the reader converts.
     /// @note Optional.  It is a property of the ASSOCIATION rather than of
     ///       the arrival - the same pick associated to two origins has two
     ///       distances - so an arrival read outside that context has none.

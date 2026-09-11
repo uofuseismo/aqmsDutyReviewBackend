@@ -15,8 +15,8 @@ namespace
 
 /// @brief Registers the gazetteer routes.
 /// @note Nested as /gazetteer/quarries rather than flat, because the
-///       gazetteer is not the quarries.  gazetteerpt holds 4302 points in
-///       the archive and only 494 of them join gazetteerquarry, so "gazetteer"
+///       gazetteer is not the quarries.  gazetteerpt holds many kinds of
+///       point and only some of them join gazetteerquarry, so "gazetteer"
 ///       alone would name the whole table after one of the things in it -
 ///       and the next point type would have nowhere to go without moving
 ///       a url the frontend had already learned.

@@ -48,10 +48,9 @@ class StationLocalMagnitude
 {
 public:
     /// @brief The review status of this observation.
-    /// @note Its own status, not the magnitude's.  They differ: the archive
-    ///       holds 5,368 automatic codas under reviewed network magnitudes
-    ///       and 4 finalized amplitudes under automatic ones, so this says
-    ///       something the magnitude's own review status does not.
+    /// @note Its own status, not the magnitude's.  The two differ: a
+    ///       reviewed network magnitude may rest on automatic
+    ///       observations, and the reverse happens too.
     enum class ReviewStatus
     {
         Automatic, /*!< Produced by the real-time system. */
@@ -113,9 +112,9 @@ public:
 
     /// @brief Sets the Wood-Anderson amplitude in MILLIMETRES.
     /// @throws std::invalid_argument if the amplitude is not positive.
-    /// @note amp.units is not always 'mm' - the archive holds Wood-Anderson
-    ///       amplitudes in both 'mm' and 'cm' - so the reader converts and
-    ///       this is always millimetres, which is what the scale takes.
+    /// @note Always millimetres, which is what the scale takes.  The
+    ///       column it comes from is not - it carries its own units - so
+    ///       the reader converts.
     void setAmplitude(double amplitude);
     /// @result The amplitude in millimetres, if it was set.
     [[nodiscard]] std::optional<double> getAmplitude() const noexcept;

@@ -79,8 +79,8 @@ public:
     ///         "database@host".
     /// @note This is what identifies the database everywhere it is named:
     ///       in the log, and in the rows tagged with where they came from.
-    ///       An alias is worth setting - "rtdb1" travels to a frontend and
-    ///       into an operator's vocabulary far better than
+    ///       An alias is worth setting - a short name travels to a
+    ///       frontend and into an operator's vocabulary far better than
     ///       "database@host" does.
     /// @note The fallback is derived from the credentials rather than
     ///       configured, so an unaliased client still says something true

@@ -9,26 +9,14 @@
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
 /// @class CatalogCache catalogCache.hpp
-/// @brief Holds the serialized catalog so that asking whether it changed
-///        does not rebuild it.
+/// @brief Holds one serialized catalog against the freshness token it was
+///        built at, so a caller can ask whether the catalog changed
+///        without rebuilding it.
 ///
-/// The catalog query is a five-table join costing about 275 ms; the
-/// freshness token that says whether it moved costs about 30 ms.  The
-/// frontend polls the hash endpoint, and without this every poll paid the
-/// 275 ms to compute a hash the server had already computed moments
-/// earlier.
-///
-/// The catalog barely moves - roughly twice an hour in the archive - so nearly
-/// every poll is a hit.
-///
-/// @note Knows nothing about the database.  It is handed a token and an
-///       already-serialized catalog, which is what lets it be tested
-///       without one, and what keeps the decision of what "changed" means
-///       in the query where the evidence for it is.
-///
-/// @note Thread safe.  Crow currently runs one thread, but a cache that
-///       silently required that would be an unpleasant surprise the day
-///       numberOfThreads changes.
+/// @note Knows nothing about the database.  It is given a token and an
+///       already-serialized catalog; what a token means is the caller's
+///       business.
+/// @note Thread safe.
 ///
 /// @copyright Ben Baker (University of Utah) distributed under the
 ///            MIT NO AI license.
@@ -47,16 +35,8 @@ public:
     /// @brief Constructor.
     /// @param[in] maximumAge  How long an entry may be served after it was
     ///                        stored, however unchanged the token looks.
-    ///
-    /// @note A BACKSTOP, not the mechanism.  The window sliding used to be
-    ///       invisible to the token, and this was what caught it; the
-    ///       token now carries the window bucket, so a slide changes the
-    ///       token and the age limit has nothing left to catch.  It stays
-    ///       because a cache with no upper bound on staleness is a thing
-    ///       nobody wants to discover they have.
-    ///
-    /// @note Five minutes by default, matching the window bucket, so it
-    ///       never expires an entry the token would have kept.
+    ///                        An upper bound on staleness; the token is
+    ///                        what normally decides.
     explicit CatalogCache(
         const std::chrono::seconds &maximumAge = std::chrono::minutes {5});
 
@@ -70,9 +50,10 @@ public:
 
     /// @brief Stores a freshly built catalog against the token it was
     ///        built at.
-    /// @note Take the token BEFORE building, not after.  A token read
-    ///       afterwards could belong to a state the catalog in hand does
-    ///       not reflect, and would then be served as though it did.
+    /// @warning The token must be the one read BEFORE the catalog was
+    ///          built.  A token read afterwards may describe a state this
+    ///          catalog does not reflect, and the entry will then be
+    ///          served as though it did.
     void store(const std::string &token,
                const boost::json::object &catalog,
                const std::string &hash);

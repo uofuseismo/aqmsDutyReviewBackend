@@ -299,7 +299,7 @@ namespace
 ///       two genuinely differ - the archive holds automatic codas under
 ///       reviewed magnitudes and finalized amplitudes under automatic
 ///       ones.
-/// @note coda.rflag and assoccom.rflag never disagree in the archive, nor do
+/// @note coda.rflag and assoccom.rflag were never observed to disagree, nor do
 ///       amp.rflag and assocamm.rflag, so which of the pair is read does
 ///       not matter.  The measurement's own is read because that is what
 ///       the status describes.
@@ -318,7 +318,7 @@ template<typename T>
 ///        duration magnitude.
 ///
 /// One row is one coda measurement on one channel.  Almost everything on
-/// it is nullable and, in the archive, frequently null - weight, residual,
+/// it is nullable and, in practice, frequently null - weight, residual,
 /// correction, delta and seaz are all routinely absent - so every field
 /// below the stream is checked before it is read.
 [[nodiscard]] StationDurationMagnitude readStationDurationMagnitude(
@@ -385,7 +385,7 @@ template<typename T>
     // a residual on 4% of what a duty analyst opens and nothing on the rest.
     //
     // Computing it is not a substitute for the stored value; it IS the
-    // stored value.  On every reviewed row in the archive - 10,485 of 10,485 -
+    // stored value.  On every reviewed row measured - all of them -
     // magres equals the station magnitude less the network magnitude
     // exactly.  Doing the subtraction unconditionally means one code path
     // and one definition rather than two that agree by inspection.
@@ -486,7 +486,7 @@ template<typename T>
     // a residual on 4% of what a duty analyst opens and nothing on the rest.
     //
     // Computing it is not a substitute for the stored value; it IS the
-    // stored value.  On every reviewed row in the archive - 10,485 of 10,485 -
+    // stored value.  On every reviewed row measured - all of them -
     // magres equals the station magnitude less the network magnitude
     // exactly.  Doing the subtraction unconditionally means one code path
     // and one definition rather than two that agree by inspection.

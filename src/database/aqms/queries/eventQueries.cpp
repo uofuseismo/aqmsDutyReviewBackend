@@ -200,7 +200,7 @@ CREATE TABLE credit(
 /// @note The codes come from the eventtype table, whose CHECK constraint
 ///       is the authority on what exists.  'so' was mapped here once and
 ///       is not one of them.
-/// @note Only five etypes occur in the archive - st, eq, qb, sn and uk - so
+/// @note Only five etypes occur in practice - st, eq, qb, sn and uk - so
 ///       the twenty-four unmapped ones cost nothing today.  An unmapped
 ///       code is not fatal: the readers catch it, log it and fall back to
 ///       Unknown.
@@ -240,7 +240,7 @@ CREATE TABLE credit(
         // 'meteor' - a meteor or comet impact - not a mining induced
         // event.  There is no mining induced type in the schema at all;
         // the nearest are 'rb' (rockburst) and 'co' (mine/tunnel
-        // collapse).  Nothing in the archive carries 'mi', so this has never
+        // collapse).  Nothing observed carries 'mi', so this has never
         // mislabelled anything, but it would the first time one appeared.
         return Event::EventType::MiningInduced;
     }
@@ -365,7 +365,7 @@ Arrival::ReviewStatus toArrivalReviewStatus(const std::string &status)
 ///
 /// A NULL weight is KEPT, and that is not a nicety.  'NULL > 0' is NULL
 /// rather than false, so a bare 'wgt > 0' discards those rows without ever
-/// judging them - and in the archive a null weight is the common case, not the
+/// judging them - and a null weight is the common case in practice, not the
 /// exception: 2129 of 4229 associations across a two-thousand-event slice,
 /// against 75 that are genuinely zero.  Event 31004803 is the plain
 /// demonstration - fourteen picks with sensible residuals, every one of
@@ -470,9 +470,9 @@ constexpr std::string_view CATALOG_WINDOW_END
 /// The catalog query is a five-table join that takes about 275 ms and
 /// returns a few hundred rows.  This is 30 ms and returns one string, so
 /// the frontend can poll the hash endpoint without making AQMS rebuild the
-/// catalog every time.  Worth it because the catalog barely moves: across
-/// a day, the archive sees roughly 43 events, 43 origins and 57 magnitudes
-/// written - about twice an hour.
+/// catalog every time.  Worth it whenever a poll is cheaper than a
+/// rebuild, which is always - the ratio is what varies by deployment, not
+/// the sign.
 ///
 /// @note All three tables, not just event.  A magnitude revision bumps
 ///       netmag.lddate and leaves event.lddate alone, and netmag is the
@@ -483,6 +483,16 @@ constexpr std::string_view CATALOG_WINDOW_END
 ///       nothing and moves no lddate, so a token built only from
 ///       max(lddate) would call a shrunken catalog unchanged.
 ///
+/// @note And it counts SELECTED events, matching the catalog's own
+///       event.selectflag = 1.  Deselecting is how an event leaves this
+///       catalog, and it is an UPDATE: the row stays, so an unfiltered
+///       count does not move.  Whether lddate moves is up to whatever
+///       wrote it - there is no trigger on event maintaining it, only
+///       post_new_event AFTER INSERT - so max(lddate) cannot be relied on
+///       to notice either, and the pair would agree that a catalog which
+///       had just lost a row was unchanged.  Filtering costs about 4 ms
+///       of the 30 and closes that regardless of who writes lddate.
+///
 /// @note Unscoped by time on purpose.  Narrowing to the catalog window
 ///       would still be a sequential scan - lddate is not indexed here,
 ///       and this is somebody else's schema - so it would cost the same
@@ -492,18 +502,18 @@ constexpr std::string_view CATALOG_WINDOW_END
 ///
 /// @warning This does NOT see the window sliding.  The catalog covers a
 ///          rolling seven days, so events age out with no lddate changing
-///          anywhere - about one every thirty-six minutes at the archive's
-///          rate.  Whatever caches this must expire on time as well as on
-///          the token.
+///          anywhere.  Whatever caches this must expire on time as well as
+///          on the token.
 constexpr std::string_view CATALOG_FRESHNESS_QUERY
 {
 R"""(
-SELECT coalesce(to_char(greatest((SELECT max(lddate) FROM event),
+SELECT coalesce(to_char(greatest((SELECT max(lddate) FROM event
+                                   WHERE selectflag = 1),
                                  (SELECT max(lddate) FROM origin),
                                  (SELECT max(lddate) FROM netmag)),
                         'YYYY-MM-DD"T"HH24:MI:SS.US'),
                 'none')
-    || ':' || (SELECT count(*) FROM event)::text
+    || ':' || (SELECT count(*) FROM event WHERE selectflag = 1)::text
     || ':' || (floor(extract(epoch from now())/300)*300)::bigint::text
        AS freshness;
 )"""
@@ -610,7 +620,8 @@ SELECT event.evid as event_identifier,
 FROM event
 INNER JOIN origin
   ON event.prefor = origin.orid
-WHERE origin.datetime BETWEEN TrueTime.nominal2truef($1) AND TrueTime.nominal2Truef($2)
+WHERE event.selectflag = 1
+  AND origin.datetime BETWEEN TrueTime.nominal2truef($1) AND TrueTime.nominal2Truef($2)
   AND event.etype = 'st'
  ORDER BY origin.datetime DESC, event.evid DESC;
 )"""

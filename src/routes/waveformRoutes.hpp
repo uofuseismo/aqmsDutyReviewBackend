@@ -26,7 +26,7 @@ namespace
 ///       the event query keeps only those AQMS did not associate at zero -
 ///       so these are the channels that actually contributed to the
 ///       location.  Note that a NULL weight counts as kept: over half the
-///       associations in the archive have one, and a strict "weight > 0" would
+///       associations have one in practice, and a strict "weight > 0" would
 ///       silently drop most of the record section.
 /// @note Distinct, because two phases on one channel are two arrivals and
 ///       one waveform.  Ordered by the arrival order rather than sorted,

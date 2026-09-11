@@ -7,6 +7,21 @@
 
 using namespace AQMSDutyReviewBackend::Database::AQMS;
 
+/// Why this exists: the catalog query is a five-table join costing a few
+/// hundred milliseconds, while the freshness token that says whether it
+/// moved costs tens.  The frontend polls the hash endpoint, so without a
+/// cache every poll rebuilt a catalog to recompute a hash the server had
+/// produced moments earlier.
+///
+/// Why the maximum age is a BACKSTOP rather than the mechanism: the
+/// catalog covers a rolling window, so events age out of it with no lddate
+/// moving anywhere.  That used to be invisible to the token and this was
+/// what caught it.  The token now carries the window bucket and catches it
+/// itself, so the age limit has little left to do - it stays because a
+/// cache with no upper bound on staleness is a thing nobody wants to
+/// discover they have.  The default matches the window bucket, so it never
+/// expires an entry the token would have kept.
+
 class CatalogCache::CatalogCacheImpl
 {
 public:

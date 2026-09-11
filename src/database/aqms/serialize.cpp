@@ -395,7 +395,7 @@ void writeSamples(boost::json::object &item,
         // automatic coda rows carry one - so on an automatic it is the
         // reader's own subtraction of the station magnitude and the
         // network magnitude.  Not a different quantity: magres is that
-        // subtraction, exactly, on every reviewed row in the archive.
+        // subtraction, exactly, on every reviewed row measured.
         item["residual"] = stationMagnitude.getResidual();
     }
     item["correction"] = stationMagnitude.getCorrection();
@@ -911,6 +911,18 @@ AQMSDutyReviewBackend::Database::AQMS::toJSON(
     return result;
 }
 
+/// Longitude goes out in [0, 360) because that is what Origin uses, and
+/// the point of sending quarries at all is to plot them against origins
+/// and ask whether an event was a blast.  Two conventions in one payload
+/// would put a quarry 224 degrees from the event sitting on top of it.
+///
+/// The name is passed through with its case intact.  Unlike a network or
+/// station code it is a label off a map rather than an identifier, and it
+/// is not unique - the gazetteer carries several under a shared name.
+///
+/// loadTime is deliberately not emitted.  It is lddate, it exists so a
+/// poller can ask for only the rows that changed since it last looked, and
+/// drawing a marker does not depend on it.
 boost::json::value
 AQMSDutyReviewBackend::Database::AQMS::toJSON(
     const std::vector<Quarry> &quarries)

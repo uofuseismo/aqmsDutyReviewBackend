@@ -138,11 +138,10 @@ inline void registerEventRoutes(crow::SimpleApp &app,
                                "{} requesting catalog hash",
                                identity.user);
             // Served from the cache whenever the freshness token says
-            // the catalog has not moved, which is nearly always: the archive
-            // writes about two events an hour.  That is the whole point of
-            // this endpoint - a client polls it so it does NOT have to
-            // download the catalog, and rebuilding one to answer would
-            // have made polling more expensive than not polling.
+            // the catalog has not moved.  That is the whole point of this
+            // endpoint - a client polls it so it does NOT have to download
+            // the catalog, and rebuilding one to answer would have made
+            // polling more expensive than not polling.
             const auto catalog = ::getCachedCatalog(context);
             if (!catalog)
             {
