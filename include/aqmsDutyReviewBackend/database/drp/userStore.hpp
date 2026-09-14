@@ -139,24 +139,6 @@ public:
                                          const std::string &user);
     /// @}
 
-    /// @name Public keys
-    /// @{
-    /// @param[in] publicKey  The base64 ed25519 public key.  Validating
-    ///                       that it IS one is the caller's job; this
-    ///                       stores text.
-    [[nodiscard]] bool addUserKey(const std::string &user,
-                                  const std::string &keyName,
-                                  const std::string &publicKey);
-    [[nodiscard]] bool revokeUserKey(const std::string &user,
-                                     const std::string &keyName);
-    /// @result The owning user, but only if the key is active - not
-    ///         revoked, not expired, on a live account.
-    [[nodiscard]] std::optional<std::string>
-        getUserByKey(const std::string &publicKey) const;
-    /// @brief Records a successful key authentication; also touches the
-    ///        user's last login.
-    [[nodiscard]] bool recordKeyUse(const std::string &publicKey);
-    /// @}
 
     /// @brief Destructor.
     ~UserStore();

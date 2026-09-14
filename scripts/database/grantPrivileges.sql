@@ -1,16 +1,13 @@
 --- Purpose: Grants privileges.  Run after all objects exist.
 ---
 --- Philosophy:
----   * The auth tables (users, user_keys) are reachable ONLY through
+---   * The users table is reachable ONLY through
 ---     the auth functions.  Backend roles get EXECUTE, never direct
 ---     table access, so even the read_write backend cannot SELECT
 ---     password hashes.
 ---   * Those functions are therefore SECURITY DEFINER (they run with
 ---     the owner's privileges, not the caller's), with search_path
 ---     pinned, which is the standard hardening for definer functions.
----   * 'events' is different: it holds nothing the backend roles are
----     not allowed to see, so it gets ordinary table grants and the
----     backend writes ordinary SQL against it.
 ---   * PostgreSQL grants EXECUTE on new functions to PUBLIC by default.
 ---     Revoke wholesale, then re-grant deliberately.
 ---
@@ -87,16 +84,6 @@ ALTER FUNCTION delete_expired_provisional_users()
     SECURITY DEFINER SET search_path = public, pg_temp;
 ALTER FUNCTION list_users()
     SECURITY DEFINER SET search_path = public, pg_temp;
-ALTER FUNCTION add_user_key(TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ)
-    SECURITY DEFINER SET search_path = public, pg_temp;
-ALTER FUNCTION revoke_user_key(TEXT, TEXT)
-    SECURITY DEFINER SET search_path = public, pg_temp;
-ALTER FUNCTION record_key_use(TEXT)
-    SECURITY DEFINER SET search_path = public, pg_temp;
-ALTER FUNCTION get_user_by_key(TEXT)
-    SECURITY DEFINER SET search_path = public, pg_temp;
-ALTER FUNCTION list_user_keys(TEXT)
-    SECURITY DEFINER SET search_path = public, pg_temp;
 
 --------------------------------------------------------------------------
 ---                          Auth: EXECUTE                              ---
@@ -116,16 +103,13 @@ GRANT EXECUTE ON FUNCTION
     admin_remove_user(TEXT, TEXT)
     TO :"rw_role";
 
---- Everything else the writer mutates: a user's own password, their own
---- keys, and the login/key-use stamps.  None of these are an
---- administrator's business, so none of them take an actor.
+--- Everything else the writer mutates: a user's own password and the
+--- login stamp.  Neither is an administrator's business, so neither
+--- takes an actor.
 GRANT EXECUTE ON FUNCTION
     update_user_password(TEXT, TEXT),
     record_login(TEXT),
-    delete_expired_provisional_users(),
-    add_user_key(TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ),
-    revoke_user_key(TEXT, TEXT),
-    record_key_use(TEXT)
+    delete_expired_provisional_users()
     TO :"rw_role";
 
 --- NOT granted to either backend, deliberately: add_user, remove_user,
@@ -145,25 +129,13 @@ GRANT EXECUTE ON FUNCTION
 --- list_users is safe for the reader because it cannot return a hash.
 GRANT EXECUTE ON FUNCTION
     get_password_hash(TEXT),
-    get_user_by_key(TEXT),
     get_user_permission(TEXT),
     user_has_permission(TEXT, TEXT),
     user_is_admin(TEXT),
     count_active_admins(),
     user_must_change_password(TEXT),
-    list_users(),
-    list_user_keys(TEXT)
+    list_users()
     TO :"rw_role", :"ro_role";
 
---- Deliberately NO table grants on users or user_keys, to either role.
+--- Deliberately NO table grants on users, to either role.
 
---------------------------------------------------------------------------
----                              Events                                 ---
---------------------------------------------------------------------------
-
-GRANT SELECT ON events TO :"rw_role", :"ro_role";
-GRANT INSERT, UPDATE, DELETE ON events TO :"rw_role";
-
---- The trigger function is intentionally left SECURITY INVOKER: it runs
---- as whoever did the UPDATE, which is exactly the authority needed to
---- stamp a row that caller was already allowed to change.

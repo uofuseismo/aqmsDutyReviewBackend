@@ -89,8 +89,10 @@ inline void describeOpenRoute(const std::string &method,
          "The alarm actions recorded for an event, gathered from every AQMS "
          "database."},
         {"event-waveforms", "The waveforms for an event's picked channels."},
-        {"event-waveforms-hash",
-         "A hash of an event's waveforms.  Not yet implemented."},
+        {"event-waveforms-freshness",
+         "An opaque token that changes when an event's waveforms or its "
+         "picks do.  Equal means unchanged; it is not a hash of the body, "
+         "so cache against it TOGETHER with the query parameters."},
         {"event-accept", "Marks an event reviewed and refreshes its products."},
         {"event-cancel", "Cancels an event and sends the cancellation."},
         {"stations", "Every station epoch AQMS knows about."},

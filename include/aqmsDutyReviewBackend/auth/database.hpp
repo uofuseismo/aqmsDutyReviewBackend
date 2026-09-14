@@ -184,42 +184,6 @@ public:
     ///       whether or not this has reached it.
     [[nodiscard]] int deleteExpiredProvisionalUsers();
 
-    /// @name Public keys
-    /// @{
-
-    /// @brief Registers a public key for programmatic access by the user -
-    ///        a la SSH authorized_keys.
-    /// @param[in] user       The user name.
-    /// @param[in] keyName    The user-facing key label - e.g., "laptop".
-    /// @param[in] publicKey  The base64-encoded ed25519 public key.
-    /// @result True on success; false if the user does not exist, the key
-    ///         name is taken for this user, or the public key is already
-    ///         registered.
-    /// @throws std::invalid_argument if any input is empty or the public
-    ///         key is not a base64 ed25519 public key.
-    [[nodiscard]] bool addUserKey(const std::string &user,
-                                  const std::string &keyName,
-                                  const std::string &publicKey);
-    /// @brief Revokes (never deletes - the row is the audit trail) the
-    ///        user's named key.
-    /// @result True if an active key was revoked.
-    /// @throws std::invalid_argument if the user or key name is empty.
-    [[nodiscard]] bool revokeUserKey(const std::string &user,
-                                     const std::string &keyName);
-    /// @brief Authenticates a request signed with a registered key.
-    /// @param[in] message    The bytes the client signed.
-    /// @param[in] signature  The base64-encoded 64-byte ed25519 detached
-    ///                       signature of the message.
-    /// @param[in] publicKey  The base64-encoded 32-byte ed25519 public key.
-    /// @result Authenticated if the key is registered, active, and the
-    ///         signature verifies.
-    /// @throws std::invalid_argument if any input is empty.
-    [[nodiscard]] IAuthenticator::Result authenticateKey(
-        const std::string &message,
-        const std::string &signature,
-        const std::string &publicKey);
-    /// @}
-
     /// @brief Destructor.
     ~Database() final;
 

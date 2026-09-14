@@ -137,7 +137,7 @@ run_suite() {
        --file="${SQL_DIR}/${file}"
 }
 
-# The writer suite runs first and leaves users, keys, and events behind;
+# The writer suite runs first and leaves users and keys behind;
 # the reader suite reads that state rather than building its own.  They
 # are not independent and the order is not arbitrary.
 run_suite testWriter.sql "${TEST_RW_USER}" "${TEST_RW_PASSWORD}"

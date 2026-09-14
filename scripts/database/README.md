@@ -1,7 +1,6 @@
 # AQMS DRP Backend database
 
-A PostgreSQL database holding frontend users, their public keys, and an
-event store.  Everything lives in the default `public` schema; there are
+A PostgreSQL database holding the frontend's users.  Everything lives in the default `public` schema; there are
 no others.  Target is PostgreSQL 18, floor is 14.
 
 ## Layout
@@ -28,7 +27,7 @@ dimension, so each gets its own database:
         ./create.sh aqmsdb_prod
 
 Users do not cross databases: adding someone to test does not add them
-to prod, and they register keys in each separately.  Roles *are*
+to prod.  Roles *are*
 cluster-wide, so both systems on one server share `aqmsdb_writer` and
 `aqmsdb_reader`.
 
@@ -65,7 +64,7 @@ as a test role whatever password it is given.
 
 ### Users are unreachable except through functions
 
-Neither backend role holds table privileges on `users` or `user_keys`.
+Neither backend role holds table privileges on `users`.
 `SELECT * FROM users` is denied even to the writer -- that is the design,
 not a misconfiguration.  The functions are `SECURITY DEFINER` with
 `search_path` pinned, so a compromised backend cannot read a password
@@ -148,9 +147,9 @@ A timer runs the sweep:
 
     SELECT delete_expired_provisional_users();
 
-The schedule is not load-bearing.  `get_password_hash` and
-`get_user_by_key` both refuse past-deadline accounts, so an expired user
-cannot log in whether or not the sweep has reached them; without that,
+The schedule is not load-bearing.  `get_password_hash` refuses
+past-deadline accounts, so an expired user cannot log in whether or not
+the sweep has reached them; without that,
 the cron interval quietly becomes the real deadline.  The sweep only
 ever sees rows with a non-NULL deadline, so it cannot delete a real user
 however often it runs.
@@ -165,20 +164,6 @@ Two things the calling script owns:
   `user_must_change_password(name)`; when it returns TRUE, allow nothing
   but the password change.  Whoever is on the other end has proved only
   that they received an email.
-
-### Events
-
-Unlike the auth tables, `events` is reached directly -- there is nothing
-to hide behind a function -- so the roles hold ordinary table grants.
-
-`event_identifier` is a `BIGINT` primary key supplied by the writer.  No
-identity column, no sequence: the event already has an identity upstream
-and this table records it rather than inventing a second one.
-
-`created` is stamped on insert and pinned by the trigger; `last_update`
-advances on every update.  The pinning matters because an upsert that
-lists every column would otherwise reset `created` on each re-write, and
-it would silently come to mean "last written" instead of "first seen".
 
 ## Not done yet
 

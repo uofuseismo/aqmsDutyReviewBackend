@@ -291,7 +291,54 @@ inline void registerWaveformRoutes(crow::SimpleApp &app,
                          + std::to_string(nSegments) + " segment(s)",
                 AQMS::toJSON(filtered, encoding));
         });
-    }); 
+    });
+
+    /// A token, not a hash.  It fingerprints what the waveform response is
+    /// BUILT FROM - the archive files and the picks that choose the
+    /// channels - rather than the bytes that come out, which is the only
+    /// way to answer "changed?" without doing the work the question exists
+    /// to avoid.
+    ::describeRoute("GET", "/events/<int>/waveforms/freshness",
+                    "event-waveforms-freshness", ::readOnlyRequirement);
+    CROW_ROUTE(app, "/events/<int>/waveforms/freshness")
+    ([&context](const crow::request &request,
+                const int64_t eventIdentifier) -> crow::response
+    {
+        return ::timedRoute("event-waveforms-freshness",
+                            [&]() -> crow::response
+        {
+            auto authorization
+                = ::authorizeRoute(request, *context.authenticator,
+                                   ::readOnlyRequirement, context.logger);
+            if (!authorization)
+            {
+                return std::move(*authorization.rejection);
+            }
+            SPDLOG_LOGGER_DEBUG(context.logger,
+                                "{} requesting waveform freshness for {}",
+                                authorization.identity->user, eventIdentifier);
+            const auto freshness
+                = context.aqmsDatabase->getWaveformFreshness(eventIdentifier);
+            if (!freshness)
+            {
+                SPDLOG_LOGGER_ERROR(context.logger,
+                                    "Could not read waveform freshness for "
+                                    "event {} for {}",
+                                    eventIdentifier,
+                                    authorization.identity->user);
+                return ::makeMessageResponse(
+                    500,
+                    "Could not reach the AQMS database - try again shortly");
+            }
+            // An event with no waveforms still has a token - the counts
+            // are simply zero - so this is 200 and never 404.  "Nothing
+            // yet" is an answer a client wants to cache like any other.
+            boost::json::object payload;
+            payload["freshness"] = *freshness;
+            return ::makeDataResponse(200, "Waveform freshness",
+                                      std::move(payload));
+        });
+    });
 }
 }
 

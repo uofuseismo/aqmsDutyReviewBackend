@@ -284,57 +284,5 @@ AdminResult UserStore::removeUser(const std::string &actor,
                                "admin_remove_user");
 }
 
-///--------------------------------------------------------------------------///
-///                               Public keys                                ///
-///--------------------------------------------------------------------------///
-
-bool UserStore::addUserKey(const std::string &user,
-                           const std::string &keyName,
-                           const std::string &publicKey)
-{
-    if (user.empty()){throw std::invalid_argument("User is empty");}
-    if (keyName.empty()){throw std::invalid_argument("Key name is empty");}
-    if (publicKey.empty())
-    {
-        throw std::invalid_argument("Public key is empty");
-    }
-    constexpr std::string_view query{"SELECT add_user_key($1, $2, $3)"};
-    return pImpl->mClient->executeScalar<bool>
-           (query, pqxx::params{user, keyName, publicKey});
-}
-
-bool UserStore::revokeUserKey(const std::string &user,
-                              const std::string &keyName)
-{
-    if (user.empty()){throw std::invalid_argument("User is empty");}
-    if (keyName.empty()){throw std::invalid_argument("Key name is empty");}
-    constexpr std::string_view query{"SELECT revoke_user_key($1, $2)"};
-    return pImpl->mClient->executeScalar<bool>
-           (query, pqxx::params{user, keyName});
-}
-
-std::optional<std::string>
-UserStore::getUserByKey(const std::string &publicKey) const
-{
-    if (publicKey.empty())
-    {
-        throw std::invalid_argument("Public key is empty");
-    }
-    constexpr std::string_view query{"SELECT get_user_by_key($1)"};
-    return pImpl->mClient->executeOptionalScalar<std::string>
-           (query, pqxx::params{publicKey});
-}
-
-bool UserStore::recordKeyUse(const std::string &publicKey)
-{
-    if (publicKey.empty())
-    {
-        throw std::invalid_argument("Public key is empty");
-    }
-    constexpr std::string_view query{"SELECT record_key_use($1)"};
-    return pImpl->mClient->executeScalar<bool>
-           (query, pqxx::params{publicKey});
-}
-
 /// Destructor
 UserStore::~UserStore() = default;

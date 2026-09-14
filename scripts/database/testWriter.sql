@@ -35,14 +35,6 @@ END $$;
 
 DO $$
 BEGIN
-    PERFORM 1 FROM user_keys LIMIT 1;
-    RAISE EXCEPTION 'FAIL: writer could SELECT from user_keys';
-EXCEPTION WHEN insufficient_privilege THEN
-    RAISE NOTICE 'ok: writer denied direct SELECT on user_keys';
-END $$;
-
-DO $$
-BEGIN
     UPDATE users SET password_hash = 'x' WHERE TRUE;
     RAISE EXCEPTION 'FAIL: writer could UPDATE users';
 EXCEPTION WHEN insufficient_privilege THEN
@@ -192,87 +184,6 @@ BEGIN
         RAISE EXCEPTION 'FAIL: update_user_password(nobody) returned TRUE';
     END IF;
     RAISE NOTICE 'ok: update_user_password';
-END $$;
-
---------------------------------------------------------------------------
----                              Keys                                   ---
---------------------------------------------------------------------------
-
-DO $$
-DECLARE n INTEGER;
-BEGIN
-    IF NOT add_user_key('alice', 'laptop', 'pubkey-alice-laptop') THEN
-        RAISE EXCEPTION 'FAIL: add_user_key returned FALSE';
-    END IF;
-    RAISE NOTICE 'ok: add_user_key';
-
-    IF add_user_key('alice', 'laptop', 'pubkey-different') THEN
-        RAISE EXCEPTION 'FAIL: duplicate key NAME accepted for one user';
-    END IF;
-    --- Globally unique: one key must not identify two people.
-    IF add_user_key('carol', 'carol-laptop', 'pubkey-alice-laptop') THEN
-        RAISE EXCEPTION 'FAIL: one public key registered to two users';
-    END IF;
-    IF add_user_key('nobody', 'k', 'pubkey-nobody') THEN
-        RAISE EXCEPTION 'FAIL: add_user_key(nobody) returned TRUE';
-    END IF;
-    IF add_user_key('alice', '', 'pubkey-empty-name') THEN
-        RAISE EXCEPTION 'FAIL: empty key name accepted';
-    END IF;
-    RAISE NOTICE 'ok: duplicate/unknown/empty key registrations rejected';
-
-    IF get_user_by_key('pubkey-alice-laptop') <> 'alice' THEN
-        RAISE EXCEPTION 'FAIL: get_user_by_key did not resolve to alice';
-    END IF;
-    IF get_user_by_key('pubkey-nonexistent') IS NOT NULL THEN
-        RAISE EXCEPTION 'FAIL: get_user_by_key resolved an unknown key';
-    END IF;
-    RAISE NOTICE 'ok: get_user_by_key';
-
-    IF NOT record_key_use('pubkey-alice-laptop') THEN
-        RAISE EXCEPTION 'FAIL: record_key_use returned FALSE';
-    END IF;
-    SELECT count(*) INTO n FROM list_user_keys('alice')
-     WHERE key_name = 'laptop' AND last_used IS NOT NULL;
-    IF n <> 1 THEN
-        RAISE EXCEPTION 'FAIL: record_key_use did not stamp last_used';
-    END IF;
-    RAISE NOTICE 'ok: record_key_use';
-
-    --- An already-expired key must not authenticate even though it is
-    --- freshly registered and not revoked.
-    IF NOT add_user_key('alice', 'expired', 'pubkey-alice-expired',
-                        'ed25519', NOW() - INTERVAL '1 hour') THEN
-        RAISE EXCEPTION 'FAIL: could not register an expired key';
-    END IF;
-    IF get_user_by_key('pubkey-alice-expired') IS NOT NULL THEN
-        RAISE EXCEPTION 'FAIL: an expired key still authenticates';
-    END IF;
-    RAISE NOTICE 'ok: expired keys do not authenticate';
-END $$;
-
-DO $$
-DECLARE n INTEGER;
-BEGIN
-    IF NOT revoke_user_key('alice', 'laptop') THEN
-        RAISE EXCEPTION 'FAIL: revoke_user_key returned FALSE';
-    END IF;
-    IF get_user_by_key('pubkey-alice-laptop') IS NOT NULL THEN
-        RAISE EXCEPTION 'FAIL: a revoked key still authenticates';
-    END IF;
-    --- Revoked, not deleted: the row is the audit trail.
-    SELECT count(*) INTO n FROM list_user_keys('alice')
-     WHERE key_name = 'laptop' AND revoked IS NOT NULL;
-    IF n <> 1 THEN
-        RAISE EXCEPTION 'FAIL: revoked key row did not survive for audit';
-    END IF;
-    IF revoke_user_key('alice', 'laptop') THEN
-        RAISE EXCEPTION 'FAIL: re-revoking an inactive key returned TRUE';
-    END IF;
-    IF record_key_use('pubkey-alice-laptop') THEN
-        RAISE EXCEPTION 'FAIL: record_key_use accepted a revoked key';
-    END IF;
-    RAISE NOTICE 'ok: revoke_user_key';
 END $$;
 
 --------------------------------------------------------------------------
@@ -747,51 +658,10 @@ BEGIN
 END $$;
 
 --- Tim leaves.
-DO $$
-BEGIN
-    IF NOT add_user_key('tim', 'laptop', 'pubkey-tim') THEN
-        RAISE EXCEPTION 'FAIL: tim could not register a key';
-    END IF;
-    IF NOT admin_remove_user('root', 'tim') THEN
-        RAISE EXCEPTION 'FAIL: could not remove tim';
-    END IF;
-    IF get_password_hash('tim') IS NOT NULL THEN
-        RAISE EXCEPTION 'FAIL: tim can still log in';
-    END IF;
-    IF get_user_by_key('pubkey-tim') IS NOT NULL THEN
-        RAISE EXCEPTION 'FAIL: tim''s key still authenticates';
-    END IF;
-    RAISE NOTICE 'ok: tim removed, key and all';
-END $$;
 
 --------------------------------------------------------------------------
 ---                          Removing users                             ---
 --------------------------------------------------------------------------
-
-DO $$
-BEGIN
-    IF NOT admin_add_user('root', 'grace', 'hash-grace') THEN
-        RAISE EXCEPTION 'FAIL: admin_add_user(grace) returned FALSE';
-    END IF;
-    IF NOT add_user_key('grace', 'laptop', 'pubkey-grace') THEN
-        RAISE EXCEPTION 'FAIL: could not give grace a key';
-    END IF;
-    IF NOT admin_remove_user('root', 'grace') THEN
-        RAISE EXCEPTION 'FAIL: admin_remove_user(grace) returned FALSE';
-    END IF;
-    IF get_password_hash('grace') IS NOT NULL THEN
-        RAISE EXCEPTION 'FAIL: removed user still resolves';
-    END IF;
-    --- Keys must go with the user, or a deleted account keeps a
-    --- working credential.
-    IF get_user_by_key('pubkey-grace') IS NOT NULL THEN
-        RAISE EXCEPTION 'FAIL: a deleted user''s key still authenticates';
-    END IF;
-    IF admin_remove_user('root', 'grace') THEN
-        RAISE EXCEPTION 'FAIL: removing a gone user returned TRUE';
-    END IF;
-    RAISE NOTICE 'ok: remove_user cascades to keys';
-END $$;
 
 --------------------------------------------------------------------------
 ---                             list_users                              ---
@@ -817,83 +687,6 @@ BEGIN
     RAISE EXCEPTION 'FAIL: list_users exposes password_hash';
 EXCEPTION WHEN undefined_column THEN
     RAISE NOTICE 'ok: list_users has no password_hash column';
-END $$;
-
---------------------------------------------------------------------------
----                              Events                                 ---
---------------------------------------------------------------------------
-
-DO $$
-BEGIN
-    INSERT INTO events (event_identifier, data)
-        VALUES (1001, '{"magnitude": 4.2}'::jsonb);
-    RAISE NOTICE 'ok: writer can INSERT events';
-
-    IF (SELECT data->>'magnitude' FROM events WHERE event_identifier = 1001)
-       <> '4.2' THEN
-        RAISE EXCEPTION 'FAIL: event data did not round-trip';
-    END IF;
-    RAISE NOTICE 'ok: writer can SELECT events';
-END $$;
-
-DO $$
-BEGIN
-    --- The identifier comes from upstream, so a repeat must collide
-    --- rather than silently make a second row.
-    BEGIN
-        INSERT INTO events (event_identifier, data)
-            VALUES (1001, '{"magnitude": 9.9}'::jsonb);
-        RAISE EXCEPTION 'FAIL: duplicate event_identifier accepted';
-    EXCEPTION WHEN unique_violation THEN
-        RAISE NOTICE 'ok: event_identifier is unique';
-    END;
-
-    BEGIN
-        INSERT INTO events (event_identifier, data) VALUES (1002, NULL);
-        RAISE EXCEPTION 'FAIL: NULL data accepted';
-    EXCEPTION WHEN not_null_violation THEN
-        RAISE NOTICE 'ok: data is NOT NULL';
-    END;
-END $$;
-
---- Separate transaction so NOW() has moved on since the INSERT.
-DO $$
-DECLARE v_created TIMESTAMPTZ;
-        v_last_update TIMESTAMPTZ;
-        v_created_after TIMESTAMPTZ;
-        v_last_update_after TIMESTAMPTZ;
-BEGIN
-    SELECT created, last_update INTO v_created, v_last_update
-      FROM events WHERE event_identifier = 1001;
-
-    --- Deliberately sets created, the way an upsert listing every
-    --- column would.  The trigger must refuse to let it move.
-    UPDATE events
-       SET data = '{"magnitude": 4.5}'::jsonb,
-           created = NOW()
-     WHERE event_identifier = 1001;
-
-    SELECT created, last_update INTO v_created_after, v_last_update_after
-      FROM events WHERE event_identifier = 1001;
-
-    IF v_created_after <> v_created THEN
-        RAISE EXCEPTION 'FAIL: created moved on UPDATE';
-    END IF;
-    RAISE NOTICE 'ok: created is pinned against UPDATE';
-
-    IF v_last_update_after <= v_last_update THEN
-        RAISE EXCEPTION 'FAIL: last_update did not advance on UPDATE';
-    END IF;
-    RAISE NOTICE 'ok: last_update advances on UPDATE';
-END $$;
-
-DO $$
-BEGIN
-    DELETE FROM events WHERE event_identifier = 1001;
-    IF EXISTS (SELECT 1 FROM events WHERE event_identifier = 1001) THEN
-        RAISE EXCEPTION 'FAIL: event not deleted';
-    END IF;
-    RAISE NOTICE 'ok: writer can DELETE events';
 END $$;
 
 \echo '=== writer tests passed ==='

@@ -11,7 +11,6 @@
 #include <spdlog/logger.h>
 #include <spdlog/sinks/stdout_color_sinks.h> //NOLINT
 #include <sodium/crypto_pwhash.h>
-#include <sodium/crypto_sign.h>
 #include <sodium/utils.h>
 #include "aqmsDutyReviewBackend/auth/database.hpp"
 #include "aqmsDutyReviewBackend/auth/databaseOptions.hpp"
@@ -45,22 +44,6 @@ namespace
     return IAuthenticator::permissionsToString(permissions);
 }
 
-/// @brief Decodes base64 text into exactly expectedLength bytes.
-[[nodiscard]] std::optional<std::vector<unsigned char>>
-    base64Decode(const std::string &text, const std::size_t expectedLength)
-{
-    std::vector<unsigned char> result(expectedLength);
-    std::size_t actualLength{0};
-    if (sodium_base642bin(result.data(), result.size(),
-                          text.data(), text.size(),
-                          nullptr, &actualLength, nullptr,
-                          sodium_base64_VARIANT_ORIGINAL) != 0)
-    {
-        return std::nullopt;
-    }
-    if (actualLength != expectedLength){return std::nullopt;}
-    return result;
-}
 
 }
 
@@ -89,52 +72,6 @@ public:
             }
             // NOLINTEND(misc-include-cleaner)
         }
-    }
-
-    /// @brief Verifies a request signed with a registered key.
-    [[nodiscard]] IAuthenticator::Result authenticateByKey(
-        const std::string &message,
-        const std::string &signature,
-        const std::string &publicKey)
-    {
-        // Is this an active key we know?
-        const auto user = mUsers->getUserByKey(publicKey);
-        if (!user)
-        {
-            SPDLOG_LOGGER_WARN(mLogger,
-                               "User not found for provided public key");
-            return IAuthenticator::Result::InvalidCredentials;
-        }
-        const auto publicKeyBytes
-            = ::base64Decode(publicKey, crypto_sign_PUBLICKEYBYTES);
-        const auto signatureBytes
-            = ::base64Decode(signature, crypto_sign_BYTES);
-        if (!publicKeyBytes || !signatureBytes)
-        {
-            SPDLOG_LOGGER_WARN(mLogger,
-                               "Malformed signature or public key for {}",
-                               *user);
-            return IAuthenticator::Result::InvalidCredentials;
-        }
-        // Did the holder of the private key sign this message?
-        if (crypto_sign_verify_detached(
-                signatureBytes->data(),
-                reinterpret_cast<const unsigned char *> (message.data()),
-                message.size(),
-                publicKeyBytes->data()) != 0)
-        {
-            SPDLOG_LOGGER_WARN(mLogger,
-                               "Signature verification failed for {}",
-                               *user);
-            return IAuthenticator::Result::InvalidCredentials;
-        }
-        if (!mUsers->recordKeyUse(publicKey))
-        {
-            SPDLOG_LOGGER_WARN(mLogger, "Failed to record key use for {}",
-                               *user);
-        }
-        SPDLOG_LOGGER_INFO(mLogger, "Verified {} by key", *user);
-        return IAuthenticator::Result::Authenticated;
     }
 
     /// @brief Verifies a user name and password.
@@ -339,56 +276,6 @@ bool Database::updatePassword(
 int Database::deleteExpiredProvisionalUsers()
 {
     return pImpl->mUsers->deleteExpiredProvisionalUsers();
-}
-
-/// Register a key
-bool Database::addUserKey(const std::string &user,
-                          const std::string &keyName,
-                          const std::string &publicKey)
-{
-    // Fail fast on junk before it lands in the database.  The store holds
-    // text; deciding that the text IS an ed25519 key is a crypto question
-    // and so belongs here.
-    if (!publicKey.empty() &&
-        !::base64Decode(publicKey, crypto_sign_PUBLICKEYBYTES))
-    {
-        throw std::invalid_argument(
-            "Public key is not a base64 ed25519 public key");
-    }
-    return pImpl->mUsers->addUserKey(user, keyName, publicKey);
-}
-
-/// Revoke a key
-bool Database::revokeUserKey(const std::string &user,
-                             const std::string &keyName)
-{
-    return pImpl->mUsers->revokeUserKey(user, keyName);
-}
-
-/// Auth by key
-IAuthenticator::Result Database::authenticateKey(
-    const std::string &message,
-    const std::string &signature,
-    const std::string &publicKey)
-{
-    if (message.empty()){throw std::invalid_argument("Message is empty");}
-    if (signature.empty()){throw std::invalid_argument("Signature is empty");}
-    if (publicKey.empty())
-    {
-        throw std::invalid_argument("Public key is empty");
-    }
-    // As with basic authentication a database problem is our problem.
-    try
-    {
-        return pImpl->authenticateByKey(message, signature, publicKey);
-    }
-    catch (const std::exception &e)
-    {
-        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
-                            "Key authentication failed because {}",
-                            std::string {e.what()});
-        return IAuthenticator::Result::ServerError;
-    }
 }
 
 /// Destructor
