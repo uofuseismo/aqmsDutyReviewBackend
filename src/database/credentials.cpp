@@ -8,6 +8,7 @@
 #include <string_view>
 #include <utility>
 #include "aqmsDutyReviewBackend/database/credentials.hpp"
+#include "secretFile.hpp"
 
 #define DRIVER "postgresql"
 
@@ -307,12 +308,29 @@ Credentials Credentials::fromInitializationFile(
     boost::property_tree::ptree propertyTree;
     boost::property_tree::ini_parser::read_ini(iniFile, propertyTree);
 
-    // The must haves
-    auto user = propertyTree.get<std::string> (section + "user");
-    result.setUser(user);
- 
-    auto password = propertyTree.get<std::string> (section + "password");
-    result.setPassword(password);
+    // The must haves.  Either given inline or read out of a file, so a
+    // deployment can point these at a mounted secret rather than render
+    // the credential into the configuration.
+    auto user = AQMSDutyReviewBackend::resolveSecret(propertyTree,
+                                                     section + "user",
+                                                     section + "userFile");
+    if (!user)
+    {
+        throw std::invalid_argument("Neither " + section + "user nor "
+                                  + section + "userFile is set");
+    }
+    result.setUser(*user);
+
+    auto password
+        = AQMSDutyReviewBackend::resolveSecret(propertyTree,
+                                               section + "password",
+                                               section + "passwordFile");
+    if (!password)
+    {
+        throw std::invalid_argument("Neither " + section + "password nor "
+                                  + section + "passwordFile is set");
+    }
+    result.setPassword(*password);
 
     auto database = propertyTree.get<std::string> (section + "database");
     result.setDatabaseName(database);

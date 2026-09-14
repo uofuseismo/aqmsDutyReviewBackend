@@ -34,7 +34,6 @@ find_package(jwt-cpp CONFIG REQUIRED)
 find_package(libsodium REQUIRED)
 find_package(libmseed REQUIRED)
 find_package(geographiclib REQUIRED)
-find_package(OpenLDAP)
 find_package(Crow REQUIRED)
 if (${ENABLE_COMPRESSION})
    set(CROW_ENABLE_COMPRESSION ON) 
@@ -194,17 +193,6 @@ set(LIBRARY_SRC
     src/hash.cpp
     src/metricsSingleton.cpp
     src/version.cpp)
-if (${OpenLDAP_FOUND})
-   message("Adding OpenLDAP authenticator")
-   set(HEADER_FILES
-       ${HEADER_FILES}
-       include/${PROJECT_NAME}/auth/openldap.hpp
-       include/${PROJECT_NAME}/auth/openldapOptions.hpp)
-   set(LIBRARY_SRC
-       ${LIBRARY_SRC}
-       src/auth/openldap.cpp
-       src/auth/openldapOptions.cpp)    
-endif()
 
 if (${BUILD_SHARED_LIBS})
    add_library(libaqmsDutyReviewBackend SHARED ${LIBRARY_SRC} ${WILL_BE_DELETED_SRC} ${PROTO_SRC})
@@ -227,15 +215,15 @@ target_link_libraries(libaqmsDutyReviewBackend
                       PUBLIC  libpqxx::pqxx
                               Boost::json
                       PRIVATE jwt-cpp::jwt-cpp
-                              mseed::mseed
                               spdlog::spdlog_header_only
                               Boost::headers Boost::json Boost::program_options
                               libsodium::libsodium
                               GeographicLib::GeographicLib
                               Threads::Threads)
-if (${OpenLDAP_FOUND})
-   target_compile_definitions(libaqmsDutyReviewBackend PUBLIC WITH_OPENLDAP)
-   target_link_libraries(libaqmsDutyReviewBackend PRIVATE OpenLDAP::ldap OpenLDAP::lber)
+if (${BUILD_SHARED_LIBS})
+   target_link_libraries(libaqmsDutyReviewBackend PRIVATE mseed::mseed)
+else()
+   target_link_libraries(libaqmsDutyReviewBackend PRIVATE mseed::mseed_static)
 endif()
 
 target_sources(libaqmsDutyReviewBackend
@@ -306,16 +294,12 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
        testing/database/serialize.cpp
        testing/signalProcessing/signalProcessing.cpp
        testing/database/credentials.cpp
+       testing/secretFile.cpp
        testing/auth/authenticator.cpp
        testing/auth/authNZ.cpp
        testing/auth/authorization.cpp
        testing/auth/jsonWebToken.cpp
        testing/auth/password.cpp)
-   if (${OpenLDAP_FOUND})
-       set(TEST_SRC
-           ${TEST_SRC} 
-           testing/auth/openldap.cpp)
-   endif()
    add_executable(unitTests ${TEST_SRC})
    target_compile_definitions(unitTests
                               PRIVATE TESTING_DATA_DIR="${CMAKE_SOURCE_DIR}/testing/data")
@@ -331,6 +315,7 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
                             Catch2::Catch2 Catch2::Catch2WithMain)
    target_include_directories(unitTests
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+                              PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
                               PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/testing/database/aqms>)
    add_test(NAME unitTests
             COMMAND $<TARGET_FILE:unitTests>)

@@ -51,8 +51,23 @@ std::string getOTelCollectorURL(boost::property_tree::ptree &propertyTree,
                                 const std::string &section)
 {
     std::string result;
-    const std::string otelCollectorHost
-        = propertyTree.get<std::string> (section + ".host", "");
+    std::string otelCollectorHost;
+    if (propertyTree.get<bool> (section + ".getHostFromEnvironment", false))
+    {
+        auto hostPtr = std::getenv("OTEL_COLLECTOR_HOST"); 
+        if (hostPtr)
+        {
+            if (std::strlen(hostPtr) > 0)
+            {
+                 otelCollectorHost = std::string{hostPtr};
+            }
+        }
+    }
+    if (otelCollectorHost.empty())
+    {
+        otelCollectorHost
+            = propertyTree.get<std::string> (section + ".host", "");
+    }
     const uint16_t otelCollectorPort
         = propertyTree.get<uint16_t> (section + ".port", 4218);
     if (!otelCollectorHost.empty())

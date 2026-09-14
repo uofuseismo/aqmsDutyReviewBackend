@@ -14,29 +14,13 @@
 #include "aqmsDutyReviewBackend/auth/databaseOptions.hpp"
 #include "aqmsDutyReviewBackend/auth/jsonWebTokenOptions.hpp"
 #include "aqmsDutyReviewBackend/auth/password.hpp"
-/*
-#ifdef WITH_OPENLDAP
-#include "aqmsDutyReviewBackend/auth/openldapOptions.hpp"
-#endif
-*/
+#include "secretFile.hpp"
 #include "aqmsDutyReviewBackend/database/credentials.hpp"
 #include "otelOptions.hpp"
 
 #define APPLICATION_NAME "aqmsDutyReviewBackend"
 namespace
 {
-
-std::optional<std::string>
-    getStringEnvironmentVariable(const std::string &variable)
-{
-    auto value = std::getenv(variable.c_str());
-    if (value)
-    {
-        std::string result{value};
-        return std::make_optional<std::string> (result);
-    }
-    return std::nullopt;
-}
 
 /// @brief Site policy for how long provisional credentials live.
 /// @note These are policy rather than mechanism, which is why they are
@@ -350,30 +334,17 @@ struct ProgramOptions
         }
         catalogDuration = std::chrono::days {catalogDays};
 
-        stadiaMapsAPIKey
-            = propertyTree.get<std::string> ("General.stadiaMapsAPIKey",
-                                             stadiaMapsAPIKey);
-        if (!stadiaMapsAPIKey.empty())
-        {
-            auto apiKey = ::getStringEnvironmentVariable("STADIA_MAPS_API_KEY");
-            if (apiKey != std::nullopt)
-            {
-                stadiaMapsAPIKey = *apiKey;
-            }
-        } 
+        auto stadiaKey
+            = AQMSDutyReviewBackend::resolveSecret(
+                 propertyTree,
+                 "General.stadiaMapsAPIKey",
+                 "General.stadiaMapsAPIKeyFile");
+        if (stadiaKey){stadiaMapsAPIKey = *stadiaKey;}
 /*
         auto printSummaryIntervalInMinutes
             = propertyTree.get<int> ("General.printSummaryIntervalInMinutes",
                                      PRINT_SUMMARY_INTERVAL_MINUTES);
         printSummaryInterval = std::chrono::minutes {printSummaryIntervalInMinutes};
-*/
-/*
-#ifdef WITH_OPENLDAP
-        // OpenLDAP 
-        openLDAPOptions
-            = DRP::Auth::OpenLDAPOptions::fromInitializationFile(
-                iniFile, "OpenLDAP");
-#endif
 */
         // DRP database
         auto drpDatabaseCredentials
@@ -533,11 +504,6 @@ struct ProgramOptions
     /// post-processing, which is a normal deployment and not a problem.
     std::vector<AQMSDutyReviewBackend::Database::Credentials>
         auxiliaryAQMSCredentials;
-/*
-#ifdef WITH_OPENLDAP
-    AQMSDutyReviewBackend::Auth::OpenLDAPOptions openLDAPOptions;
-#endif
-*/
     AQMSDutyReviewBackend::OTelOptions::HTTPMetrics otelHTTPMetricsOptions;
     AQMSDutyReviewBackend::OTelOptions::HTTPLog otelHTTPLogOptions;
     AQMSDutyReviewBackend::OTelOptions::GRPCMetrics otelGRPCMetricsOptions;
