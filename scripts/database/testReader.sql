@@ -138,14 +138,6 @@ EXCEPTION WHEN insufficient_privilege THEN
     RAISE NOTICE 'ok: reader denied delete_expired_provisional_users';
 END $$;
 
-DO $$
-BEGIN
-    PERFORM record_key_use('pubkey-alice-expired');
-    RAISE EXCEPTION 'FAIL: reader could record a key use';
-EXCEPTION WHEN insufficient_privilege THEN
-    RAISE NOTICE 'ok: reader denied record_key_use';
-END $$;
-
 --------------------------------------------------------------------------
 ---                        Creating objects                             ---
 --------------------------------------------------------------------------

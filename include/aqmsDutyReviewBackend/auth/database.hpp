@@ -25,11 +25,11 @@ namespace AQMSDutyReviewBackend::Auth
 ///
 ///       1. Everything lives in the default 'public' schema.  There are no
 ///          others, so no query here carries a schema prefix.
-///       2. The auth tables are unreachable except through functions.
-///          Neither backend role holds table privileges on users or
-///          user_keys, so every call below goes through a SECURITY
-///          DEFINER function - a compromised backend cannot read a
-///          password hash even though it can create and delete users.
+///       2. The users table is unreachable except through functions.
+///          Neither backend role holds table privileges on it, so every
+///          call below goes through a SECURITY DEFINER function - a
+///          compromised backend cannot read a password hash even though
+///          it can create and delete users.
 /// @copyright Ben Baker (University of Utah) distributed under the
 ///            MIT NO AI license.
 class Database final : public IAuthenticator

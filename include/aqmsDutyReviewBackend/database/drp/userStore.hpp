@@ -59,10 +59,10 @@ struct UserRecord
 /// it stores what it is given and returns what it holds.  Authentication
 /// is layered above it.
 ///
-/// @note Every table it touches is reachable only through SECURITY
-///       DEFINER functions - neither backend role holds table privileges
-///       on users or user_keys - so a compromised backend cannot read a
-///       password hash even though it can create and delete users.  The
+/// @note The users table is reachable only through SECURITY DEFINER
+///       functions - neither backend role holds table privileges on it -
+///       so a compromised backend cannot read a password hash even though
+///       it can create and delete users.  The
 ///       administrative calls each take the acting user, because the
 ///       database checks authority itself rather than trusting this
 ///       backend to have done it.
