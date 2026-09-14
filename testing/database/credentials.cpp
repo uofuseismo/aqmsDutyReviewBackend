@@ -1,4 +1,7 @@
 #include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <stdexcept>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -62,3 +65,91 @@ TEST_CASE("AQMSDutyReviewBackend::Database", "Credentials")
     }
 }
 
+
+TEST_CASE("AQMSDutyReviewBackend::Database", "[credentialsFromFile]")
+{
+    using namespace AQMSDutyReviewBackend::Database;
+    namespace fs = std::filesystem;
+
+    const auto directory
+        = fs::temp_directory_path() / "aqmsdrp-credentials-test";
+    fs::create_directories(directory);
+    const auto write
+        = [&](const std::string &name, const std::string &contents)
+          {
+              const auto path = directory / name;
+              std::ofstream file{path};
+              file << contents;
+              return path.string();
+          };
+
+    SECTION("userFile and passwordFile are read")
+    {
+        const auto userPath = write("drp-user", "aqmsdrp_writer\n");
+        const auto passwordPath = write("drp-password", "hunter2\n");
+        const auto iniPath = directory / "userfile.ini";
+        {
+            std::ofstream ini{iniPath};
+            ini << "[DRP]\n"
+                << "userFile=" << userPath << "\n"
+                << "passwordFile=" << passwordPath << "\n"
+                << "database=aqmsdrpdb\n"
+                << "host=localhost\n"
+                << "port=5432\n";
+        }
+        const auto credentials
+            = Credentials::fromInitializationFile(iniPath.string(), "DRP");
+        REQUIRE(credentials.hasUser());
+        REQUIRE(credentials.getUser() == "aqmsdrp_writer");
+        REQUIRE(credentials.hasPassword());
+        REQUIRE(credentials.getPassword() == "hunter2");
+    }
+    SECTION("Inline still works")
+    {
+        const auto iniPath = directory / "inline.ini";
+        {
+            std::ofstream ini{iniPath};
+            ini << "[DRP]\n"
+                << "user=aqmsdrp_writer\n"
+                << "password=hunter2\n"
+                << "database=aqmsdrpdb\n";
+        }
+        const auto credentials
+            = Credentials::fromInitializationFile(iniPath.string(), "DRP");
+        REQUIRE(credentials.getUser() == "aqmsdrp_writer");
+        REQUIRE(credentials.getPassword() == "hunter2");
+    }
+    SECTION("Mixing the forms across settings is fine")
+    {
+        // The realistic deployment: the user name is not a secret and
+        // stays in the ConfigMap, the password comes from the Secret.
+        const auto passwordPath = write("drp-password2", "hunter2\n");
+        const auto iniPath = directory / "mixed.ini";
+        {
+            std::ofstream ini{iniPath};
+            ini << "[DRP]\n"
+                << "user=aqmsdrp_writer\n"
+                << "passwordFile=" << passwordPath << "\n"
+                << "database=aqmsdrpdb\n";
+        }
+        const auto credentials
+            = Credentials::fromInitializationFile(iniPath.string(), "DRP");
+        REQUIRE(credentials.getUser() == "aqmsdrp_writer");
+        REQUIRE(credentials.getPassword() == "hunter2");
+    }
+    SECTION("A userFile that does not exist is an error naming the setting")
+    {
+        const auto iniPath = directory / "missing.ini";
+        {
+            std::ofstream ini{iniPath};
+            ini << "[DRP]\n"
+                << "userFile=/nonexistent/drp-user\n"
+                << "password=hunter2\n"
+                << "database=aqmsdrpdb\n";
+        }
+        REQUIRE_THROWS_AS(
+            Credentials::fromInitializationFile(iniPath.string(), "DRP"),
+            std::invalid_argument);
+    }
+    fs::remove_all(directory);
+}
