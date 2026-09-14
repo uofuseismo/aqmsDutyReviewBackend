@@ -341,15 +341,18 @@ int main(int argc, char *argv[])
         return crow::response(200);
     });
 
-    CROW_ROUTE(app, "/settings")
-    ([&](const crow::request &request) -> crow::response
+    // Authorized like everything else: this carries the Stadia Maps API
+    // key, which is a credential and was previously readable by anything
+    // that could reach the port.
+    ::authorizedRoute(
+        app, "/settings", "settings", ::readOnlyRequirement, routeContext,
+        [&](const crow::request &,
+            const AQMSDutyReviewBackend::Auth::JSONWebToken::Claims
+                &identity) -> crow::response
     {
-        return ::timedRoute("settings",
-                            [&]() -> crow::response
-        {
-        // TODO must authorize user's jwt
         SPDLOG_LOGGER_DEBUG(customLogger.logger,
-                            "Processing settings request");
+                            "Processing settings request for {}",
+                            identity.user);
         boost::json::object settings;
         settings["backendVersion"]
             = AQMSDutyReviewBackend::Version::getVersion();
@@ -366,7 +369,6 @@ int main(int argc, char *argv[])
             settings["primaryDatabase"] = "Unknown";
         }
         return ::makeDataResponse(200, "Settings", std::move(settings));
-        });
     });
 
     // Login is its own shape: it turns a password into a token, so it
