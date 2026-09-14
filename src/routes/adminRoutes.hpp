@@ -51,7 +51,7 @@ inline void registerAdminRoutes(crow::SimpleApp &app,
     using Claims = AQMSDutyReviewBackend::Auth::JSONWebToken::Claims;
 
     ::authorizedRoute(
-        app, "/actions/admin/add-provisional-user", "admin-add-provisional-user", crow::HTTPMethod::POST,
+        app, "/users/add", "users-add", crow::HTTPMethod::POST,
         ::administratorRequirement, context,
         [&context](const crow::request &request,
                    const Claims &identity) -> crow::response
@@ -129,7 +129,7 @@ inline void registerAdminRoutes(crow::SimpleApp &app,
             });
 
     ::authorizedRoute(
-        app, "/actions/admin/reset-user-password", "admin-reset-user-password", crow::HTTPMethod::POST,
+        app, "/users/reset-password", "users-reset-password", crow::HTTPMethod::POST,
         ::administratorRequirement, context,
         [&context](const crow::request &request,
                    const Claims &identity) -> crow::response
@@ -179,7 +179,7 @@ inline void registerAdminRoutes(crow::SimpleApp &app,
             });
 
     ::authorizedRoute(
-        app, "/actions/admin/set-user-permission", "admin-set-user-permission", crow::HTTPMethod::POST,
+        app, "/users/permission", "users-permission", crow::HTTPMethod::POST,
         ::administratorRequirement, context,
         [&context](const crow::request &request,
                    const Claims &identity) -> crow::response
@@ -230,7 +230,7 @@ inline void registerAdminRoutes(crow::SimpleApp &app,
             });
 
     ::authorizedRoute(
-        app, "/actions/admin/remove-user", "admin-remove-user", crow::HTTPMethod::POST,
+        app, "/users/remove", "users-remove", crow::HTTPMethod::POST,
         ::administratorRequirement, context,
         [&context](const crow::request &request,
                    const Claims &identity) -> crow::response
@@ -262,7 +262,7 @@ inline void registerAdminRoutes(crow::SimpleApp &app,
             });
 
     ::authorizedRoute(
-        app, "/actions/admin/list-users", "admin-list-users", ::administratorRequirement, context,
+        app, "/users", "users-list", ::administratorRequirement, context,
         [&context](const crow::request &request,
                    const Claims &identity) -> crow::response
             {

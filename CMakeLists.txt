@@ -295,6 +295,7 @@ if (PROJECT_IS_TOP_LEVEL AND ${BUILD_TESTS})
        testing/signalProcessing/signalProcessing.cpp
        testing/database/credentials.cpp
        testing/secretFile.cpp
+       testing/routeCatalog.cpp
        testing/auth/authenticator.cpp
        testing/auth/authNZ.cpp
        testing/auth/authorization.cpp

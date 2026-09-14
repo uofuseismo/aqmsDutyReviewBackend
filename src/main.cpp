@@ -345,7 +345,7 @@ int main(int argc, char *argv[])
     // key, which is a credential and was previously readable by anything
     // that could reach the port.
     ::authorizedRoute(
-        app, "/settings", "settings", ::readOnlyRequirement, routeContext,
+        app, "/app-settings", "app-settings", ::readOnlyRequirement, routeContext,
         [&](const crow::request &,
             const AQMSDutyReviewBackend::Auth::JSONWebToken::Claims
                 &identity) -> crow::response
@@ -373,6 +373,7 @@ int main(int argc, char *argv[])
 
     // Login is its own shape: it turns a password into a token, so it
     // cannot go through the authorization helper that expects one.
+    ::describeOpenRoute("GET", "/auth/login", "auth-login");
     CROW_ROUTE(app, "/auth/login")
     ([&](const crow::request &request) -> crow::response
     {
@@ -386,6 +387,32 @@ int main(int argc, char *argv[])
             return ::userLoginRoute(request, *authenticator, logger);
         });
     });
+
+    // Registered last, and only when asked for, so the document describes
+    // every route above it.  Off by default: it names each route and the
+    // permission it wants, which is a map worth handing to an operator and
+    // not to anybody else.
+    if (programOptions.documentAPI)
+    {
+        SPDLOG_LOGGER_INFO(logger, "Serving API documentation at /api-documentation");
+        // No describeRoute here - authorizedRoute records it itself, and
+        // calling both would list this route twice.
+        ::authorizedRoute(
+            app, "/api-documentation", "api-documentation",
+            ::readOnlyRequirement, routeContext,
+            [&](const crow::request &,
+                const AQMSDutyReviewBackend::Auth::JSONWebToken::Claims
+                    &identity) -> crow::response
+        {
+            SPDLOG_LOGGER_DEBUG(logger, "{} requesting the API documentation",
+                                identity.user);
+            return ::makeDataResponse(
+                200, "API documentation",
+                ::routeCatalogToJSON(
+                    programOptions.applicationName,
+                    AQMSDutyReviewBackend::Version::getVersion()));
+        });
+    }
 
     // Everything else is grouped by what it is about.  Adding a route
     // means editing one of these files, not this one.

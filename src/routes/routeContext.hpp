@@ -17,6 +17,7 @@
 #include "aqmsDutyReviewBackend/database/aqms/database.hpp"
 #include "aqmsDutyReviewBackend/database/drp/userStore.hpp"
 #include "authorizeRoute.hpp"
+#include "routeCatalog.hpp"
 #include "routeMetrics.hpp"
 
 namespace
@@ -114,6 +115,7 @@ void authorizedRoute(crow::SimpleApp &app,
                      const RouteContext &context,
                      Handler handler)
 {
+    ::describeRoute(crow::method_name(method), url, metricName, requirement);
     app.route_dynamic(url)
       .methods(method)
       ([&context, requirement, handler, metricName]

@@ -334,6 +334,9 @@ struct ProgramOptions
         }
         catalogDuration = std::chrono::days {catalogDays};
 
+        documentAPI
+            = propertyTree.get<bool> ("General.documentAPI", documentAPI);
+
         auto stadiaKey
             = AQMSDutyReviewBackend::resolveSecret(
                  propertyTree,
@@ -493,6 +496,11 @@ struct ProgramOptions
     ///       catalog window belongs to an event that is not on screen.
     std::chrono::seconds catalogDuration{std::chrono::hours {24*7}};
 
+    /// @brief Whether to serve the API documentation route.
+    /// @note Off by default.  The document names every route and the
+    ///       permission each one wants, which is a map worth handing to
+    ///       operators and worth not handing to anybody else.
+    bool documentAPI{false};
     std::string stadiaMapsAPIKey;
     CrowOptions crowOptions;
     UserManagementOptions userManagementOptions;

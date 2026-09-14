@@ -76,7 +76,7 @@ inline void registerEventRoutes(crow::SimpleApp &app,
     using Claims = AQMSDutyReviewBackend::Auth::JSONWebToken::Claims;
 
     ::authorizedRoute(
-        app, "/event-information/locks", "event-information-locks", ::readOnlyRequirement, context,
+        app, "/events/locks", "events-locks", ::readOnlyRequirement, context,
         [&context](const crow::request &,
                    const Claims &identity) -> crow::response
         {
@@ -103,7 +103,7 @@ inline void registerEventRoutes(crow::SimpleApp &app,
         });
 
     ::authorizedRoute(
-        app, "/event-information/catalog", "event-information-catalog", ::readOnlyRequirement, context,
+        app, "/events", "events", ::readOnlyRequirement, context,
         [&context](const crow::request &,
                    const Claims &identity) -> crow::response
         {
@@ -129,7 +129,7 @@ inline void registerEventRoutes(crow::SimpleApp &app,
         });
 
     ::authorizedRoute(
-        app, "/event-information/catalog-hash", "event-information-catalog-hash", ::readOnlyRequirement,
+        app, "/events/hash", "events-hash", ::readOnlyRequirement,
         context,
         [&context](const crow::request &,
                    const Claims &identity) -> crow::response
@@ -165,13 +165,14 @@ inline void registerEventRoutes(crow::SimpleApp &app,
     // a static segment in preference to a parameter, and "locks" is not an
     // integer in any case, so /event-information/locks and
     // /event-information/catalog still reach their own handlers.
-    CROW_ROUTE(app, "/event-information/<int>")
+    ::describeRoute("GET", "/events/<int>", "event", ::readOnlyRequirement);
+    CROW_ROUTE(app, "/events/<int>")
     ([&context](const crow::request &request,
                 const int64_t eventIdentifier) -> crow::response
     {
         // One name for every event, not one per identifier.  The url carries
         // an event id; using it would mint a metric per event.
-        ::RouteTimer timer{"event-information"};
+        ::RouteTimer timer{"event"};
         auto authorization = ::authorizeRoute(request, *context.authenticator,
                                               ::readOnlyRequirement,
                                               context.logger);
@@ -207,11 +208,13 @@ inline void registerEventRoutes(crow::SimpleApp &app,
             AQMSDutyReviewBackend::Database::AQMS::toJSON(**event)));
     });
 
-    CROW_ROUTE(app, "/waveforms-hash/<int>")
+    ::describeRoute("GET", "/events/<int>/waveforms/hash",
+                    "event-waveforms-hash", ::readOnlyRequirement);
+    CROW_ROUTE(app, "/events/<int>/waveforms/hash")
     ([&context](const crow::request &request,
                 const int64_t eventIdentifier) -> crow::response
     {
-        return ::timedRoute("waveforms-hash",
+        return ::timedRoute("event-waveforms-hash",
                             [&]() -> crow::response
         {
             auto authorization = ::authorizeRoute(request, *context.authenticator,

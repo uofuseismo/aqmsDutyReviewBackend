@@ -126,11 +126,13 @@ filterWaveform(const AQMSDutyReviewBackend::Database::AQMS::Waveform &waveform,
 inline void registerWaveformRoutes(crow::SimpleApp &app,
                                    const RouteContext &context)
 {
-    CROW_ROUTE(app, "/waveforms/location/<int>")
+    ::describeRoute("GET", "/events/<int>/waveforms", "event-waveforms",
+                    ::readOnlyRequirement);
+    CROW_ROUTE(app, "/events/<int>/waveforms")
     ([&context](const crow::request &request,
                 const int64_t eventIdentifier) -> crow::response
     {
-        return ::timedRoute("waveforms",
+        return ::timedRoute("event-waveforms",
                             [&]() -> crow::response
         {
             auto authorization = ::authorizeRoute(request, *context.authenticator,

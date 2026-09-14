@@ -72,7 +72,7 @@ inline void registerGazetteerRoutes(crow::SimpleApp &app,
         });
 
     ::authorizedRoute(
-        app, "/gazetteer/quarries-hash", "gazetteer-quarries-hash",
+        app, "/gazetteer/quarries/hash", "gazetteer-quarries-hash",
         ::readOnlyRequirement, context,
         [&context](const crow::request &,
                    const AQMSDutyReviewBackend::Auth::JSONWebToken::Claims

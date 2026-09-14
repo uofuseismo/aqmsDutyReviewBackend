@@ -86,12 +86,14 @@ constexpr AQMSDutyReviewBackend::Auth::Requirement readWriteRequirement
 inline void registerActionRoutes(crow::SimpleApp &app,
                                  const RouteContext &context)
 {
-    CROW_ROUTE(app, "/actions/accept/<int>")
+    ::describeRoute("POST", "/events/<int>/accept", "event-accept",
+                    ::readWriteRequirement);
+    CROW_ROUTE(app, "/events/<int>/accept")
         .methods(crow::HTTPMethod::POST)
     ([&context](const crow::request &request,
                 const int64_t eventIdentifier) -> crow::response
     {
-        return ::timedRoute("action-accept",
+        return ::timedRoute("event-accept",
                             [&]() -> crow::response
         {
             auto authorization = ::authorizeRoute(request, *context.authenticator,
@@ -105,12 +107,14 @@ inline void registerActionRoutes(crow::SimpleApp &app,
         });
     });
 
-    CROW_ROUTE(app, "/actions/cancel/<int>")
+    ::describeRoute("POST", "/events/<int>/cancel", "event-cancel",
+                    ::readWriteRequirement);
+    CROW_ROUTE(app, "/events/<int>/cancel")
         .methods(crow::HTTPMethod::POST)
     ([&context](const crow::request &request,
                 const int64_t eventIdentifier) -> crow::response
     {
-        return ::timedRoute("action-cancel",
+        return ::timedRoute("event-cancel",
                             [&]() -> crow::response
         {
             auto authorization = ::authorizeRoute(request, *context.authenticator,

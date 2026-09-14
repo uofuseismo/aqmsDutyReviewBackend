@@ -17,12 +17,14 @@ inline void registerAlarmRoutes(crow::SimpleApp &app,
 {
     // A url parameter, so CROW_ROUTE and an explicit authorizeRoute rather
     // than ::authorizedRoute.
-    CROW_ROUTE(app, "/alarms/<int>")
+    ::describeRoute("GET", "/events/<int>/alarms", "event-alarms",
+                    ::readOnlyRequirement);
+    CROW_ROUTE(app, "/events/<int>/alarms")
     ([&context](const crow::request &request,
                 const int64_t eventIdentifier) -> crow::response
     {
         // One name for every event, not one per identifier.
-        ::RouteTimer timer{"alarms"};
+        ::RouteTimer timer{"event-alarms"};
         auto authorization = ::authorizeRoute(request, *context.authenticator,
                                               ::readOnlyRequirement,
                                               context.logger);
