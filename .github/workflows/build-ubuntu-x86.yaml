@@ -4,8 +4,8 @@ run-name: Pipeline for branch ${{ github.ref_name }}
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  #pull_request:
+  #  branches: [main]
 
 env:
   PROJECT_NAME: AQMSDutyReviewBackend
@@ -211,5 +211,9 @@ jobs:
           echo "Will build container version ${version}"
           buildah bud -t ${CONTAINER_NAME}:${version} -t ${CONTAINER_NAME}:latest -f ./Dockerfile.u26
           buildah tag ${CONTAINER_NAME}:${version} quay.io/uuss/${QUAY_DIRECTORY}:${version}
-          buildah push quay.io/uuss/${QUAY_DIRECTORY}:${version}
+          # Add retry on transient miss
+          for i in 1 2 3; do
+             buildah push quay.io/uuss/${QUAY_DIRECTORY}:${version} && break
+             echo "Push failed attempt $i), retyring"; sleep 15
+          done
 

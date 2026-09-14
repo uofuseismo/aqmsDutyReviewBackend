@@ -2,10 +2,13 @@
 #define AQMS_DUTY_REVIEW_BACKEND_SECRET_FILE_HPP
 #include <filesystem>
 #include <fstream>
-#include <sstream>
+#include <ios>
 #include <optional>
+#include <system_error>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <boost/property_tree/ptree.hpp>
 
 /// @file secretFile.hpp
 /// @brief Reads a secret out of a file so it need not be written into the
@@ -89,7 +92,6 @@ template<typename PropertyTree>
     {
         return ::AQMSDutyReviewBackend::readSecretFile(*fileValue, fileKey);
     }
-    // boost::optional, not std::optional - property_tree predates it.
     if (inlineValue){return std::make_optional<std::string> (*inlineValue);}
     return std::nullopt;
 }
