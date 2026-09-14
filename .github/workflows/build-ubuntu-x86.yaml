@@ -4,8 +4,25 @@ run-name: Pipeline for branch ${{ github.ref_name }}
 on:
   push:
     branches: [main]
+  # Rebuilds on an unchanged tree so the image picks up base-image
+  # security updates.  FROM ubuntu:26.04 re-resolves and apt-get upgrade
+  # runs on a fresh runner with no layer cache, so this is a real rebuild.
+  schedule:
+    # Off the hour deliberately - scheduled runs queue heavily at :00.
+    # UTC.  Note GitHub disables scheduled workflows after 60 days with
+    # no repository activity, and emails the owner when it does.
+    - cron: '17 9 * * *'
+  # A manual trigger, for when the registry was down rather than the code
+  # being wrong.
+  workflow_dispatch:
   #pull_request:
   #  branches: [main]
+
+# One pipeline at a time.  Not cancel-in-progress: a run that is already
+# pushing should finish rather than leave a tag half-written.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   PROJECT_NAME: AQMSDutyReviewBackend
@@ -210,10 +227,29 @@ jobs:
           version=$(ls *tar.gz | sed 's/aqmsDutyReviewBackend-//g' | sed 's/-Linux.tar.gz//g')
           echo "Will build container version ${version}"
           buildah bud -t ${CONTAINER_NAME}:${version} -t ${CONTAINER_NAME}:latest -f ./Dockerfile.u26
+          # Two names for one image.  The plain version tag is what the
+          # Deployment references and what imagePullPolicy: Always
+          # follows; the dated one never appears in a manifest and exists
+          # so a running pod's digest can be traced to a build, and so
+          # yesterday's image is still reachable if a base update breaks
+          # something.
+          dated="${version}-$(date -u +%Y%m%d)"
           buildah tag ${CONTAINER_NAME}:${version} quay.io/uuss/${QUAY_DIRECTORY}:${version}
-          # Add retry on transient miss
-          for i in 1 2 3; do
-             buildah push quay.io/uuss/${QUAY_DIRECTORY}:${version} && break
-             echo "Push failed attempt $i), retyring"; sleep 15
-          done
+          buildah tag ${CONTAINER_NAME}:${version} quay.io/uuss/${QUAY_DIRECTORY}:${dated}
+          # Retry a transient registry failure, but FAIL the step when
+          # every attempt fails.  A loop that just falls through leaves a
+          # green pipeline and a stale tag in the registry, which looks
+          # exactly like a working deploy until something reads the
+          # binary.
+          push_tag() {
+            for i in 1 2 3; do
+              buildah push "$1" && return 0
+              echo "Push of $1 failed (attempt $i); retrying"
+              sleep 15
+            done
+            echo "ERROR: could not push $1 after 3 attempts"
+            return 1
+          }
+          push_tag quay.io/uuss/${QUAY_DIRECTORY}:${version}
+          push_tag quay.io/uuss/${QUAY_DIRECTORY}:${dated}
 
