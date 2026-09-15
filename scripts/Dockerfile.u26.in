@@ -1,7 +1,7 @@
 # Purpose: Creates the container for running the aqmsDutyReviewBackend software
 #          in a Ubuntu container.
-# Usage: podman build -t aqmsdutyreviewbackender:latest -f Dockerfile.u26
-#        buildah bud -t aqmsdutyreviewbackender:latest -f Dockerfile.u26
+# Usage: podman build -t aqmsdutyreviewbackend:latest -f Dockerfile.u26
+#        buildah bud -t aqmsdutyreviewbackend:latest -f Dockerfile.u26
 FROM ubuntu:26.04
 
 # Numeric, because Kubernetes cannot verify runAsNonRoot against a user

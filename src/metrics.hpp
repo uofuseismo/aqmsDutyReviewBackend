@@ -375,14 +375,19 @@ void createMeters(const ProgramOptions &options)
 
     auto provider
         = opentelemetry::metrics::Provider::GetMeterProvider();
+    if (provider == nullptr)
+    {
+        throw std::runtime_error("Provider is null");
+    }
     auto meter = provider->GetMeter(options.applicationName, "1.2.0");
+    if (meter == nullptr){std::runtime_error("Meter is null");}
 
     // 200 counts (all routes)
     successCounter
         = meter->CreateInt64ObservableCounter(
              "aqms.drp.responses.success",
              "Number of 200 responses to user.",
-             nullptr); 
+             ""); 
     successCounter->AddCallback(::observeSuccessCounts, nullptr);
 
     // 400 counts (all routes)
@@ -390,7 +395,7 @@ void createMeters(const ProgramOptions &options)
         = meter->CreateInt64ObservableCounter(
              "aqms.drp.responses.errors.client",
              "Number of 40x responses to user.",
-             nullptr); 
+             ""); 
     clientErrorCounter->AddCallback(::observeClientErrorCounts, nullptr);
 
     // 500 counts (all routes)
@@ -398,7 +403,7 @@ void createMeters(const ProgramOptions &options)
         = meter->CreateInt64ObservableCounter(
              "aqms.drp.responses.errors.server",
              "Number of 50x responses to user.",
-             nullptr);
+             "");
     serverErrorCounter->AddCallback(::observeServerErrorCounts, nullptr);
 
     // 401 counts
@@ -406,7 +411,7 @@ void createMeters(const ProgramOptions &options)
         = meter->CreateInt64ObservableCounter(
              "aqms.drp.responses.unauthenticated",
              "Number of 401 Unauthorized responses to user.",
-             nullptr); 
+             ""); 
     unauthenticatedCounter->AddCallback(
         ::observeUnauthenticatedCounts, nullptr);
 
@@ -415,7 +420,7 @@ void createMeters(const ProgramOptions &options)
         = meter->CreateInt64ObservableCounter(
              "aqms.drp.responses.unauthorized",
              "Number of 403 Forbidden responses to user.",
-             nullptr);
+             "");
     unauthorizedCounter->AddCallback(
         ::observeUnauthorizedCounts, nullptr);
 

@@ -54,7 +54,7 @@ std::string getOTelCollectorURL(boost::property_tree::ptree &propertyTree,
     std::string otelCollectorHost;
     if (propertyTree.get<bool> (section + ".getHostFromEnvironment", false))
     {
-        auto hostPtr = std::getenv("OTEL_COLLECTOR_HOST"); 
+        auto hostPtr = getenv("OTEL_COLLECTOR_HOST"); 
         if (hostPtr)
         {
             if (std::strlen(hostPtr) > 0)

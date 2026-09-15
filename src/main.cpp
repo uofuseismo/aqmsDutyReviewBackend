@@ -42,6 +42,7 @@
 #include "routes/eventRoutes.hpp"
 #include "routes/gazetteerRoutes.hpp"
 #include "routes/routeContext.hpp"
+#include "routes/routeMetrics.hpp"
 #include "routes/stationRoutes.hpp"
 #include "routes/userRoutes.hpp"
 #include "routes/waveformRoutes.hpp"
