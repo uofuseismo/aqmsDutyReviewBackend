@@ -191,7 +191,7 @@ void observeSuccessCounts(
         <
             opentelemetry::nostd::shared_ptr
             <
-                opentelemetry::metrics::ObserverResultT<double>
+                opentelemetry::metrics::ObserverResultT<int64_t>
             >
         > (observerResult))
     {
@@ -199,7 +199,7 @@ void observeSuccessCounts(
         <
             opentelemetry::nostd::shared_ptr
             <
-               opentelemetry::metrics::ObserverResultT<double>
+               opentelemetry::metrics::ObserverResultT<int64_t>
             >
         > (observerResult);
         // N.B. these should all be noexcepts
@@ -226,7 +226,7 @@ void observeClientErrorCounts(
         <   
             opentelemetry::nostd::shared_ptr
             <   
-                opentelemetry::metrics::ObserverResultT<double>
+                opentelemetry::metrics::ObserverResultT<int64_t>
             >   
         > (observerResult))
     {
@@ -234,7 +234,7 @@ void observeClientErrorCounts(
         <   
             opentelemetry::nostd::shared_ptr
             <   
-               opentelemetry::metrics::ObserverResultT<double>
+               opentelemetry::metrics::ObserverResultT<int64_t>
             >   
         > (observerResult);
         // N.B. these should all be noexcepts
@@ -261,7 +261,7 @@ void observeServerErrorCounts(
         <   
             opentelemetry::nostd::shared_ptr
             <   
-                opentelemetry::metrics::ObserverResultT<double>
+                opentelemetry::metrics::ObserverResultT<int64_t>
             >   
         > (observerResult))
     {
@@ -269,7 +269,7 @@ void observeServerErrorCounts(
         <   
             opentelemetry::nostd::shared_ptr
             <   
-               opentelemetry::metrics::ObserverResultT<double>
+               opentelemetry::metrics::ObserverResultT<int64_t>
             >   
         > (observerResult);
         // N.B. these should all be noexcepts
@@ -296,7 +296,7 @@ void observeUnauthenticatedCounts(
         <
             opentelemetry::nostd::shared_ptr
             <
-                opentelemetry::metrics::ObserverResultT<double>
+                opentelemetry::metrics::ObserverResultT<int64_t>
             >
         > (observerResult))
     {
@@ -304,7 +304,7 @@ void observeUnauthenticatedCounts(
         <
             opentelemetry::nostd::shared_ptr
             <
-               opentelemetry::metrics::ObserverResultT<double>
+               opentelemetry::metrics::ObserverResultT<int64_t>
             >
         > (observerResult);
         // N.B. these should all be noexcepts
@@ -323,7 +323,7 @@ void observeUnauthorizedCounts(
         <
             opentelemetry::nostd::shared_ptr
             <
-                opentelemetry::metrics::ObserverResultT<double>
+                opentelemetry::metrics::ObserverResultT<int64_t>
             >
         > (observerResult))
     {   
@@ -331,7 +331,7 @@ void observeUnauthorizedCounts(
         <
             opentelemetry::nostd::shared_ptr
             <
-               opentelemetry::metrics::ObserverResultT<double>
+               opentelemetry::metrics::ObserverResultT<int64_t>
             >
         > (observerResult);
         // N.B. these should all be noexcepts
