@@ -70,7 +70,7 @@ public:
             transaction.exec(query);
             transaction.commit();
         }
-        SPDLOG_LOGGER_INFO(mLogger, "Connected to {}", name());
+        SPDLOG_LOGGER_DEBUG(mLogger, "Connected to {}", name());
     }
 
     /// @brief Disconnects.  The caller must hold the mutex.

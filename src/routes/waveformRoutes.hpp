@@ -137,7 +137,8 @@ inline void registerWaveformRoutes(crow::SimpleApp &app,
         {
             auto authorization = ::authorizeRoute(request, *context.authenticator,
                                                   ::readOnlyRequirement,
-                                                  context.logger);
+                                                  context.logger,
+                                                  "event-waveforms");
             if (!authorization){return std::move(*authorization.rejection);}
             SPDLOG_LOGGER_INFO(context.logger, "{} getting waveforms for event {}",
                                authorization.identity->user, eventIdentifier);
@@ -218,9 +219,9 @@ inline void registerWaveformRoutes(crow::SimpleApp &app,
                     404, "Event " + std::to_string(eventIdentifier)
                        + " has no picked channels to draw");
             }
-            SPDLOG_LOGGER_INFO(context.logger,
-                               "Fetching {} stream(s) for event {}",
-                               streamIdentifiers.size(), eventIdentifier);
+            SPDLOG_LOGGER_DEBUG(context.logger,
+                                "Fetching {} stream(s) for event {}",
+                                streamIdentifiers.size(), eventIdentifier);
 
             const auto waveforms
                 = context.aqmsDatabase->fetchWaveforms(eventIdentifier,
@@ -261,10 +262,11 @@ inline void registerWaveformRoutes(crow::SimpleApp &app,
                 nSegments = nSegments + waveform.size();
             }
             SPDLOG_LOGGER_INFO(context.logger,
-                               "Returning {} waveform(s) and {} segment(s) for "
-                               "{} (filter={}, delta={}, quantized={})",
+                               "Returning {} waveform(s) and {} segment(s) to "
+                               "{} for event (filter={}, delta={}, quantized={})",
                                waveforms->size(), nSegments,
                                authorization.identity->user,
+                               eventIdentifier,
                                applyFilter,
                                encoding.enableDeltaEncoding,
                                encoding.enableQuantization);
@@ -309,7 +311,8 @@ inline void registerWaveformRoutes(crow::SimpleApp &app,
         {
             auto authorization
                 = ::authorizeRoute(request, *context.authenticator,
-                                   ::readOnlyRequirement, context.logger);
+                                   ::readOnlyRequirement, context.logger,
+                                   "event-waveforms-freshness");
             if (!authorization)
             {
                 return std::move(*authorization.rejection);

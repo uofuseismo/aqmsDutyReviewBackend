@@ -98,7 +98,8 @@ inline void registerActionRoutes(crow::SimpleApp &app,
         {
             auto authorization = ::authorizeRoute(request, *context.authenticator,
                                                   ::readWriteRequirement,
-                                                  context.logger);
+                                                  context.logger,
+                                                  "event-accept");
             if (!authorization){return std::move(*authorization.rejection);}
             SPDLOG_LOGGER_INFO(context.logger, "{} accepting event {}",
                                authorization.identity->user, eventIdentifier);
@@ -119,7 +120,8 @@ inline void registerActionRoutes(crow::SimpleApp &app,
         {
             auto authorization = ::authorizeRoute(request, *context.authenticator,
                                                   ::readWriteRequirement,
-                                                  context.logger);
+                                                  context.logger,
+                                                  "event-cancel");
             if (!authorization){return std::move(*authorization.rejection);}
             SPDLOG_LOGGER_INFO(context.logger, "{} cancelling event {}",
                                authorization.identity->user, eventIdentifier);

@@ -121,16 +121,20 @@ void authorizedRoute(crow::SimpleApp &app,
       ([&context, requirement, handler, metricName]
        (const crow::request &request) -> crow::response
        {
-           ::RouteTimer timer{metricName};
-           auto authorization = ::authorizeRoute(request,
-                                                 *context.authenticator,
-                                                 requirement,
-                                                 context.logger);
-           if (!authorization)
+           return ::timedRoute(metricName,
+                               [&]() -> crow::response
            {
-               return timer.finish(std::move(*authorization.rejection));
-           }
-           return timer.finish(handler(request, *authorization.identity));
+               auto authorization = ::authorizeRoute(request,
+                                                     *context.authenticator,
+                                                     requirement,
+                                                     context.logger,
+                                                     metricName);
+               if (!authorization)
+               {
+                   return std::move(*authorization.rejection);
+               }
+               return handler(request, *authorization.identity);
+           });
        });
 }
 

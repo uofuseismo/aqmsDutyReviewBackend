@@ -172,40 +172,44 @@ inline void registerEventRoutes(crow::SimpleApp &app,
     {
         // One name for every event, not one per identifier.  The url carries
         // an event id; using it would mint a metric per event.
-        ::RouteTimer timer{"event"};
-        auto authorization = ::authorizeRoute(request, *context.authenticator,
-                                              ::readOnlyRequirement,
-                                              context.logger);
-        if (!authorization)
+        return ::timedRoute("event",
+                            [&]() -> crow::response
         {
-            return timer.finish(std::move(*authorization.rejection));
-        }
-        SPDLOG_LOGGER_INFO(context.logger, "{} requesting event {}",
-                           authorization.identity->user, eventIdentifier);
-        const auto event = context.aqmsDatabase->getEvent(eventIdentifier);
-        if (!event)
-        {
-            SPDLOG_LOGGER_ERROR(context.logger,
-                                "Could not fetch event {} for {}",
-                                eventIdentifier,
-                                authorization.identity->user);
-            return timer.finish(::makeMessageResponse(
-                500,
-                "Could not reach the AQMS database - try again shortly"));
-        }
-        // An empty optional inside a good expected is "no such event",
-        // which is an answer rather than a failure - hence 404 and not
-        // 500.  A duty analyst can hold a link to an event that has since
-        // been merged into another one.
-        if (!event->has_value())
-        {
-            return timer.finish(::makeMessageResponse(
-                404, "No event " + std::to_string(eventIdentifier)));
-        }
-        return timer.finish(::makeDataResponse(
-            200,
-            "Found event " + std::to_string(eventIdentifier),
-            AQMSDutyReviewBackend::Database::AQMS::toJSON(**event)));
+            auto authorization
+                = ::authorizeRoute(request, *context.authenticator,
+                                   ::readOnlyRequirement, context.logger,
+                                   "event");
+            if (!authorization)
+            {
+                return std::move(*authorization.rejection);
+            }
+            SPDLOG_LOGGER_INFO(context.logger, "{} requesting event {}",
+                               authorization.identity->user, eventIdentifier);
+            const auto event = context.aqmsDatabase->getEvent(eventIdentifier);
+            if (!event)
+            {
+                SPDLOG_LOGGER_ERROR(context.logger,
+                                    "Could not fetch event {} for {}",
+                                    eventIdentifier,
+                                    authorization.identity->user);
+                return ::makeMessageResponse(
+                    500,
+                    "Could not reach the AQMS database - try again shortly");
+            }
+            // An empty optional inside a good expected is "no such event",
+            // which is an answer rather than a failure - hence 404 and not
+            // 500.  A duty analyst can hold a link to an event that has since
+            // been merged into another one.
+            if (!event->has_value())
+            {
+                return ::makeMessageResponse(
+                    404, "No event " + std::to_string(eventIdentifier));
+            }
+            return ::makeDataResponse(
+                200,
+                "Found event " + std::to_string(eventIdentifier),
+                AQMSDutyReviewBackend::Database::AQMS::toJSON(**event));
+        });
     });
 
 }

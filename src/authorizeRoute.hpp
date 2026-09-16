@@ -334,11 +334,16 @@ void setChallenge(crow::response &response,
 ///       check: the handler has no identity to work with until this has
 ///       run, so forgetting it does not compile into something that
 ///       silently serves everyone.
+/// @param[in] route  What this route is called - the metric name, so the
+///                   log and the metrics agree on what to call it.  Names
+///                   the route in every line below, which is what lets two
+///                   instances' logs be read together.
 [[nodiscard]] RouteAuthorization authorizeRoute(
     const crow::request &request,
     const AQMSDutyReviewBackend::Auth::AuthNZ &authNZ,
     const AQMSDutyReviewBackend::Auth::Requirement &requirement,
-    const std::shared_ptr<spdlog::logger> &logger)
+    const std::shared_ptr<spdlog::logger> &logger,
+    const std::string &route)
 {
     namespace Auth = AQMSDutyReviewBackend::Auth;
 
@@ -384,7 +389,10 @@ void setChallenge(crow::response &response,
     const auto verdict = authNZ.authorize(authorization, requirement);
     if (verdict.isAllowed())
     {
-        SPDLOG_LOGGER_DEBUG(logger, "{}", verdict.reason);
+        SPDLOG_LOGGER_DEBUG(logger, "Verified {} for route {}",
+                            verdict.identity ? verdict.identity->user
+                                             : std::string {"unknown"},
+                            route);
         return RouteAuthorization {verdict.identity, std::nullopt};
     }
 
@@ -394,13 +402,13 @@ void setChallenge(crow::response &response,
     // anybody probing the port.
     if (verdict.status == Auth::Authorization::Status::ServerError)
     {
-        SPDLOG_LOGGER_ERROR(logger, "Authorization failed: {}",
-                            verdict.reason);
+        SPDLOG_LOGGER_ERROR(logger, "Authorization failed on route {}: {}",
+                            route, verdict.reason);
     }
     else
     {
-        SPDLOG_LOGGER_INFO(logger, "Authorization denied ({}): {}",
-                           statusCode, verdict.reason);
+        SPDLOG_LOGGER_INFO(logger, "Authorization denied ({}) on route {}: {}",
+                           statusCode, route, verdict.reason);
     }
     return RouteAuthorization
            {std::nullopt,
