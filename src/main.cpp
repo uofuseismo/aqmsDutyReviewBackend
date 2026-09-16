@@ -41,6 +41,7 @@
 #include "routes/adminRoutes.hpp"
 #include "routes/eventRoutes.hpp"
 #include "routes/gazetteerRoutes.hpp"
+#include "routes/routeCatalog.hpp"
 #include "routes/routeContext.hpp"
 #include "routes/routeMetrics.hpp"
 #include "routes/stationRoutes.hpp"

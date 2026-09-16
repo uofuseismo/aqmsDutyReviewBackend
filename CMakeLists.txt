@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(aqmsDutyReviewBackend VERSION 0.1.3 LANGUAGES CXX)
+project(aqmsDutyReviewBackend VERSION 0.1.4 LANGUAGES CXX)
 enable_testing()
 
 option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
