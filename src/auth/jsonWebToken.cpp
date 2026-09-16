@@ -169,7 +169,12 @@ public:
                         = IAuthenticator::stringToPermissions(
                               std::string {permissionsValue.as_string()});
                 }
-                SPDLOG_LOGGER_INFO(mLogger, "Verified {}", claims.user);
+                // Debug, and worded so it does not read like the line
+                // authorizeRoute writes: this is the token checking
+                // out, which happens once per request and says
+                // nothing about what was being asked for.
+                SPDLOG_LOGGER_DEBUG(mLogger, "Token verified for {}",
+                                    claims.user);
                 return {IAuthenticator::Result::Authenticated,
                         std::move(claims)};
             }

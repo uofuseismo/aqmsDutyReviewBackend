@@ -397,9 +397,11 @@ void setChallenge(crow::response &response,
     }
 
     const auto statusCode = verdict.statusCode();
-    // A 500 is this backend's fault and belongs at error level; the rest
-    // are the client's and would otherwise fill the log with noise from
-    // anybody probing the port.
+    // A 500 is this backend's fault and belongs at error level.  A denial
+    // is the client's, but it is still a security event - somebody was
+    // turned away from a named route - and at info it would be buried
+    // under the ordinary request traffic, which is the one place it must
+    // not be.
     if (verdict.status == Auth::Authorization::Status::ServerError)
     {
         SPDLOG_LOGGER_ERROR(logger, "Authorization failed on route {}: {}",
@@ -407,7 +409,7 @@ void setChallenge(crow::response &response,
     }
     else
     {
-        SPDLOG_LOGGER_INFO(logger, "Authorization denied ({}) on route {}: {}",
+        SPDLOG_LOGGER_WARN(logger, "Authorization denied ({}) on route {}: {}",
                            statusCode, route, verdict.reason);
     }
     return RouteAuthorization
