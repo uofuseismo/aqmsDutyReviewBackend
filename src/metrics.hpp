@@ -48,39 +48,49 @@ void initializeRouteHistogram(
     opentelemetry::sdk::metrics::MeterProvider *providerInstance)
 {
     // Histogram config
+    // These three must match the instrument EXACTLY - the instrument's
+    // own name and unit, and the name of the meter that created it - or
+    // the view silently matches nothing and the boundaries below are
+    // never applied.  See createMeters for where both are named.
     auto histogramInstrumentSelector
         = opentelemetry::sdk::metrics::InstrumentSelectorFactory::Create(
              opentelemetry::sdk::metrics::InstrumentType::kHistogram,
-             "route_duration_histogram",
-             "s");  
+             "aqms.drp.route.duration",
+             "s");
     auto histogramMeterSelector
         = opentelemetry::sdk::metrics::MeterSelectorFactory::Create(
-             "route_duration",
+             "route_duration_histogram",
              "1.2.0",
              "https://opentelemetry.io/schemas/1.2.0");
     auto histogramAggregationConfig
         = std::make_shared<opentelemetry::sdk::metrics::HistogramAggregationConfig> (); 
+    // Seconds.  Strictly increasing, as the SDK requires.  Sized to where
+    // the routes actually land - a few milliseconds for a freshness probe,
+    // tens for waveforms, a few hundred for the catalog - with headroom
+    // for a CPU-throttled pod.  Anything past the last boundary falls into
+    // +Inf, and a route slower than a minute has already failed upstream.
     histogramAggregationConfig->boundaries_
         = std::vector<double> {
-                               0.00000,
-                               0.00001,
-                               0.00005,
-                               0.00010,
-                               0.00050,
-                               0.00100,
-                               0.00500,
-                               0.01000,
-                               0.05000,
-                               0.10000,
-                               0.50000,
-                               1.00000,
-                               10.0000,
-                               100.000,
-                               1000.00, // Hopefully user gives up now
+                               0.000,
+                               0.001,
+                               0.005,
+                               0.010,
+                               0.050,
+                               0.100,
+                               0.500,
+                               1.000,
+                               2.500,
+                               5.000,
+                               10.00,
+                               60.00, // Hopefully user gives up now
                                };
+    // The view RENAMES the metric on export, so this has to stay the
+    // instrument's name: Prometheus sees aqms_drp_route_duration rather
+    // than a bare route_duration, which says nothing about whose route it
+    // was.
     auto histogramView 
         = opentelemetry::sdk::metrics::ViewFactory::Create(
-             "route_duration",
+             "aqms.drp.route.duration",
              "Time required to for a route to succcessfully complete",
              opentelemetry::sdk::metrics::AggregationType::kHistogram,
              histogramAggregationConfig);
@@ -430,7 +440,7 @@ void createMeters(const ProgramOptions &options)
         = histogramMeter->CreateDoubleHistogram(
             "aqms.drp.route.duration",
             "Time required for a route to succcessfully complete",
-            "{s}");
+            "s");
 
 }
 
