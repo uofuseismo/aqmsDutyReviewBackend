@@ -85,13 +85,11 @@ void initializeRouteHistogram(
                                60.00, // Hopefully user gives up now
                                };
     // The view RENAMES the metric on export, so this has to stay the
-    // instrument's name: Prometheus sees aqms_drp_route_duration rather
-    // than a bare route_duration, which says nothing about whose route it
-    // was.
+    // instrument's name.
     auto histogramView 
         = opentelemetry::sdk::metrics::ViewFactory::Create(
              "aqms.drp.route.duration",
-             "Time required to for a route to succcessfully complete",
+             "Time required to for a route to succcessfully complete.",
              opentelemetry::sdk::metrics::AggregationType::kHistogram,
              histogramAggregationConfig);
 
