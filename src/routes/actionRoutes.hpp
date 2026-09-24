@@ -116,12 +116,17 @@ struct ExpectedSolutionRequest
         AQMSDutyReviewBackend::Database::AQMS::Database::ActionError> &result,
     const std::string &verb,
     const int64_t eventIdentifier,
+    AQMSDutyReviewBackend::Database::AQMS::CatalogCache *catalogCache,
     const std::shared_ptr<spdlog::logger> &logger)
 {
     using ActionError
         = AQMSDutyReviewBackend::Database::AQMS::Database::ActionError;
     if (result)
     {
+        // An action changes origin.rflag and nothing the freshness token
+        // watches, so without this the catalog shows the old review status
+        // until the cache ages out.
+        if (catalogCache != nullptr){catalogCache->clear();}
         return ::makeMessageResponse(
             200, "Event " + std::to_string(eventIdentifier) + " " + verb);
     }
@@ -211,6 +216,7 @@ inline void registerActionRoutes(crow::SimpleApp &app,
                 = context.aqmsDatabase->accept(eventIdentifier,
                                              *expected.expected);
             return ::actionResponse(result, "accepted", eventIdentifier,
+                                    context.catalogCache.get(),
                                     context.logger);
         });
     });
@@ -238,6 +244,7 @@ inline void registerActionRoutes(crow::SimpleApp &app,
                 = context.aqmsDatabase->cancel(eventIdentifier,
                                              *expected.expected);
             return ::actionResponse(result, "cancelled", eventIdentifier,
+                                    context.catalogCache.get(),
                                     context.logger);
         });
     });
