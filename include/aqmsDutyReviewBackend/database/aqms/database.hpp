@@ -20,6 +20,7 @@ namespace AQMSDutyReviewBackend::Database::AQMS
  class Event;
  class EventLock;
  class EventSummary;
+ struct ExpectedSolution;
  class Quarry;
  class StreamIdentifier;
  class Station;
@@ -47,7 +48,12 @@ public:
         ConnectionFailed,   /*!< The database connection could not be formed. */
         InvalidPermissions, /*!< The database user is unable to perform the
                                  request - likley insufficient permissions. */
-        DoesNotExist        /*!< The event does not exist in this database. */
+        DoesNotExist,       /*!< The event does not exist in this database. */
+        Refused,            /*!< The event exists and AQMS would not do it -
+                                 for a cancel, no database would take it. */
+        SolutionChanged     /*!< The event's preferred origin, magnitude or type
+                                 is not the one the analyst reviewed, so
+                                 nothing was done. */
     };
     enum class QueryError
     {
@@ -205,27 +211,32 @@ public:
     /// @note const because it changes AQMS, not this object - the same
     ///       sense in which every query here is const.
     /// @param[in] eventIdentifier  The event.
+    /// @param[in] expected         The solution the analyst reviewed.
     /// @result Nothing on success, or why it could not be done.
+    /// @note The check against \c expected is not atomic with the cancel,
+    ///       which usually runs on another machine - see cancelEvent.
     /// @note Cancelling has to happen on the machine that raised the
     ///       alarm.  Which machine that is comes from the origins'
     ///       subsources - every origin's, not just the preferred one -
     ///       matched against the database aliases.  Falls back to the main
     ///       database when no remote succeeded, which is the ordinary path
     ///       for an event whose subsources are all post-processing.
-    /// @note DoesNotExist means every database refused it, not that the
-    ///       caller did anything wrong.
-    auto cancel(int64_t eventIdentifier) const
+    auto cancel(int64_t eventIdentifier,
+                const ExpectedSolution &expected) const
         -> std::expected<void, ActionError>;
     /// @brief Attempts to change the event's status in the database to
     ///        indicate that the event is warranted and "accept"
     ///        actions should be taken.
     /// @param[in] eventIdentifier  The event.
+    /// @param[in] expected         The solution the analyst reviewed.
     /// @result Nothing on success, or why it could not be done.
+    /// @note The check against \c expected and the accept are atomic.
     /// @note The main database only - accepting issues no alarm, so no
     ///       other machine needs telling.
     /// @note Accepting an already-accepted event succeeds and does not
     ///       bump the version again.
-    auto accept(int64_t eventIdentifier) const
+    auto accept(int64_t eventIdentifier,
+                const ExpectedSolution &expected) const
         -> std::expected<void, ActionError>;
     /// @}
 

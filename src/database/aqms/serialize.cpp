@@ -1,7 +1,10 @@
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 #include <boost/json/array.hpp>
@@ -1001,3 +1004,32 @@ AQMSDutyReviewBackend::Database::AQMS::toJSON(
     return result;
 }
 
+/// Built on toString rather than a second table of names, so the two cannot
+/// disagree: whatever the serializer writes for a type is, by construction,
+/// what parses back to it.
+std::optional<Event::EventType>
+AQMSDutyReviewBackend::Database::AQMS::eventTypeFromString(
+    const std::string_view name)
+{
+    // Every enumerator.  A type added to the enum and not here would fail to
+    // parse rather than parse wrongly - and the round-trip test names them
+    // all, so it would not go unnoticed.
+    constexpr std::array types{
+        Event::EventType::Avalanche,
+        Event::EventType::Collapse,
+        Event::EventType::Earthquake,
+        Event::EventType::Explosion,
+        Event::EventType::Landslide,
+        Event::EventType::MiningInduced,
+        Event::EventType::NuclearTest,
+        Event::EventType::QuarryBlast,
+        Event::EventType::Sonic,
+        Event::EventType::SubnetTrigger,
+        Event::EventType::Unknown
+    };
+    for (const auto type : types)
+    {
+        if (toString(type) == name){return type;}
+    }
+    return std::nullopt;
+}

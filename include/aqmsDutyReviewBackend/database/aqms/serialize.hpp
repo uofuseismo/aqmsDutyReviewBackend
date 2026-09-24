@@ -1,10 +1,13 @@
 #ifndef AQMS_DUTY_REVIEW_BACKEND_DATABASE_AQMS_SERIALIZE_HPP
 #define AQMS_DUTY_REVIEW_BACKEND_DATABASE_AQMS_SERIALIZE_HPP
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 #include <boost/json/object.hpp>
 #include <boost/json/value.hpp>
+#include "aqmsDutyReviewBackend/database/aqms/event.hpp"
 
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
@@ -39,6 +42,22 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
+/// @brief Reads back an event type the frontend was sent.
+/// @param[in] name  One of the strings toJSON writes for an event type,
+///                  e.g. "earthquake" or "quarry_blast".
+/// @result The event type, or std::nullopt if the name is not one this
+///         backend ever writes.
+/// @note The inverse of the serializer, not of the database: "quarry_blast"
+///       parses and "qb" does not.  The frontend only ever sees the former,
+///       so that is what it posts back - e.g. as expectedEventType on
+///       accept and cancel.
+/// @note Exact match only - no trimming, no case folding.  An
+///       unrecognized name is NOT Unknown: mapping it there would let a
+///       garbled request "agree" with every event whose type is unknown.
+///       A caller should answer std::nullopt with a 400.
+[[nodiscard]] std::optional<Event::EventType>
+    eventTypeFromString(std::string_view name);
+
 /// @brief Serializes the locked events.
 /// @result A JSON array of {eventIdentifier, user} objects.
 /// @note An empty vector serializes to [] and not to null, so a frontend

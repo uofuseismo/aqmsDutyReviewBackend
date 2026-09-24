@@ -6,6 +6,7 @@
 #include <memory>
 #include <vector>
 #include <spdlog/logger.h>
+#include "aqmsDutyReviewBackend/database/aqms/event.hpp"
 
 namespace AQMSDutyReviewBackend::Database
 {
@@ -14,13 +15,18 @@ namespace AQMSDutyReviewBackend::Database
 
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
- class Event;
  class EventSummary;
  class SubnetTrigger;
 }
 
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
+/// @brief Maps an event.etype code - "eq", "qb" - onto an event type.
+/// @throws std::invalid_argument if the code is not one this maps.  The
+///         event readers answer that with Unknown, and a caller comparing
+///         against what they produced should do the same.
+[[nodiscard]] Event::EventType eventTypeFromCode(const std::string &code);
+
 /// @brief A token that changes when the catalog does.
 /// @param[in] client  A client connected to an AQMS database.
 /// @result An opaque string.  Equal tokens mean the catalog is unchanged;

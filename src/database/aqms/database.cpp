@@ -383,17 +383,25 @@ auto Database::fetchWaveforms(
 }
 
 
-auto Database::accept(const int64_t eventIdentifier) const
+auto Database::accept(const int64_t eventIdentifier,
+                      const ExpectedSolution &expected) const
     -> std::expected<void, ActionError>
 {
     try
     {
-        if (!acceptEvent(*pImpl->mMainClient, eventIdentifier,
-                         pImpl->mLogger.get()))
+        const auto outcome = acceptEvent(*pImpl->mMainClient, eventIdentifier,
+                                         expected, pImpl->mLogger.get());
+        if (outcome == ActionOutcome::SolutionChanged)
         {
-            // epref.accept_event answers 0 or -1 rather than throwing when
-            // the event is not there.
+            return std::unexpected(ActionError::SolutionChanged);
+        }
+        if (outcome == ActionOutcome::DoesNotExist)
+        {
             return std::unexpected(ActionError::DoesNotExist);
+        }
+        if (outcome != ActionOutcome::Done)
+        {
+            return std::unexpected(ActionError::Refused);
         }
         return {};
     }
@@ -418,15 +426,27 @@ auto Database::accept(const int64_t eventIdentifier) const
     }
 }
 
-auto Database::cancel(const int64_t eventIdentifier) const
+auto Database::cancel(const int64_t eventIdentifier,
+                      const ExpectedSolution &expected) const
     -> std::expected<void, ActionError>
 {
     try
     {
-        if (!cancelEvent(*pImpl->mMainClient, pImpl->mAuxiliaryClients,
-                         eventIdentifier, pImpl->mLogger.get()))
+        const auto outcome = cancelEvent(*pImpl->mMainClient,
+                                         pImpl->mAuxiliaryClients,
+                                         eventIdentifier, expected,
+                                         pImpl->mLogger.get());
+        if (outcome == ActionOutcome::SolutionChanged)
+        {
+            return std::unexpected(ActionError::SolutionChanged);
+        }
+        if (outcome == ActionOutcome::DoesNotExist)
         {
             return std::unexpected(ActionError::DoesNotExist);
+        }
+        if (outcome != ActionOutcome::Done)
+        {
+            return std::unexpected(ActionError::Refused);
         }
         return {};
     }

@@ -1560,3 +1560,9 @@ AQMSDutyReviewBackend::Database::AQMS::querySubnetTriggers(
         ::SUBNET_TRIGGER_QUERY);
     return result;
 }
+
+Event::EventType AQMSDutyReviewBackend::Database::AQMS::eventTypeFromCode(
+    const std::string &code)
+{
+    return ::toEventType(code);
+}

@@ -2,9 +2,14 @@
 #define AQMS_DUTY_REVIEW_BACKEND_ROUTES_ACTION_ROUTES_HPP
 #include <expected>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <cstdint>
 #include <crow/app.h>
+#include "aqmsDutyReviewBackend/database/aqms/queries/actions.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
+#include "requestBody.hpp"
 #include "routeContext.hpp"
 
 namespace
@@ -18,6 +23,86 @@ constexpr AQMSDutyReviewBackend::Auth::Requirement readWriteRequirement
     false // Require password
 };
 
+
+/// @brief What ::parseExpectedSolution gets back - the solution, or the
+///        response to return instead.  Shaped like RequestData.
+struct ExpectedSolutionRequest
+{
+    std::optional<AQMSDutyReviewBackend::Database::AQMS::ExpectedSolution>
+        expected;
+    std::optional<crow::response> rejection;
+
+    explicit operator bool() const noexcept
+    {
+        return expected.has_value();
+    }
+};
+
+/// @brief Reads one identifier the analyst saw.
+/// @result The rejection if the field is absent or not a positive integer
+///         or null; otherwise nothing, with \c identifier set or unset.
+[[nodiscard]] std::optional<crow::response> readExpectedIdentifier(
+    const boost::json::object &data,
+    const std::string_view key,
+    std::optional<std::int64_t> &identifier)
+{
+    const auto *value = data.if_contains(key);
+    if (value != nullptr && value->is_null())
+    {
+        identifier.reset();
+        return std::nullopt;
+    }
+    if (value != nullptr && value->is_int64() && value->as_int64() > 0)
+    {
+        identifier = value->as_int64();
+        return std::nullopt;
+    }
+    return ::makeMessageResponse(
+        400, "\"data." + std::string {key}
+           + "\" is required - the identifier that was reviewed, or null "
+             "if there was none");
+}
+
+/// @brief Reads what the analyst reviewed from the request body.
+/// @note Every field is required.  An action that does not say what it
+///       is acting on cannot be checked, and would quietly act on whatever
+///       the event has become.
+[[nodiscard]] ExpectedSolutionRequest parseExpectedSolution(
+    const crow::request &request)
+{
+    auto body = ::parseRequestData(request);
+    if (!body){return {std::nullopt, std::move(body.rejection)};}
+    AQMSDutyReviewBackend::Database::AQMS::ExpectedSolution expected;
+    if (auto rejection
+            = ::readExpectedIdentifier(*body.data, "expectedPreferredOriginId",
+                                       expected.preferredOriginIdentifier))
+    {
+        return {std::nullopt, std::move(rejection)};
+    }
+    if (auto rejection
+            = ::readExpectedIdentifier(*body.data,
+                                       "expectedPreferredMagnitudeId",
+                                       expected.preferredMagnitudeIdentifier))
+    {
+        return {std::nullopt, std::move(rejection)};
+    }
+    const auto *eventType = body.data->if_contains("expectedEventType");
+    const auto parsedType
+        = (eventType != nullptr && eventType->is_string())
+        ? AQMSDutyReviewBackend::Database::AQMS::eventTypeFromString(
+              eventType->as_string())
+        : std::nullopt;
+    if (!parsedType)
+    {
+        return {std::nullopt,
+                ::makeMessageResponse(
+                    400, "\"data.expectedEventType\" is required - the "
+                         "event type as the event detail names it, e.g. "
+                         "\"earthquake\"")};
+    }
+    expected.eventType = *parsedType;
+    return {expected, std::nullopt};
+}
 
 /// @brief Turns an action outcome into a response.
 /// @note InvalidPermissions here is the DATABASE's answer, not the
@@ -40,15 +125,32 @@ constexpr AQMSDutyReviewBackend::Auth::Requirement readWriteRequirement
         return ::makeMessageResponse(
             200, "Event " + std::to_string(eventIdentifier) + " " + verb);
     }
+    if (result.error() == ActionError::SolutionChanged)
+    {
+        return ::makeMessageResponse(
+            409, "Event " + std::to_string(eventIdentifier)
+               + " changed while you were reviewing it - it was not "
+               + verb + ".  Reload it to review the new solution");
+    }
     if (result.error() == ActionError::DoesNotExist)
     {
-        // AQMS answered, and answered no.  For a cancel this also covers
-        // "no database would take it", which is worth saying plainly
-        // rather than as a generic failure.
         return ::makeMessageResponse(
-            404, "AQMS would not " + verb.substr(0, verb.size() - 2)
-               + " event " + std::to_string(eventIdentifier)
-               + " - it may not exist");
+            404, "Event " + std::to_string(eventIdentifier)
+               + " does not exist");
+    }
+    if (result.error() == ActionError::Refused)
+    {
+        // 422 and not 409: 409 means "your view is stale, reload", and
+        // reloading will not change this answer.
+        const bool cancelling = (verb == "cancelled");
+        return ::makeMessageResponse(
+            422, std::string {cancelling ? "AQMS would not cancel event "
+                                         : "AQMS would not accept event "}
+               + std::to_string(eventIdentifier)
+               + (cancelling
+                  ? " - it may already be cancelled, or no machine holds "
+                    "it to cancel"
+                  : ""));
     }
     if (result.error() == ActionError::InvalidPermissions)
     {
@@ -101,10 +203,15 @@ inline void registerActionRoutes(crow::SimpleApp &app,
                                                   context.logger,
                                                   "event-accept");
             if (!authorization){return std::move(*authorization.rejection);}
+            auto expected = ::parseExpectedSolution(request);
+            if (!expected){return std::move(*expected.rejection);}
             SPDLOG_LOGGER_INFO(context.logger, "{} accepting event {}",
                                authorization.identity->user, eventIdentifier);
-            return ::actionResponse(context.aqmsDatabase->accept(eventIdentifier),
-                                    "accepted", eventIdentifier, context.logger);
+            const auto result
+                = context.aqmsDatabase->accept(eventIdentifier,
+                                             *expected.expected);
+            return ::actionResponse(result, "accepted", eventIdentifier,
+                                    context.logger);
         });
     });
 
@@ -123,10 +230,15 @@ inline void registerActionRoutes(crow::SimpleApp &app,
                                                   context.logger,
                                                   "event-cancel");
             if (!authorization){return std::move(*authorization.rejection);}
+            auto expected = ::parseExpectedSolution(request);
+            if (!expected){return std::move(*expected.rejection);}
             SPDLOG_LOGGER_INFO(context.logger, "{} cancelling event {}",
                                authorization.identity->user, eventIdentifier);
-            return ::actionResponse(context.aqmsDatabase->cancel(eventIdentifier),
-                                    "cancelled", eventIdentifier, context.logger);
+            const auto result
+                = context.aqmsDatabase->cancel(eventIdentifier,
+                                             *expected.expected);
+            return ::actionResponse(result, "cancelled", eventIdentifier,
+                                    context.logger);
         });
     });
 }

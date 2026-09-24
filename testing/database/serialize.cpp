@@ -10,6 +10,7 @@
 #include <boost/json/serialize.hpp>
 #include <utility>
 #include <catch2/catch_test_macros.hpp>
+#include <boost/json/parse.hpp>
 #include <catch2/catch_approx.hpp>
 #include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/waveform.hpp"
@@ -1472,5 +1473,45 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS", "[serialize][alarms]")
         const auto alarm = json.as_array().at(0).as_object();
         REQUIRE(alarm.at("action").as_string() == "SomeFutureAction");
         REQUIRE(alarm.at("state").as_string() == "a-state-we-invented");
+    }
+}
+
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::eventTypeFromString",
+          "[serialize][eventType]")
+{
+    SECTION("Every type round-trips through what toJSON writes")
+    {
+        // Through the real serializer rather than a copy of its names: the
+        // point is that what the frontend was sent parses back.
+        for (const auto type : {Event::EventType::Avalanche,
+                                Event::EventType::Collapse,
+                                Event::EventType::Earthquake,
+                                Event::EventType::Explosion,
+                                Event::EventType::Landslide,
+                                Event::EventType::MiningInduced,
+                                Event::EventType::NuclearTest,
+                                Event::EventType::QuarryBlast,
+                                Event::EventType::Sonic,
+                                Event::EventType::SubnetTrigger,
+                                Event::EventType::Unknown})
+        {
+            Event event;
+            event.setEventType(type);
+            const auto json = toJSON(event);
+            const auto &written = json.at("eventType").as_string();
+            const auto parsed
+                = eventTypeFromString(std::string_view{written.data(),
+                                                       written.size()});
+            REQUIRE(parsed.has_value());
+            REQUIRE(*parsed == type);
+        }
+    }
+    SECTION("Names it does not write are refused, not mapped to Unknown")
+    {
+        REQUIRE_FALSE(eventTypeFromString("qb").has_value());         // db code
+        REQUIRE_FALSE(eventTypeFromString("Earthquake").has_value()); // case
+        REQUIRE_FALSE(eventTypeFromString(" earthquake").has_value());
+        REQUIRE_FALSE(eventTypeFromString("quarry blast").has_value());
+        REQUIRE_FALSE(eventTypeFromString("").has_value());
     }
 }
