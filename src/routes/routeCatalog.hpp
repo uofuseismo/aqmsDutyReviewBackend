@@ -73,9 +73,13 @@ inline void describeOpenRoute(const std::string &method,
     static const std::map<std::string, std::string> summaries
     {
         {"app-settings",
-         "Client configuration - backend version, map key, primary database."},
+         "Client configuration - backend version, map key, primary database, "
+         "documentation link."},
         {"app-settings-password-requirements",
          "The password policy this deployment enforces."},
+        {"contacts",
+         "The deployment's contact list - who to call, and when.  404 when "
+         "none is configured."},
         {"account-password", "Changes the calling user's own password."},
         {"auth-login", "Exchanges credentials for a bearer token."},
         {"events", "The event catalog over the configured window."},

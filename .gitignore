@@ -9,3 +9,6 @@ files.zip
 a.out
 curlWaveforms.sh
 attic
+
+# Contact lists hold personal phone numbers; deployments supply their own.
+testing/data/callList/

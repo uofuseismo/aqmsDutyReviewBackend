@@ -5,6 +5,9 @@
 #include <filesystem>
 #include <stdexcept>
 #include <string>
+#include <boost/json/parse.hpp>
+#include <boost/json/value.hpp>
+#include <boost/system/error_code.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/ptree_fwd.hpp>
 #include <boost/property_tree/ini_parser.hpp>
@@ -343,6 +346,38 @@ struct ProgramOptions
                  "General.stadiaMapsAPIKey",
                  "General.stadiaMapsAPIKeyFile");
         if (stadiaKey){stadiaMapsAPIKey = *stadiaKey;}
+
+        documentationURL
+            = propertyTree.get<std::string> ("General.documentationURL",
+                                             documentationURL);
+
+        // Read once, here, so a malformed list stops startup rather than
+        // turning into a 500 the first time somebody needs a phone number.
+        // The backend does not interpret it beyond requiring an object.
+        const auto whoToCallFile
+            = propertyTree.get_optional<std::string> ("General.whoToCallFile");
+        if (whoToCallFile)
+        {
+            auto contents
+                = AQMSDutyReviewBackend::readSecretFile(*whoToCallFile,
+                                                        "General.whoToCallFile");
+            boost::system::error_code error;
+            auto parsed = boost::json::parse(contents, error);
+            if (error)
+            {
+                throw std::invalid_argument("General.whoToCallFile names "
+                                          + *whoToCallFile
+                                          + ", which is not valid JSON: "
+                                          + error.message());
+            }
+            if (!parsed.is_object())
+            {
+                throw std::invalid_argument("General.whoToCallFile names "
+                                          + *whoToCallFile
+                                          + ", which is not a JSON object");
+            }
+            whoToCall = std::move(parsed);
+        }
 /*
         auto printSummaryIntervalInMinutes
             = propertyTree.get<int> ("General.printSummaryIntervalInMinutes",
@@ -502,6 +537,12 @@ struct ProgramOptions
     ///       operators and worth not handing to anybody else.
     bool documentAPI{false};
     std::string stadiaMapsAPIKey;
+    /// Where the deployment's user documentation lives.  Empty when not
+    /// configured.
+    std::string documentationURL;
+    /// The contact list from General.whoToCallFile, served as is.
+    /// @note Null when not configured.
+    boost::json::value whoToCall;
     CrowOptions crowOptions;
     UserManagementOptions userManagementOptions;
     AQMSDutyReviewBackend::Auth::DatabaseOptions drpDatabaseOptions;

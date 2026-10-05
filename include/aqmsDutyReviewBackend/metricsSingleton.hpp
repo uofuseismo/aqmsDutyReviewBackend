@@ -48,12 +48,6 @@ public:
     /// @result The success counts for the utilized routes.
     [[nodiscard]] std::map<std::string, int64_t> getSuccessCounters() const;
 
-    /// @note Durations are NOT held here.  They go to the OpenTelemetry
-    ///       histogram - see recordRequestDuration in metrics.hpp - which
-    ///       gives buckets and percentiles.  A total and a count kept
-    ///       alongside these counters could not answer the question anyone
-    ///       asks of a latency metric.
-
     /// @brief Resets the counters an dutilization.  This is useful for unit tests.
     void resetMetrics() noexcept;
 private:

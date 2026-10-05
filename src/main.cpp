@@ -359,6 +359,10 @@ int main(int argc, char *argv[])
         settings["backendVersion"]
             = AQMSDutyReviewBackend::Version::getVersion();
         settings["stadiaMapKey"] = programOptions.stadiaMapsAPIKey;
+        if (!programOptions.documentationURL.empty())
+        {
+            settings["documentationURL"] = programOptions.documentationURL;
+        }
         auto primaryDatabase
             = programOptions.aqmsDatabaseCredentials.getAlias();
         if (primaryDatabase)
@@ -371,6 +375,23 @@ int main(int argc, char *argv[])
             settings["primaryDatabase"] = "Unknown";
         }
         return ::makeDataResponse(200, "Settings", std::move(settings));
+    });
+
+    // Who a duty analyst calls, and when.  Kept out of the repository and
+    // the frontend bundle because it carries personal phone numbers.
+    ::authorizedRoute(
+        app, "/contacts", "contacts",
+        ::readOnlyRequirement, routeContext,
+        [&](const crow::request &,
+            const AQMSDutyReviewBackend::Auth::JSONWebToken::Claims &)
+            -> crow::response
+    {
+        if (programOptions.whoToCall.is_null())
+        {
+            return ::makeMessageResponse(404, "No call list is configured");
+        }
+        return ::makeDataResponse(200, "Who to call",
+                                  programOptions.whoToCall);
     });
 
     // Login is its own shape: it turns a password into a token, so it
