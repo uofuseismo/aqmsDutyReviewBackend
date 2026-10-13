@@ -93,6 +93,37 @@ CREATE OR REPLACE FUNCTION pcs.putState
 $$ LANGUAGE plpgsql;
 
 
+DROP FUNCTION IF EXISTS epref.delete_event(p_evid Event.evid%TYPE);
+-- Does NOT actually remove the record, just sets selectflag = 0
+-- and runs epref.cancel_event (posts to PCS system).
+CREATE OR REPLACE FUNCTION epref.delete_event(p_evid Event.evid%TYPE) RETURNS BIGINT AS $$
+  DECLARE
+    v_status BIGINT := 0;
+    v_flag event.selectflag%TYPE := NULL;
+  BEGIN
+    SELECT COALESCE(selectflag, -1) INTO v_flag FROM event WHERE evid = p_evid;
+    IF (v_flag <> 0) THEN
+       -- update only when not 0 already
+       UPDATE event SET selectflag = 0 WHERE evid = p_evid;
+       GET DIAGNOSTICS v_status = ROW_COUNT;
+    ELSE
+        -- already set to 0
+        v_status := 1;
+    END IF;
+
+    -- POST to generate alarm delete/cancel messages
+    IF (v_status > 0) THEN
+      v_status := v_status + epref.cancel_event(p_evid);
+    END IF;
+
+    RETURN v_status;
+
+  EXCEPTION WHEN NO_DATA_FOUND THEN
+    RETURN -1;
+  END;
+$$ LANGUAGE plpgsql;
+
+
  */
 
 namespace
@@ -155,6 +186,16 @@ SELECT DISTINCT origin.subsource as subsource
    AND origin.subsource IS NOT NULL;
 )"""
 };
+
+/// "Deletes" a subnet trigger.  This doesn't actually delete the subnet trigger
+/// (see above).
+constexpr std::string_view DELETE_SUBNET_TRIGGER_QUERY
+{
+R"""(
+SELECT epref.delete_event($1);
+)"""
+};
+
 
 /// @result The event's preferred origin, preferred magnitude and type,
 ///         or nullopt if there is no such event.
@@ -576,3 +617,76 @@ ActionOutcome AQMSDutyReviewBackend::Database::AQMS::cancelEvent(
     }
     return cancelled ? ActionOutcome::Done : ActionOutcome::Refused;
 }
+
+ActionOutcome AQMSDutyReviewBackend::Database::AQMS::deleteSubnetTrigger(
+    const DB::Client &mainClient,
+    const int64_t eventIdentifier,
+    spdlog::logger *logger)
+{
+    // The type check and the delete share a transaction and the row lock.
+    // epref.delete_event checks neither the type nor that the event exists
+    // - its SELECT INTO is not STRICT, so a missing evid falls through to
+    // "already deleted" and posts a cancel anyway - so this check is the
+    // only thing standing between a stale trigger list and deleting an
+    // event an analyst has since typed as real.
+    std::optional<ExpectedSolution> current;
+    bool deleted{false};
+    mainClient.execute(
+        [&](pqxx::connection &connection)
+        {
+            pqxx::work transaction(connection);
+            deleted = false;
+            current = ::readSolution(transaction, ::LOCK_SOLUTION_QUERY,
+                                     eventIdentifier, logger);
+            // Returning without a commit rolls back and releases the lock.
+            if (!current
+             || current->eventType != Event::EventType::SubnetTrigger)
+            {
+                return;
+            }
+            const auto status
+                = transaction.query_value<long long>
+                  (std::string {::DELETE_SUBNET_TRIGGER_QUERY},
+                   pqxx::params{eventIdentifier});
+            transaction.commit();
+            deleted = (status > 0);
+        },
+        ::DELETE_SUBNET_TRIGGER_QUERY);
+    if (!current)
+    {
+        if (logger != nullptr)
+        {
+            SPDLOG_LOGGER_WARN(logger, "{} has no subnet trigger {} to delete",
+                               mainClient.getName(), eventIdentifier);
+        }
+        return ActionOutcome::DoesNotExist;
+    }
+    if (current->eventType != Event::EventType::SubnetTrigger)
+    {
+        if (logger != nullptr)
+        {
+            SPDLOG_LOGGER_INFO(logger,
+                               "Not deleting event {} - it is no longer a "
+                               "subnet trigger",
+                               eventIdentifier);
+        }
+        return ActionOutcome::SolutionChanged;
+    }
+    if (!deleted)
+    {
+        if (logger != nullptr)
+        {
+            SPDLOG_LOGGER_WARN(logger, "{} would not delete subnet trigger {}",
+                               mainClient.getName(), eventIdentifier);
+        }
+        return ActionOutcome::Refused;
+    }
+    if (logger != nullptr)
+    {
+        SPDLOG_LOGGER_INFO(logger, "Deleted subnet trigger {} on {}",
+                           eventIdentifier, mainClient.getName());
+    }
+    return ActionOutcome::Done;
+}
+
+

@@ -20,6 +20,39 @@ namespace DB = AQMSDutyReviewBackend::Database;
 namespace
 {
 
+/*
+DROP FUNCTION IF EXISTS epref.delete_event(p_evid Event.evid%TYPE);
+-- Does NOT actually remove the record, just sets selectflag = 0
+-- and runs epref.cancel_event (posts to PCS system).
+CREATE OR REPLACE FUNCTION epref.delete_event(p_evid Event.evid%TYPE) RETURNS BIGINT AS $$
+  DECLARE
+    v_status BIGINT := 0;
+    v_flag event.selectflag%TYPE := NULL;
+  BEGIN
+    SELECT COALESCE(selectflag, -1) INTO v_flag FROM event WHERE evid = p_evid;
+    IF (v_flag <> 0) THEN
+       -- update only when not 0 already
+       UPDATE event SET selectflag = 0 WHERE evid = p_evid;
+       GET DIAGNOSTICS v_status = ROW_COUNT;
+    ELSE
+        -- already set to 0
+        v_status := 1;
+    END IF;
+
+    -- POST to generate alarm delete/cancel messages
+    IF (v_status > 0) THEN
+      v_status := v_status + epref.cancel_event(p_evid);
+    END IF;
+
+    RETURN v_status;
+
+  EXCEPTION WHEN NO_DATA_FOUND THEN
+    RETURN -1;
+  END;
+$$ LANGUAGE plpgsql;
+
+*/
+
 /// The subnet triggers.  Its own query rather than the catalog's, because
 /// almost nothing the catalog selects means anything for a trigger: there
 /// is no preferred magnitude, nobody is credited with it, and the position
@@ -42,7 +75,9 @@ INNER JOIN origin
   ON event.prefor = origin.orid
 WHERE event.selectflag = 1
   AND origin.datetime BETWEEN TrueTime.nominal2truef($1) AND TrueTime.nominal2Truef($2)
+  AND origin.bogusflag = 1
   AND event.etype = 'st'
+  AND event.version = 0
  ORDER BY origin.datetime DESC, event.evid DESC;
 )"""
 };

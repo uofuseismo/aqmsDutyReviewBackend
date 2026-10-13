@@ -121,5 +121,25 @@ enum class ActionOutcome
     int64_t eventIdentifier,
     const ExpectedSolution &expected,
     spdlog::logger *logger = nullptr);
+
+
+/// @brief "Deletes" the subnet trigger by setting its selectflag to 0
+///        then posts to the PCS system to cancel the event (but this
+///        event really shouldn't have any alarms at this point because
+///        it's a subnet trigger).
+/// @param[in] mainClient       The main AQMS database.
+/// @param[in] eventIdentifier  The subnet trigger to delete.
+/// @param[in] logger           Where the outcome is recorded.  Borrowed,
+///                             may be null.
+/// @result Done if AQMS reported the trigger deleted, DoesNotExist if
+///         there is no such event, and SolutionChanged - with nothing
+///         done - if the event is no longer a subnet trigger.
+/// @note The type check and the delete are atomic.
+/// @throws std::exception if the database cannot be reached or refuses
+///         the call.
+[[nodiscard]] ActionOutcome deleteSubnetTrigger(
+    const Client &mainClient,
+    int64_t eventIdentifier,
+    spdlog::logger *logger = nullptr); 
 }
 #endif
