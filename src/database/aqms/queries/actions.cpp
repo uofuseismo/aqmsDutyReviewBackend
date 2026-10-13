@@ -8,11 +8,13 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 #include <spdlog/spdlog.h>
 #include <spdlog/logger.h>
 #include <pqxx/pqxx>
 #include "aqmsDutyReviewBackend/database/aqms/queries/actions.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/event.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/eventQueries.hpp"
 #include "aqmsDutyReviewBackend/database/client.hpp"
 
@@ -159,7 +161,8 @@ SELECT DISTINCT origin.subsource as subsource
 [[nodiscard]] std::optional<ExpectedSolution> readSolution(
     pqxx::work &transaction,
     const std::string_view query,
-    const int64_t eventIdentifier)
+    const int64_t eventIdentifier,
+    spdlog::logger *logger)
 {
     const auto rows = transaction.exec(std::string {query},
                                        pqxx::params{eventIdentifier});
@@ -178,8 +181,14 @@ SELECT DISTINCT origin.subsource as subsource
     {
         eventType = eventTypeFromCode(row.at("etype").as<std::string> ());
     }
-    catch (const std::invalid_argument &)
+    catch (const std::invalid_argument &e)
     {
+        if (logger)
+        {
+            SPDLOG_LOGGER_DEBUG(logger,
+                "Failed to read event type because {}; setting to unknown",
+                e.what());
+        }
     }
     return ExpectedSolution{readIdentifier("prefor"),
                             readIdentifier("prefmag"),
@@ -353,7 +362,7 @@ ActionOutcome AQMSDutyReviewBackend::Database::AQMS::acceptEvent(
             pqxx::work transaction(connection);
             accepted = false;
             current = ::readSolution(transaction, ::LOCK_SOLUTION_QUERY,
-                                      eventIdentifier);
+                                      eventIdentifier, logger);
             // Returning without a commit rolls back and releases the lock.
             if (!current || *current != expected){return;}
             const auto status
@@ -459,7 +468,7 @@ ActionOutcome AQMSDutyReviewBackend::Database::AQMS::cancelEvent(
         {
             pqxx::work transaction(connection);
             current = ::readSolution(transaction, ::READ_SOLUTION_QUERY,
-                                      eventIdentifier);
+                                      eventIdentifier, logger);
             auto rows = transaction.exec(std::string {::GET_ORIGIN_SUBSOURCES},
                                          pqxx::params{eventIdentifier});
             transaction.commit();
