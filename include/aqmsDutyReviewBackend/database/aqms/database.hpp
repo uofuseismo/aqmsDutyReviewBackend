@@ -25,6 +25,7 @@ namespace AQMSDutyReviewBackend::Database::AQMS
  class StreamIdentifier;
  class Station;
  class StreamIdentifier;
+ class SubnetTrigger;
  class Waveform;
 }
 
@@ -126,6 +127,10 @@ public:
         -> std::expected<std::string, QueryError>;
 
     [[nodiscard]] auto getCatalog(const std::chrono::seconds &duration = std::chrono::weeks {1}) const -> std::expected<std::vector<EventSummary>, QueryError>;
+
+    /// @brief Generates a catalog of subnet triggers between now - duration and now.
+    /// @result The subnet triggers or why they could not be read.
+    [[nodiscard]] auto getSubnetTriggers(const std::chrono::seconds &duration = std::chrono::weeks {1}) const -> std::expected<std::vector<SubnetTrigger>, QueryError>;
 
     /// @brief Fetches the alarms for an event from every database.
     /// @param[in] eventIdentifier  The event.

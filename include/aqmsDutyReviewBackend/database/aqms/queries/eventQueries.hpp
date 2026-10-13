@@ -16,7 +16,6 @@ namespace AQMSDutyReviewBackend::Database
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
  class EventSummary;
- class SubnetTrigger;
 }
 
 namespace AQMSDutyReviewBackend::Database::AQMS
@@ -59,8 +58,7 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 ///       model stops at 800 - so one unusual event must not cost the duty
 ///       analyst every other event on their screen.  Each skip is logged.
 /// @note Subnet triggers are excluded - they are an Earthworm artifact
-///       rather than something that happened.  See \c querySubnetTriggers
-///       for those.
+///       rather than something that happened.
 /// @throws std::invalid_argument if the duration is not positive.
 /// @throws std::runtime_error if the query itself fails.
 /// @brief Fetches one event in full - every origin, every origin's picks,
@@ -87,26 +85,5 @@ namespace AQMSDutyReviewBackend::Database::AQMS
     const std::chrono::seconds &duration,
     spdlog::logger *logger);
 
-/// @brief The subnet triggers, newest first.
-/// @param[in] client    A client connected to an AQMS database.
-/// @param[in] duration  How far back to look from now.
-/// @param[in] logger    Where a row that cannot be read is recorded.
-///                      Borrowed, not owned, and must not be null.
-/// @result The triggers, most recent first.
-/// @note SubnetTrigger and not EventSummary.  A trigger has no location,
-///       no magnitude, and nobody credited with it; carrying it as an
-///       event summary would mean three placeholder columns nobody should
-///       read and a dozen absent ones.  Its query is correspondingly
-///       smaller - the magnitude and credit joins existed only to return
-///       nulls here.
-/// @note Anything in this list is unreviewed by construction: a trigger an
-///       analyst decides is real is given an event type, at which point it
-///       is an event and appears in the catalog instead.
-/// @throws std::invalid_argument if the duration is not positive.
-/// @throws std::runtime_error if the query itself fails.
-[[nodiscard]] std::vector<SubnetTrigger> querySubnetTriggers(
-    const Client &client,
-    const std::chrono::seconds &duration,
-    spdlog::logger *logger);
 }
 #endif

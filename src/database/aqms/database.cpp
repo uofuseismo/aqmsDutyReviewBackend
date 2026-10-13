@@ -21,12 +21,14 @@
 #include "aqmsDutyReviewBackend/database/aqms/quarry.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/station.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/subnetTrigger.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/waveform.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/eventLockQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/actions.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/eventQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/quarryQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/stationQueries.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/queries/subnetTriggerQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/alarmQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/waveformQueries.hpp"
 #include "aqmsDutyReviewBackend/database/client.hpp"
@@ -262,6 +264,33 @@ auto Database::getCatalog(const std::chrono::seconds &duration) const
         return std::unexpected(QueryError::ConnectionFailed);
     }
 }
+
+auto Database::getSubnetTriggers(const std::chrono::seconds &duration) const
+    -> std::expected<std::vector<SubnetTrigger>, QueryError>
+{
+    if (duration.count() <= 0)
+    {
+        // The caller asked for a window with no time in it, which is a bad
+        // request and not a database problem.
+        return std::unexpected(QueryError::InvalidArgument);
+    }
+    try 
+    {   
+        // The logger is borrowed for the call, not retained, so .get()
+        // rather than the shared_ptr itself.
+        return querySubnetTriggers(*pImpl->mMainClient, duration,
+                                   pImpl->mLogger.get());
+    }   
+    catch (const std::exception &e) 
+    {
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                       "Could not fetch the subnet triggers from {} because {}",
+                       pImpl->mMainClient->getName(),
+                       std::string {e.what()});
+        return std::unexpected(QueryError::ConnectionFailed);
+    }   
+}
+
 
 /// One event, in full
 auto Database::getEvent(const int64_t eventIdentifier) const

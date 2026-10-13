@@ -126,6 +126,7 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/database/aqms/queries/magnitudeQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/quarryQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/stationQueries.hpp
+    include/${PROJECT_NAME}/database/aqms/queries/subnetTriggerQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/waveformQueries.hpp
     include/${PROJECT_NAME}/database/aqms/serialize.hpp
     include/${PROJECT_NAME}/database/aqms/station.hpp
@@ -174,6 +175,7 @@ set(LIBRARY_SRC
     src/database/aqms/queries/magnitudeQueries.cpp
     src/database/aqms/queries/quarryQueries.cpp
     src/database/aqms/queries/stationQueries.cpp
+    src/database/aqms/queries/subnetTriggerQueries.cpp
     src/database/aqms/queries/waveformQueries.cpp
     src/database/aqms/serialize.cpp
     src/database/aqms/station.cpp

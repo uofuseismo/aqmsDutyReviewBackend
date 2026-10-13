@@ -45,6 +45,7 @@
 #include "routes/routeContext.hpp"
 #include "routes/routeMetrics.hpp"
 #include "routes/stationRoutes.hpp"
+#include "routes/subnetTriggerRoutes.hpp"
 #include "routes/userRoutes.hpp"
 #include "routes/waveformRoutes.hpp"
 #include "programOptions.hpp"
@@ -443,6 +444,7 @@ int main(int argc, char *argv[])
     ::registerGazetteerRoutes(app, routeContext);
     ::registerStationRoutes(app, routeContext);
     ::registerEventRoutes(app, routeContext);
+    ::registerSubnetTriggerRoutes(app, routeContext);
     ::registerActionRoutes(app, routeContext);
     ::registerAdminRoutes(app, routeContext);
     ::registerUserRoutes(app, routeContext);
