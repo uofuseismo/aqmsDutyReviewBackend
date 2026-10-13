@@ -324,15 +324,25 @@ SELECT encode(wave.get_waveform_blob($1, 0, $2, 0, 4070908800), 'hex')
 
  */
 
+/// Every file associated with an event, with the origin time that picks
+/// its archive root - see WAVEFORM_FILE_QUERY for why it is the preferred
+/// origin's and why TrueTime.getEpoch.
+///
+/// @note DISTINCT because a file can hold more than one waveform row, and
+///       the whole file is read either way.
 constexpr std::string_view ALL_WAVEFORMS_FOR_SUBNET_QUERY
 {
 R"""(
-SELECT filename.dfile AS filename,
-       filename.nbytes AS nbytes
- FROM AssocWaE 
- INNER JOIN waveform ON waveform.wfid = AssocWaE.wfid 
-  INNER JOIN filename ON filename.fileid = waveform.fileid
- WHERE evid = $1 ORDER BY dfile;
+SELECT DISTINCT filename.dfile AS filename,
+       filename.nbytes AS nbytes,
+       TrueTime.getEpoch(origin.datetime, 'NOMINAL') AS origin_time
+  FROM AssocWaE
+ INNER JOIN waveform ON waveform.wfid = AssocWaE.wfid
+ INNER JOIN filename ON filename.fileid = waveform.fileid
+ INNER JOIN event    ON event.evid = AssocWaE.evid
+ INNER JOIN origin   ON origin.orid = event.prefor
+ WHERE AssocWaE.evid = $1
+ ORDER BY filename.dfile;
 )"""
 };
 
@@ -448,6 +458,51 @@ R"""(
 SELECT encode(wave.get_waveform_blob($1, 0, $2, 0, 4070908800), 'hex');
 )"""
 };
+
+/// @brief Reads one archive file and unpacks it.
+/// @param[in] description  What the file was expected to hold, for the
+///                         error message.
+/// @throws std::runtime_error if the file holds nothing.
+[[nodiscard]] Waveform readArchiveFile(const DB::Client &client,
+                                       const std::string &fileName,
+                                       const int64_t nBytes,
+                                       const std::string &description)
+{
+    std::string hexadecimalData;
+    client.execute(
+        [&](pqxx::connection &connection)
+        {
+            pqxx::work transaction(connection);
+            const pqxx::params blobParameters{fileName, nBytes};
+            const auto blobResult
+                = transaction.exec(::WAVEFORM_BLOB_QUERY, blobParameters);
+            std::string blob;
+            if (!blobResult.empty())
+            {
+                const auto row = blobResult.one_row();
+                if (!row.at(0).is_null())
+                {
+                    blob = row.at(0).as<std::string> ();
+                }
+            }
+            transaction.commit();
+            hexadecimalData = std::move(blob);
+        },
+        ::WAVEFORM_BLOB_QUERY);
+
+    if (hexadecimalData.empty())
+    {
+        throw std::runtime_error("No data in " + fileName + " for "
+                               + description);
+    }
+    // encode(..., 'hex') gives two characters per byte, so the miniSEED is
+    // half the length of what came back - it does not have to be counted
+    // separately.
+    auto miniSEED = ::hexToASCII(hexadecimalData);
+    constexpr int8_t verbose{0};
+    constexpr bool purgeTrailingZeros{true};
+    return ::unpack(miniSEED, miniSEED.size(), verbose, purgeTrailingZeros);
+}
 
 }
 
@@ -634,40 +689,7 @@ AQMSDutyReviewBackend::Database::AQMS::queryWaveform(
          / std::filesystem::path {std::to_string(eventIdentifier)}
          / std::filesystem::path {dataFile}).string();
 
-    std::string hexadecimalData;
-    client.execute(
-        [&](pqxx::connection &connection)
-        {
-            pqxx::work transaction(connection);
-            const pqxx::params blobParameters{fileName, nBytes};
-            const auto blobResult
-                = transaction.exec(::WAVEFORM_BLOB_QUERY, blobParameters);
-            std::string blob;
-            if (!blobResult.empty())
-            {
-                const auto row = blobResult.one_row();
-                if (!row.at(0).is_null())
-                {
-                    blob = row.at(0).as<std::string> ();
-                }
-            }
-            transaction.commit();
-            hexadecimalData = std::move(blob);
-        },
-        ::WAVEFORM_BLOB_QUERY);
-
-    if (hexadecimalData.empty())
-    {
-        throw std::runtime_error("No data in " + fileName + " for "
-                               + stationName);
-    }
-    // encode(..., 'hex') gives two characters per byte, so the miniSEED is
-    // half the length of what came back - it does not have to be counted
-    // separately.
-    auto miniSEED = ::hexToASCII(hexadecimalData);
-    constexpr int8_t verbose{0};
-    constexpr bool purgeTrailingZeros{true};
-    return ::unpack(miniSEED, miniSEED.size(), verbose, purgeTrailingZeros);
+    return ::readArchiveFile(client, fileName, nBytes, stationName);
 }
 
 std::string
@@ -705,3 +727,71 @@ AQMSDutyReviewBackend::Database::AQMS::queryWaveforms(
     return waveforms;
 }
 
+std::vector<Waveform>
+AQMSDutyReviewBackend::Database::AQMS::queryAllWaveformsForSubnetTrigger(
+    const DB::Client &client,
+    const int64_t eventIdentifier,
+    FileRoots &fileRoots,
+    spdlog::logger *logger)
+{
+    struct ArchiveFile
+    {
+        std::string name;
+        int64_t nBytes{0};
+    };
+    std::vector<ArchiveFile> files;
+    double originTime{0};
+    client.execute(
+        [&](pqxx::connection &connection)
+        {
+            pqxx::work transaction(connection);
+            // Assigned at the end, not accumulated: the client re-runs
+            // this after re-dialling a dropped connection.
+            std::vector<ArchiveFile> rows;
+            double time{0};
+            for (const auto &row
+                 : transaction.exec(::ALL_WAVEFORMS_FOR_SUBNET_QUERY,
+                                    pqxx::params{eventIdentifier}))
+            {
+                if (row.at(0).is_null() || row.at(1).is_null()){continue;}
+                rows.push_back(ArchiveFile{row.at(0).as<std::string> (),
+                                           row.at(1).as<int64_t> ()});
+                if (!row.at(2).is_null()){time = row.at(2).as<double> ();}
+            }
+            transaction.commit();
+            files = std::move(rows);
+            originTime = time;
+        },
+        ::ALL_WAVEFORMS_FOR_SUBNET_QUERY);
+    if (files.empty()){return {};}
+
+    // One event, one origin time, one root - resolved once for every file.
+    const auto fileRoot
+        = getFileRoot(std::chrono::nanoseconds
+                      {static_cast<int64_t> (std::llround(originTime*1.e9))},
+                      fileRoots, client);
+    const auto eventDirectory
+        = fileRoot / std::filesystem::path {std::to_string(eventIdentifier)};
+
+    std::vector<Waveform> waveforms;
+    waveforms.reserve(files.size());
+    for (const auto &file : files)
+    {
+        try
+        {
+            waveforms.push_back(
+                ::readArchiveFile(client,
+                                  (eventDirectory / file.name).string(),
+                                  file.nBytes,
+                                  "event " + std::to_string(eventIdentifier)));
+        }
+        catch (const std::exception &e)
+        {
+            SPDLOG_LOGGER_WARN(logger,
+                               "Skipping {} for event {} because {}",
+                               file.name, eventIdentifier,
+                               std::string {e.what()});
+        }
+    }
+    return waveforms;
+}
