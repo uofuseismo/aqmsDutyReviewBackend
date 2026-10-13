@@ -134,5 +134,17 @@ struct FileRoots
     FileRoots &fileRoots,
     spdlog::logger *logger);
 
+/// @brief Fetches all the waveforms for display in the subnet triggers.
+/// @param[in] client            A client connected to an AQMS database.
+/// @param[in] eventIdentifier   The event.
+/// @param[in,out] fileRoots     The archive roots, refreshed if this
+///                              event predates or postdates them.
+/// @param[in] logger  A pointer to the logging facility.
+[[nodiscard]] std::vector<Waveform> queryAllWaveformsForSubnetTrigger(
+    const Client &client,
+    std::int64_t eventIdentifier,
+    FileRoots &fileRoots,
+    spdlog::logger *logger);
+
 }
 #endif

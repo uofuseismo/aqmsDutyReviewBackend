@@ -324,6 +324,18 @@ SELECT encode(wave.get_waveform_blob($1, 0, $2, 0, 4070908800), 'hex')
 
  */
 
+constexpr std::string_view ALL_WAVEFORMS_FOR_SUBNET_QUERY
+{
+R"""(
+SELECT filename.dfile AS filename,
+       filename.nbytes AS nbytes
+ FROM AssocWaE 
+ INNER JOIN waveform ON waveform.wfid = AssocWaE.wfid 
+  INNER JOIN filename ON filename.fileid = waveform.fileid
+ WHERE evid = $1 ORDER BY dfile;
+)"""
+};
+
 /// Step one: which file holds this event's data for this stream, and how
 /// big is it.
 ///

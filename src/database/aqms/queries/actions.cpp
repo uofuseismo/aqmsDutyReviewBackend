@@ -15,6 +15,7 @@
 #include <pqxx/pqxx>
 #include "aqmsDutyReviewBackend/database/aqms/queries/actions.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/event.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/queries/eventQueries.hpp"
 #include "aqmsDutyReviewBackend/database/client.hpp"
 
@@ -184,6 +185,21 @@ SELECT DISTINCT origin.subsource as subsource
  INNER JOIN origin ON origin.evid = event.evid
  WHERE event.evid = $1
    AND origin.subsource IS NOT NULL;
+)"""
+};
+
+/// Sets the event type from the subnet trigger.
+constexpr std::string_view SET_SUBNET_TRIGGER_EVENT_TYPE_QUERY
+{
+R"""(
+SELECT epref.setEventType($1, $2);
+)"""
+};
+
+constexpr std::string_view SET_SUBNET_TRIGGER_GEOGRAPHIC_TYPE_QUERY
+{
+R"""(
+SELECT epref.setPreforGtype($1, $2);
 )"""
 };
 
@@ -689,4 +705,15 @@ ActionOutcome AQMSDutyReviewBackend::Database::AQMS::deleteSubnetTrigger(
     return ActionOutcome::Done;
 }
 
+ActionOutcome AQMSDutyReviewBackend::Database::AQMS::setSubnetTriggerEventType(
+    const DB::Client &mainClient,
+    const int64_t eventIdentifier,
+    const AQMS::Event::EventType eventType,
+    const AQMS::Origin::GeographicType geographicType,
+    spdlog::logger *logger)
+{
+
+
+    return ActionOutcome::Done;
+}
 

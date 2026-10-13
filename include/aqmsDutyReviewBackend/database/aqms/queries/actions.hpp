@@ -141,5 +141,25 @@ enum class ActionOutcome
     const Client &mainClient,
     int64_t eventIdentifier,
     spdlog::logger *logger = nullptr); 
+
+/// @brief During subnet trigger review analysts may decide to relabel the
+///        event type instead of deleting it for further analysis.
+/// @param[in] mainClient       The main AQMS database.
+/// @param[in] eventIdentifier  The event identifier of the subnet trigger
+///                             whose event and geographic type will be
+///                             modified.
+/// @param[in] eventType        The desired event type.
+/// @param[in] geographicType   The geographic type.
+/// @param[in] logger           Where the outcome is recorded.  Borrowed,
+///                             may be null.
+/// @throws std::exception if the database cannot be reached or refuses
+///         the call.
+[[nodiscard]] ActionOutcome setSubnetTriggerEventType(
+    const Client &mainClient,
+    const int64_t eventIdentifier,
+    const AQMS::Event::EventType eventType,
+    const AQMS::Origin::GeographicType geographicType,
+    spdlog::logger *logger);
+
 }
 #endif
