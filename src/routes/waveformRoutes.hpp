@@ -120,6 +120,106 @@ filterWaveform(const AQMSDutyReviewBackend::Database::AQMS::Waveform &waveform,
     return result;
 }
 
+/// @brief How a caller wants waveform samples back.
+struct WaveformOptions
+{
+    AQMSDutyReviewBackend::Database::AQMS::WaveformEncoding encoding;
+    bool applyFilter{true};
+};
+
+/// @brief Reads a boolean query parameter.
+/// @result "true"/"1" is true and "false"/"0" false; absent or anything
+///         else is the fallback rather than a guess.
+[[nodiscard]] bool readFlag(const crow::request &request,
+                            const char *name,
+                            const bool fallback)
+{
+    const auto value = request.url_params.get(name);
+    if (value == nullptr){return fallback;}
+    const std::string text{value};
+    if (text == "true" || text == "1"){return true;}
+    if (text == "false" || text == "0"){return false;}
+    return fallback;
+}
+
+/// @brief Reads the waveform options from the query string.
+/// @note Query parameters rather than a body: these are GETs, and the
+///       options pick a representation of the same resource rather than
+///       changing it.
+[[nodiscard]] WaveformOptions readWaveformOptions(const crow::request &request)
+{
+    const auto readFlag
+        = [&request](const char *name, const bool fallback)
+          {
+              return ::readFlag(request, name, fallback);
+          };
+    WaveformOptions options;
+    // Both off by default, so a caller that asks for nothing gets the
+    // plain form and nothing it did not ask for changes under it.  The
+    // reply says what was actually done - see the gain and deltaEncoded on
+    // every segment - because delta encoding is declined on fractional
+    // samples.
+    options.encoding.enableDeltaEncoding
+        = readFlag("enableDeltaEncoding", false);
+    options.encoding.enableQuantization
+        = readFlag("enableQuantization", false);
+    // Filtering defaults ON - a duty analyst wants the filtered trace
+    // almost always, and asking for it should not be a thing to remember.
+    // filter=false gives the samples as miniSEED had them.
+    //
+    // The two interact: filtering turns integer counts into fractional
+    // doubles, and delta encoding is declined on fractional samples, so
+    // filter=true silently makes enableDeltaEncoding a no-op.
+    options.applyFilter = readFlag("filter", true);
+    return options;
+}
+
+/// @brief Filters the waveforms as asked and builds the 200.
+/// @param[in] what  What the waveforms belong to, for the log.
+[[nodiscard]] crow::response makeWaveformResponse(
+    const std::vector<AQMSDutyReviewBackend::Database::AQMS::Waveform>
+        &waveforms,
+    const WaveformOptions &options,
+    const std::string &user,
+    const std::string &what,
+    spdlog::logger *logger)
+{
+    namespace AQMS = AQMSDutyReviewBackend::Database::AQMS;
+    std::size_t nSegments{0};
+    for (const auto &waveform : waveforms)
+    {
+        nSegments = nSegments + waveform.size();
+    }
+    SPDLOG_LOGGER_INFO(logger,
+                       "Returning {} waveform(s) and {} segment(s) to {} for "
+                       "{} (filter={}, delta={}, quantized={})",
+                       waveforms.size(), nSegments, user, what,
+                       options.applyFilter,
+                       options.encoding.enableDeltaEncoding,
+                       options.encoding.enableQuantization);
+    // Demeaned then bandpass filtered, per segment.  A segment that cannot
+    // be filtered goes out as it arrived rather than failing the request -
+    // see filterWaveform.
+    std::vector<AQMS::Waveform> filtered;
+    if (options.applyFilter)
+    {
+        filtered.reserve(waveforms.size());
+        for (const auto &waveform : waveforms)
+        {
+            filtered.push_back(::filterWaveform(waveform, logger));
+        }
+    }
+    else
+    {
+        filtered = waveforms;
+    }
+    return ::makeDataResponse(
+        200,
+        "Found " + std::to_string(filtered.size()) + " waveform(s) in "
+                 + std::to_string(nSegments) + " segment(s)",
+        AQMS::toJSON(filtered, options.encoding));
+}
+
 /// @brief Registers the waveform routes.
 /// @note The route carries a url parameter, so it uses CROW_ROUTE and
 ///       authorizes inline - see the note in eventRoutes.hpp.
@@ -144,42 +244,7 @@ inline void registerWaveformRoutes(crow::SimpleApp &app,
                                authorization.identity->user, eventIdentifier);
             namespace AQMS = AQMSDutyReviewBackend::Database::AQMS;
 
-            // How the samples come back.  Both off by default, so a caller
-            // that asks for nothing gets the plain form and nothing it did not
-            // ask for changes under it.  The reply says what was actually
-            // done - see the gain and deltaEncoded on every segment - because
-            // delta encoding is declined on fractional samples.
-            //
-            // Query parameters rather than a body: this is a GET, and these
-            // pick a representation of the same resource rather than changing
-            // it.
-            AQMS::WaveformEncoding encoding;
-            const auto readFlag
-                = [&request](const char *name, const bool fallback)
-                  {
-                      const auto value = request.url_params.get(name);
-                      if (value == nullptr){return fallback;}
-                      const std::string text{value};
-                      // "true"/"1" on, "false"/"0" off; anything else is
-                      // treated as unset rather than guessed at.
-                      if (text == "true" || text == "1"){return true;}
-                      if (text == "false" || text == "0"){return false;}
-                      return fallback;
-                  };
-            encoding.enableDeltaEncoding
-                = readFlag("enableDeltaEncoding", false);
-            encoding.enableQuantization
-                = readFlag("enableQuantization", false);
-            // Filtering defaults ON - a duty analyst wants the filtered trace
-            // almost always, and asking for it should not be a thing to
-            // remember.  filter=false gives the samples as miniSEED had them.
-            //
-            // Worth knowing that the two options interact: filtering turns
-            // integer counts into fractional doubles, and delta encoding is
-            // declined on fractional samples, so filter=true silently makes
-            // enableDeltaEncoding a no-op.  Unfiltered counts delta-encode
-            // properly.
-            const auto applyFilter = readFlag("filter", true);
+            const auto options = ::readWaveformOptions(request);
 
             // Which channels to draw: the ones the preferred origin was
             // actually located from.  Deliberately naive - it asks for a
@@ -256,42 +321,10 @@ inline void registerWaveformRoutes(crow::SimpleApp &app,
                 return ::makeMessageResponse(
                     404, "No waveform data for that event and stream");
             }
-            std::size_t nSegments{0};
-            for (const auto &waveform : *waveforms)
-            {
-                nSegments = nSegments + waveform.size();
-            }
-            SPDLOG_LOGGER_INFO(context.logger,
-                               "Returning {} waveform(s) and {} segment(s) to "
-                               "{} for event (filter={}, delta={}, quantized={})",
-                               waveforms->size(), nSegments,
-                               authorization.identity->user,
-                               eventIdentifier,
-                               applyFilter,
-                               encoding.enableDeltaEncoding,
-                               encoding.enableQuantization);
-            // Demeaned then bandpass filtered, per segment.  A segment that
-            // cannot be filtered goes out as it arrived rather than failing
-            // the request - see filterWaveform.
-            std::vector<AQMS::Waveform> filtered;
-            if (applyFilter)
-            {
-                filtered.reserve(waveforms->size());
-                for (const auto &waveform : *waveforms)
-                {
-                    filtered.push_back(::filterWaveform(waveform,
-                                                        context.logger.get()));
-                }
-            }
-            else
-            {
-                filtered = *waveforms;
-            }
-            return ::makeDataResponse(
-                200,
-                "Found " + std::to_string(filtered.size()) + " waveform(s) in "
-                         + std::to_string(nSegments) + " segment(s)",
-                AQMS::toJSON(filtered, encoding));
+            return ::makeWaveformResponse(
+                *waveforms, options, authorization.identity->user,
+                "event " + std::to_string(eventIdentifier),
+                context.logger.get());
         });
     });
 

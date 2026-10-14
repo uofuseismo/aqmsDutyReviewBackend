@@ -205,6 +205,16 @@ public:
     /// @note Streams are fetched one at a time, so this is as many round
     ///       trips as it is streams.  Ask for the channels you will draw.
     [[nodiscard]] auto fetchWaveforms(int64_t eventIdentifier, const std::vector<StreamIdentifier> &identifiers) const -> std::expected<std::vector<Waveform>, QueryError>;
+
+    /// @brief Fetches every archived waveform for an event.
+    /// @param[in] eventIdentifier  The event identifier.
+    /// @param[in] verticalOnly     If true, only the vertical channels.
+    /// @result A waveform per archived file that could be read.
+    /// @note For subnet triggers, which have no picks to choose channels
+    ///       from.  One round trip per file, so verticalOnly is worth it.
+    [[nodiscard]] auto fetchAllWaveforms(int64_t eventIdentifier, bool verticalOnly) const -> std::expected<std::vector<Waveform>, QueryError>;
+
+
     /// @}
 
     /// @name Actions

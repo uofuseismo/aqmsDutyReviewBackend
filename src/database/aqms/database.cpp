@@ -411,6 +411,42 @@ auto Database::fetchWaveforms(
     }
 }
 
+auto Database::fetchAllWaveforms(
+    const int64_t eventIdentifier,
+    const bool verticalOnly) const
+    -> std::expected<std::vector<Waveform>, QueryError>
+{
+    try 
+    {   
+        const std::scoped_lock lock{pImpl->mFileRootsMutex};
+        return queryAllWaveformsForSubnetTrigger(
+                  *pImpl->mMainClient,
+                  eventIdentifier,
+                  verticalOnly,
+                  pImpl->mFileRoots,
+                  pImpl->mLogger.get());
+    }
+    catch (const pqxx::sql_error &e)
+    {
+        // NOT skipped.  A function the database refuses to run is a fault,
+        // and reporting it as "no waveform data" would have an analyst
+        // seeing an empty plot while the real reason sits in the log.
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Waveform query refused by {} because {}",
+                            pImpl->mMainClient->getName(),
+                            std::string {e.what()});
+        return std::unexpected(QueryError::QueryFailed);
+    }
+    catch (const std::exception &e)
+    {
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Could not fetch waveforms from {} because {}",
+                            pImpl->mMainClient->getName(),
+                            std::string {e.what()});
+        return std::unexpected(QueryError::ConnectionFailed);
+    }
+}
+
 
 auto Database::accept(const int64_t eventIdentifier,
                       const ExpectedSolution &expected) const

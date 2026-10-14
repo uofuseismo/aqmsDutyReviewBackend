@@ -102,6 +102,10 @@ inline void describeOpenRoute(const std::string &method,
         {"subnet-triggers",
          "The unreviewed subnet triggers over the catalog window, newest "
          "first."},
+        {"subnet-trigger-waveforms",
+         "The archived channels for one subnet trigger - verticals only "
+         "unless verticalOnly=false.  Takes the same filter and encoding "
+         "options as event-waveforms."},
         {"stations", "Every station epoch AQMS knows about."},
         {"stations-hash", "A hash of the station list."},
         {"gazetteer-quarries", "Every quarry epoch in the gazetteer."},

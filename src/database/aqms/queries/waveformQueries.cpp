@@ -330,6 +330,9 @@ SELECT encode(wave.get_waveform_blob($1, 0, $2, 0, 4070908800), 'hex')
 ///
 /// @note DISTINCT because a file can hold more than one waveform row, and
 ///       the whole file is read either way.
+/// @note $2 restricts it to vertical channels - a SEED channel's third
+///       character is its orientation.  In the SQL rather than after the
+///       fact, so a horizontal file is never read at all.
 constexpr std::string_view ALL_WAVEFORMS_FOR_SUBNET_QUERY
 {
 R"""(
@@ -342,6 +345,7 @@ SELECT DISTINCT filename.dfile AS filename,
  INNER JOIN event    ON event.evid = AssocWaE.evid
  INNER JOIN origin   ON origin.orid = event.prefor
  WHERE AssocWaE.evid = $1
+   AND (NOT $2 OR upper(substr(waveform.seedchan, 3, 1)) = 'Z')
  ORDER BY filename.dfile;
 )"""
 };
@@ -731,6 +735,7 @@ std::vector<Waveform>
 AQMSDutyReviewBackend::Database::AQMS::queryAllWaveformsForSubnetTrigger(
     const DB::Client &client,
     const int64_t eventIdentifier,
+    const bool verticalChannelFilter,
     FileRoots &fileRoots,
     spdlog::logger *logger)
 {
@@ -751,7 +756,8 @@ AQMSDutyReviewBackend::Database::AQMS::queryAllWaveformsForSubnetTrigger(
             double time{0};
             for (const auto &row
                  : transaction.exec(::ALL_WAVEFORMS_FOR_SUBNET_QUERY,
-                                    pqxx::params{eventIdentifier}))
+                                    pqxx::params{eventIdentifier,
+                                                 verticalChannelFilter}))
             {
                 if (row.at(0).is_null() || row.at(1).is_null()){continue;}
                 rows.push_back(ArchiveFile{row.at(0).as<std::string> (),
