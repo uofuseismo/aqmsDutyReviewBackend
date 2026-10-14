@@ -58,6 +58,15 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 [[nodiscard]] std::optional<Event::EventType>
     eventTypeFromString(std::string_view name);
 
+/// @brief Parses a geographic type name as \c toJSON writes it - e.g.
+///        "local" or "teleseismic".
+/// @result The geographic type, or std::nullopt if the name is not one
+///         this backend ever writes.
+/// @note Exact match only, and an unrecognized name is NOT Unknown - for
+///       the same reasons as \c eventTypeFromString.
+[[nodiscard]] std::optional<Origin::GeographicType>
+    geographicTypeFromString(std::string_view name);
+
 /// @brief Serializes the locked events.
 /// @result A JSON array of {eventIdentifier, user} objects.
 /// @note An empty vector serializes to [] and not to null, so a frontend

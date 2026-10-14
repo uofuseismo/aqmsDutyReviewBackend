@@ -5,7 +5,9 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <functional>
 #include <stdexcept>
+#include <string_view>
 #include <string>
 #include <utility>
 #include <vector>
@@ -35,6 +37,7 @@
 
 using namespace AQMSDutyReviewBackend::Database::AQMS;
 namespace DB = AQMSDutyReviewBackend::Database;
+namespace AQMS = AQMSDutyReviewBackend::Database::AQMS;
 
 class Database::DatabaseImpl
 {
@@ -489,6 +492,101 @@ auto Database::accept(const int64_t eventIdentifier,
                             eventIdentifier, std::string {e.what()});
         return std::unexpected(ActionError::ConnectionFailed);
     }
+}
+
+/// @brief The trigger actions' shared ending: an outcome or an exception
+///        turned into an ActionError, and the failure logged.
+/// @note The calls into the query layer are qualified with AQMS:: because
+///       two of them share a name with the Database member calling them.
+[[nodiscard]] static auto runTriggerAction(
+    const std::function<ActionOutcome ()> &action,
+    const std::string_view verb,
+    const int64_t eventIdentifier,
+    const std::string &databaseName,
+    spdlog::logger *logger)
+    -> std::expected<void, Database::ActionError>
+{
+    using ActionError = Database::ActionError;
+    try
+    {
+        switch (action())
+        {
+        case ActionOutcome::Done:            return {};
+        case ActionOutcome::DoesNotExist:
+            return std::unexpected(ActionError::DoesNotExist);
+        case ActionOutcome::SolutionChanged:
+            return std::unexpected(ActionError::SolutionChanged);
+        case ActionOutcome::Refused:         break;
+        }
+        return std::unexpected(ActionError::Refused);
+    }
+    catch (const std::invalid_argument &e)
+    {
+        // Thrown before anything is locked, so nothing was written.
+        SPDLOG_LOGGER_WARN(logger, "Will not {} subnet trigger {} because {}",
+                           verb, eventIdentifier, std::string {e.what()});
+        return std::unexpected(ActionError::InvalidArgument);
+    }
+    catch (const pqxx::insufficient_privilege &e)
+    {
+        SPDLOG_LOGGER_ERROR(logger, "{} may not {} subnet triggers - {}",
+                            databaseName, verb, std::string {e.what()});
+        return std::unexpected(ActionError::InvalidPermissions);
+    }
+    catch (const std::exception &e)
+    {
+        SPDLOG_LOGGER_ERROR(logger,
+                            "Could not {} subnet trigger {} because {}",
+                            verb, eventIdentifier, std::string {e.what()});
+        return std::unexpected(ActionError::ConnectionFailed);
+    }
+}
+
+auto Database::acceptSubnetTrigger(const int64_t eventIdentifier) const
+    -> std::expected<void, ActionError>
+{
+    return ::runTriggerAction(
+        [&]()
+        {
+            return AQMS::acceptSubnetTrigger(*pImpl->mMainClient,
+                                             eventIdentifier,
+                                             pImpl->mLogger.get());
+        },
+        "accept", eventIdentifier, pImpl->mMainClient->getName(),
+        pImpl->mLogger.get());
+}
+
+auto Database::retypeSubnetTrigger(
+    const int64_t eventIdentifier,
+    const Event::EventType eventType,
+    const Origin::GeographicType geographicType) const
+    -> std::expected<void, ActionError>
+{
+    return ::runTriggerAction(
+        [&]()
+        {
+            return AQMS::setSubnetTriggerEventType(*pImpl->mMainClient,
+                                                   eventIdentifier,
+                                                   eventType,
+                                                   geographicType,
+                                                   pImpl->mLogger.get());
+        },
+        "retype", eventIdentifier, pImpl->mMainClient->getName(),
+        pImpl->mLogger.get());
+}
+
+auto Database::deleteSubnetTrigger(const int64_t eventIdentifier) const
+    -> std::expected<void, ActionError>
+{
+    return ::runTriggerAction(
+        [&]()
+        {
+            return AQMS::deleteSubnetTrigger(*pImpl->mMainClient,
+                                             eventIdentifier,
+                                             pImpl->mLogger.get());
+        },
+        "delete", eventIdentifier, pImpl->mMainClient->getName(),
+        pImpl->mLogger.get());
 }
 
 auto Database::cancel(const int64_t eventIdentifier,

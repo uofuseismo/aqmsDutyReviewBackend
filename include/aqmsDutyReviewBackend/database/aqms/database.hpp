@@ -8,6 +8,8 @@
 #include <utility>
 #include <vector>
 #include <spdlog/logger.h>
+#include "aqmsDutyReviewBackend/database/aqms/event.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
 
 namespace AQMSDutyReviewBackend::Database
 {
@@ -17,7 +19,6 @@ namespace AQMSDutyReviewBackend::Database
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
  struct AlarmAction;
- class Event;
  class EventLock;
  class EventSummary;
  struct ExpectedSolution;
@@ -52,9 +53,11 @@ public:
         DoesNotExist,       /*!< The event does not exist in this database. */
         Refused,            /*!< The event exists and AQMS would not do it -
                                  for a cancel, no database would take it. */
-        SolutionChanged     /*!< The event's preferred origin, magnitude or type
+        SolutionChanged,    /*!< The event's preferred origin, magnitude or type
                                  is not the one the analyst reviewed, so
                                  nothing was done. */
+        InvalidArgument     /*!< The request asked for something AQMS has no
+                                 code for, so nothing was done. */
     };
     enum class QueryError
     {
@@ -252,6 +255,33 @@ public:
     ///       bump the version again.
     auto accept(int64_t eventIdentifier,
                 const ExpectedSolution &expected) const
+        -> std::expected<void, ActionError>;
+
+    /// @brief Marks a subnet trigger reviewed, leaving it a trigger.
+    /// @param[in] eventIdentifier  The subnet trigger.
+    /// @result Nothing on success, or why it could not be done -
+    ///         SolutionChanged if the event is no longer a subnet trigger.
+    /// @note Accepting an accepted trigger succeeds without a second bump.
+    auto acceptSubnetTrigger(int64_t eventIdentifier) const
+        -> std::expected<void, ActionError>;
+    /// @brief Turns a subnet trigger into an event of the given type.
+    /// @param[in] eventIdentifier  The subnet trigger.
+    /// @param[in] eventType        What it is.  Not SubnetTrigger.
+    /// @param[in] geographicType   Where it is.  Not Unknown.
+    /// @result Nothing on success, or why it could not be done -
+    ///         InvalidArgument for a type AQMS has no code for, and
+    ///         SolutionChanged if the event is no longer a subnet trigger.
+    /// @note Both types are set in one transaction, or neither is.
+    auto retypeSubnetTrigger(int64_t eventIdentifier,
+                             Event::EventType eventType,
+                             Origin::GeographicType geographicType) const
+        -> std::expected<void, ActionError>;
+    /// @brief Deletes a subnet trigger - in the AQMS sense of setting its
+    ///        selectflag to 0, not removing the row.
+    /// @param[in] eventIdentifier  The subnet trigger.
+    /// @result Nothing on success, or why it could not be done -
+    ///         SolutionChanged if the event is no longer a subnet trigger.
+    auto deleteSubnetTrigger(int64_t eventIdentifier) const
         -> std::expected<void, ActionError>;
     /// @}
 

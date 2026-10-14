@@ -1,17 +1,77 @@
 #ifndef AQMS_DUTY_REVIEW_BACKEND_ROUTES_SUBNET_TRIGGER_ROUTES_HPP
 #define AQMS_DUTY_REVIEW_BACKEND_ROUTES_SUBNET_TRIGGER_ROUTES_HPP
 #include <cstdint>
+#include <expected>
+#include <memory>
 #include <string>
+#include <string_view>
 #include <crow/app.h>
 #include "aqmsDutyReviewBackend/database/aqms/database.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/event.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/serialize.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/subnetTrigger.hpp"
+#include "actionRoutes.hpp"
+#include "requestBody.hpp"
 #include "routeContext.hpp"
 #include "waveformRoutes.hpp"
 
 namespace
 {
+
+/// @brief Turns a trigger action's result into a response.
+/// @note Its own function rather than actionResponse, because the stale
+///       case means something different: an event's solution moved, but a
+///       trigger stopped being a trigger - somebody else already decided
+///       what it was.
+/// @note The catalog cache is cleared on any success.  Only a retype puts
+///       anything new in the catalog, but a clear is cheap and knowing
+///       which actions need one is not.
+[[nodiscard]] crow::response triggerActionResponse(
+    const std::expected<void,
+        AQMSDutyReviewBackend::Database::AQMS::Database::ActionError> &result,
+    const std::string_view verb,
+    const std::string_view pastTense,
+    const int64_t eventIdentifier,
+    AQMSDutyReviewBackend::Database::AQMS::CatalogCache *catalogCache,
+    const std::shared_ptr<spdlog::logger> &logger)
+{
+    using ActionError
+        = AQMSDutyReviewBackend::Database::AQMS::Database::ActionError;
+    const auto name = "Subnet trigger " + std::to_string(eventIdentifier);
+    if (result)
+    {
+        if (catalogCache != nullptr){catalogCache->clear();}
+        return ::makeMessageResponse(200,
+                                     name + " " + std::string {pastTense});
+    }
+    switch (result.error())
+    {
+    case ActionError::SolutionChanged:
+        return ::makeMessageResponse(
+            409, name + " is no longer a subnet trigger - somebody has "
+                        "already reviewed it.  Reload the trigger list");
+    case ActionError::DoesNotExist:
+        return ::makeMessageResponse(404, name + " does not exist");
+    case ActionError::InvalidArgument:
+        return ::makeMessageResponse(
+            400, "AQMS has no code for that event or geographic type");
+    case ActionError::Refused:
+        // 422 and not 409: reloading will not change this answer.
+        return ::makeMessageResponse(
+            422, "AQMS would not " + std::string {verb} + " " + name);
+    case ActionError::InvalidPermissions:
+        SPDLOG_LOGGER_ERROR(logger,
+                            "The AQMS account cannot write - subnet trigger "
+                            "{} was not {}",
+                            eventIdentifier, pastTense);
+        return ::makeMessageResponse(
+            500, "This backend cannot write to AQMS - tell an operator");
+    case ActionError::ConnectionFailed:
+        break;
+    }
+    return ::makeMessageResponse(
+        500, "Could not reach the AQMS database - try again shortly");
+}
 
 /// @brief Registers the subnet trigger routes.
 inline void registerSubnetTriggerRoutes(crow::SimpleApp &app,
@@ -128,6 +188,123 @@ inline void registerSubnetTriggerRoutes(crow::SimpleApp &app,
                 *waveforms, options, authorization.identity->user,
                 "subnet trigger " + std::to_string(eventIdentifier),
                 context.logger.get());
+        });
+    });
+
+    // The three review actions.  POST for the reasons in actionRoutes.hpp:
+    // each changes AQMS, so none may be something a link-follower can
+    // trigger by looking.  Each checks, under a row lock, that the event
+    // is still a subnet trigger before touching it.
+
+    ::describeRoute("POST", "/subnet-triggers/<int>/accept",
+                    "subnet-trigger-accept", ::readWriteRequirement);
+    CROW_ROUTE(app, "/subnet-triggers/<int>/accept")
+        .methods(crow::HTTPMethod::POST)
+    ([&context](const crow::request &request,
+                const int64_t eventIdentifier) -> crow::response
+    {
+        return ::timedRoute("subnet-trigger-accept",
+                            [&]() -> crow::response
+        {
+            auto authorization
+                = ::authorizeRoute(request, *context.authenticator,
+                                   ::readWriteRequirement, context.logger,
+                                   "subnet-trigger-accept");
+            if (!authorization){return std::move(*authorization.rejection);}
+            SPDLOG_LOGGER_INFO(context.logger,
+                               "{} accepting subnet trigger {}",
+                               authorization.identity->user, eventIdentifier);
+            return ::triggerActionResponse(
+                context.aqmsDatabase->acceptSubnetTrigger(eventIdentifier),
+                "accept", "accepted", eventIdentifier,
+                context.catalogCache.get(),
+                context.logger);
+        });
+    });
+
+    // Takes the type names the event detail sends, not AQMS codes:
+    //   {"data": {"eventType": "earthquake", "geographicType": "local"}}
+    ::describeRoute("POST", "/subnet-triggers/<int>/retype",
+                    "subnet-trigger-retype", ::readWriteRequirement);
+    CROW_ROUTE(app, "/subnet-triggers/<int>/retype")
+        .methods(crow::HTTPMethod::POST)
+    ([&context](const crow::request &request,
+                const int64_t eventIdentifier) -> crow::response
+    {
+        return ::timedRoute("subnet-trigger-retype",
+                            [&]() -> crow::response
+        {
+            namespace AQMS = AQMSDutyReviewBackend::Database::AQMS;
+            auto authorization
+                = ::authorizeRoute(request, *context.authenticator,
+                                   ::readWriteRequirement, context.logger,
+                                   "subnet-trigger-retype");
+            if (!authorization){return std::move(*authorization.rejection);}
+            auto body = ::parseRequestData(request);
+            if (!body){return std::move(*body.rejection);}
+            const auto eventTypeName = ::requiredString(*body.data,
+                                                        "eventType");
+            const auto eventType
+                = eventTypeName
+                ? AQMS::eventTypeFromString(*eventTypeName) : std::nullopt;
+            if (!eventType
+             || *eventType == AQMS::Event::EventType::SubnetTrigger)
+            {
+                return ::makeMessageResponse(
+                    400, "\"data.eventType\" is required - the type it "
+                         "really is, as the event detail names it, e.g. "
+                         "\"earthquake\"");
+            }
+            const auto geographicTypeName
+                = ::requiredString(*body.data, "geographicType");
+            const auto geographicType
+                = geographicTypeName
+                ? AQMS::geographicTypeFromString(*geographicTypeName)
+                : std::nullopt;
+            if (!geographicType
+             || *geographicType == AQMS::Origin::GeographicType::Unknown)
+            {
+                return ::makeMessageResponse(
+                    400, "\"data.geographicType\" is required - \"local\", "
+                         "\"regional\" or \"teleseismic\"");
+            }
+            SPDLOG_LOGGER_INFO(context.logger,
+                               "{} retyping subnet trigger {} as ({}, {})",
+                               authorization.identity->user, eventIdentifier,
+                               *eventTypeName, *geographicTypeName);
+            return ::triggerActionResponse(
+                context.aqmsDatabase->retypeSubnetTrigger(eventIdentifier,
+                                                          *eventType,
+                                                          *geographicType),
+                "retype", "retyped", eventIdentifier,
+                context.catalogCache.get(),
+                context.logger);
+        });
+    });
+
+    ::describeRoute("POST", "/subnet-triggers/<int>/delete",
+                    "subnet-trigger-delete", ::readWriteRequirement);
+    CROW_ROUTE(app, "/subnet-triggers/<int>/delete")
+        .methods(crow::HTTPMethod::POST)
+    ([&context](const crow::request &request,
+                const int64_t eventIdentifier) -> crow::response
+    {
+        return ::timedRoute("subnet-trigger-delete",
+                            [&]() -> crow::response
+        {
+            auto authorization
+                = ::authorizeRoute(request, *context.authenticator,
+                                   ::readWriteRequirement, context.logger,
+                                   "subnet-trigger-delete");
+            if (!authorization){return std::move(*authorization.rejection);}
+            SPDLOG_LOGGER_INFO(context.logger,
+                               "{} deleting subnet trigger {}",
+                               authorization.identity->user, eventIdentifier);
+            return ::triggerActionResponse(
+                context.aqmsDatabase->deleteSubnetTrigger(eventIdentifier),
+                "delete", "deleted", eventIdentifier,
+                context.catalogCache.get(),
+                context.logger);
         });
     });
 }

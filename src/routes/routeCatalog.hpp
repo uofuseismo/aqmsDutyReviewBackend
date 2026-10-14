@@ -106,6 +106,13 @@ inline void describeOpenRoute(const std::string &method,
          "The archived channels for one subnet trigger - verticals only "
          "unless verticalOnly=false.  Takes the same filter and encoding "
          "options as event-waveforms."},
+        {"subnet-trigger-accept",
+         "Marks a subnet trigger reviewed, leaving it a trigger."},
+        {"subnet-trigger-retype",
+         "Turns a subnet trigger into an event of the given type and "
+         "geographic type."},
+        {"subnet-trigger-delete",
+         "Deletes a subnet trigger - sets its selectflag to 0."},
         {"stations", "Every station epoch AQMS knows about."},
         {"stations-hash", "A hash of the station list."},
         {"gazetteer-quarries", "Every quarry epoch in the gazetteer."},

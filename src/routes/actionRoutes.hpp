@@ -157,6 +157,12 @@ struct ExpectedSolutionRequest
                     "it to cancel"
                   : ""));
     }
+    if (result.error() == ActionError::InvalidArgument)
+    {
+        return ::makeMessageResponse(
+            400, "AQMS has no code for what was asked - event "
+               + std::to_string(eventIdentifier) + " was not " + verb);
+    }
     if (result.error() == ActionError::InvalidPermissions)
     {
         SPDLOG_LOGGER_ERROR(logger,

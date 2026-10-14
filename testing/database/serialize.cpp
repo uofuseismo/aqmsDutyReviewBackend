@@ -1514,4 +1514,17 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::eventTypeFromString",
         REQUIRE_FALSE(eventTypeFromString("quarry blast").has_value());
         REQUIRE_FALSE(eventTypeFromString("").has_value());
     }
+    SECTION("Geographic types parse from the names toJSON writes")
+    {
+        REQUIRE(geographicTypeFromString("local")
+                == Origin::GeographicType::Local);
+        REQUIRE(geographicTypeFromString("regional")
+                == Origin::GeographicType::Regional);
+        REQUIRE(geographicTypeFromString("teleseismic")
+                == Origin::GeographicType::Teleseismic);
+        REQUIRE(geographicTypeFromString("unknown")
+                == Origin::GeographicType::Unknown);
+        REQUIRE_FALSE(geographicTypeFromString("l").has_value());
+        REQUIRE_FALSE(geographicTypeFromString("Local").has_value());
+    }
 }
