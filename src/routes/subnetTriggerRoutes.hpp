@@ -73,6 +73,48 @@ namespace
         500, "Could not reach the AQMS database - try again shortly");
 }
 
+/// @brief Registers a retype route with its types fixed in the URL.
+/// @note A route per preset rather than a body, so the pairing lives in
+///       one place - here - and a client cannot send a sonic event as
+///       teleseismic by accident.  A metric per preset, too, which shows
+///       which buttons analysts actually press.
+template<typename Rule>
+void registerRetypePreset(
+    Rule &rule,
+    const RouteContext &context,
+    const std::string &metric,
+    const AQMSDutyReviewBackend::Database::AQMS::Event::EventType eventType,
+    const AQMSDutyReviewBackend::Database::AQMS::Origin::GeographicType
+        geographicType)
+{
+    rule.methods(crow::HTTPMethod::POST)
+    ([&context, metric, eventType, geographicType]
+     (const crow::request &request,
+      const int64_t eventIdentifier) -> crow::response
+    {
+        return ::timedRoute(metric,
+                            [&]() -> crow::response
+        {
+            auto authorization
+                = ::authorizeRoute(request, *context.authenticator,
+                                   ::readWriteRequirement, context.logger,
+                                   metric);
+            if (!authorization){return std::move(*authorization.rejection);}
+            SPDLOG_LOGGER_INFO(context.logger,
+                               "{} retyping subnet trigger {} via {}",
+                               authorization.identity->user, eventIdentifier,
+                               metric);
+            return ::triggerActionResponse(
+                context.aqmsDatabase->retypeSubnetTrigger(eventIdentifier,
+                                                          eventType,
+                                                          geographicType),
+                "retype", "retyped", eventIdentifier,
+                context.catalogCache.get(),
+                context.logger);
+        });
+    });
+}
+
 /// @brief Registers the subnet trigger routes.
 inline void registerSubnetTriggerRoutes(crow::SimpleApp &app,
                                         const RouteContext &context)
@@ -281,6 +323,35 @@ inline void registerSubnetTriggerRoutes(crow::SimpleApp &app,
                 context.logger);
         });
     });
+
+    // The common answers, one press each.
+    {
+        using EventType = AQMSDutyReviewBackend::Database::AQMS::Event::EventType;
+        using GeographicType
+            = AQMSDutyReviewBackend::Database::AQMS::Origin::GeographicType;
+        ::describeRoute("POST", "/subnet-triggers/<int>/retype/sonic",
+                        "subnet-trigger-retype-sonic", ::readWriteRequirement);
+        ::registerRetypePreset(
+            CROW_ROUTE(app, "/subnet-triggers/<int>/retype/sonic"),
+            context, "subnet-trigger-retype-sonic",
+            EventType::Sonic, GeographicType::Local);
+
+        ::describeRoute("POST", "/subnet-triggers/<int>/retype/regional",
+                        "subnet-trigger-retype-regional",
+                        ::readWriteRequirement);
+        ::registerRetypePreset(
+            CROW_ROUTE(app, "/subnet-triggers/<int>/retype/regional"),
+            context, "subnet-trigger-retype-regional",
+            EventType::Earthquake, GeographicType::Regional);
+
+        ::describeRoute("POST", "/subnet-triggers/<int>/retype/teleseism",
+                        "subnet-trigger-retype-teleseism",
+                        ::readWriteRequirement);
+        ::registerRetypePreset(
+            CROW_ROUTE(app, "/subnet-triggers/<int>/retype/teleseism"),
+            context, "subnet-trigger-retype-teleseism",
+            EventType::Earthquake, GeographicType::Teleseismic);
+    }
 
     ::describeRoute("POST", "/subnet-triggers/<int>/delete",
                     "subnet-trigger-delete", ::readWriteRequirement);
