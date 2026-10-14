@@ -7,6 +7,7 @@
 #include <vector>
 #include <spdlog/logger.h>
 #include "aqmsDutyReviewBackend/database/aqms/event.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
 
 namespace AQMSDutyReviewBackend::Database
 {
@@ -25,6 +26,23 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 ///         event readers answer that with Unknown, and a caller comparing
 ///         against what they produced should do the same.
 [[nodiscard]] Event::EventType eventTypeFromCode(const std::string &code);
+
+/// @brief Maps an event type onto its event.etype code - the inverse of
+///        \c eventTypeFromCode.
+/// @throws std::invalid_argument for Landslide, which has no code this
+///         backend reads, so none it should write.
+[[nodiscard]] std::string eventTypeToCode(Event::EventType type);
+
+/// @brief Maps an origin.gtype code - "l", "r", "t" - onto a geographic
+///        type.
+/// @throws std::runtime_error if the code is not one this maps.
+[[nodiscard]] Origin::GeographicType geographicTypeFromCode(
+    const std::string &code);
+
+/// @brief Maps a geographic type onto its origin.gtype code - the inverse
+///        of \c geographicTypeFromCode.
+/// @throws std::invalid_argument for Unknown, which has no code.
+[[nodiscard]] std::string geographicTypeToCode(Origin::GeographicType type);
 
 /// @brief A token that changes when the catalog does.
 /// @param[in] client  A client connected to an AQMS database.

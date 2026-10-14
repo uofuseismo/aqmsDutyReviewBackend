@@ -57,7 +57,7 @@ Event::EventType toEventType(const std::string &eventType)
     }
     else if (eventType == "mi")
     {
-        return Event::EventType::MiningInduced;
+        return Event::EventType::Meteor;
     }
     else if (eventType == "nt")
     {

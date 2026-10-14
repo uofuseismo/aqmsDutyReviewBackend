@@ -235,13 +235,9 @@ CREATE TABLE credit(
     }
     else if (eventType == "mi")
     {
-        // WRONG, and left alone pending a decision: eventtype says 'mi' is
-        // 'meteor' - a meteor or comet impact - not a mining induced
-        // event.  There is no mining induced type in the schema at all;
-        // the nearest are 'rb' (rockburst) and 'co' (mine/tunnel
-        // collapse).  Nothing observed carries 'mi', so this has never
-        // mislabelled anything, but it would the first time one appeared.
-        return Event::EventType::MiningInduced;
+        // A meteor or comet impact, per eventtype - not "mining induced",
+        // which it was once mapped as and which the schema has no code for.
+        return Event::EventType::Meteor;
     }
     else if (eventType == "nt")
     {
@@ -269,6 +265,46 @@ CREATE TABLE credit(
         return Origin::GeographicType::Teleseismic;
     }   
     throw std::runtime_error("Unhandled geographic type " + gtype);
+}
+
+/// @brief The inverse of toEventType.
+/// @throws std::invalid_argument for Landslide, which nothing reads a code
+///         into - writing a guessed code would put a type in AQMS that no
+///         reader here would recognize.
+[[nodiscard]] std::string toEventTypeCode(const Event::EventType type)
+{
+    switch (type)
+    {
+    case Event::EventType::Avalanche:     return "av";
+    case Event::EventType::Collapse:      return "co";
+    case Event::EventType::Earthquake:    return "eq";
+    case Event::EventType::Explosion:     return "ex";
+    case Event::EventType::Meteor:        return "mi";
+    case Event::EventType::NuclearTest:   return "nt";
+    case Event::EventType::QuarryBlast:   return "qb";
+    case Event::EventType::Sonic:         return "sn";
+    case Event::EventType::SubnetTrigger: return "st";
+    case Event::EventType::Unknown:       return "uk";
+    case Event::EventType::Landslide:     break;
+    }
+    throw std::invalid_argument("No AQMS event type code for "
+                              + std::to_string(static_cast<int> (type)));
+}
+
+/// @brief The inverse of toGeographicType.
+/// @throws std::invalid_argument for Unknown, which has no code.
+[[nodiscard]] std::string toGeographicTypeCode(
+    const Origin::GeographicType type)
+{
+    switch (type)
+    {
+    case Origin::GeographicType::Local:       return "l";
+    case Origin::GeographicType::Regional:    return "r";
+    case Origin::GeographicType::Teleseismic: return "t";
+    case Origin::GeographicType::Unknown:     break;
+    }
+    throw std::invalid_argument("No AQMS geographic type code for "
+                              + std::to_string(static_cast<int> (type)));
 }
 
 [[nodiscard]] Arrival::Phase toPhase(const std::string &phase)
@@ -1475,4 +1511,23 @@ Event::EventType AQMSDutyReviewBackend::Database::AQMS::eventTypeFromCode(
     const std::string &code)
 {
     return ::toEventType(code);
+}
+
+std::string AQMSDutyReviewBackend::Database::AQMS::eventTypeToCode(
+    const Event::EventType type)
+{
+    return ::toEventTypeCode(type);
+}
+
+Origin::GeographicType
+AQMSDutyReviewBackend::Database::AQMS::geographicTypeFromCode(
+    const std::string &code)
+{
+    return ::toGeographicType(code);
+}
+
+std::string AQMSDutyReviewBackend::Database::AQMS::geographicTypeToCode(
+    const Origin::GeographicType type)
+{
+    return ::toGeographicTypeCode(type);
 }

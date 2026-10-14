@@ -50,7 +50,7 @@ namespace
     case Event::EventType::Earthquake:    return "earthquake";
     case Event::EventType::Explosion:     return "explosion";
     case Event::EventType::Landslide:     return "landslide";
-    case Event::EventType::MiningInduced: return "mining_induced";
+    case Event::EventType::Meteor:        return "meteor";
     case Event::EventType::NuclearTest:   return "nuclear_test";
     case Event::EventType::QuarryBlast:   return "quarry_blast";
     case Event::EventType::Sonic:         return "sonic";
@@ -1020,7 +1020,7 @@ AQMSDutyReviewBackend::Database::AQMS::eventTypeFromString(
         Event::EventType::Earthquake,
         Event::EventType::Explosion,
         Event::EventType::Landslide,
-        Event::EventType::MiningInduced,
+        Event::EventType::Meteor,
         Event::EventType::NuclearTest,
         Event::EventType::QuarryBlast,
         Event::EventType::Sonic,

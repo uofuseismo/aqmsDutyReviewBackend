@@ -27,7 +27,7 @@ public:
         Earthquake,     /*!< A regular, old earthquake. */
         Explosion,      /*!< Some type of explosion that isn't a quarry blast. */
         Landslide,      /*!< Landslide. */
-        MiningInduced,  /*!< Mining induced event. */
+        Meteor,         /*!< A meteor or comet impact. */
         NuclearTest,    /*!< A nuclear test - Utah is known for its sunsets! */
         QuarryBlast,    /*!< A quarry blast. */
         Sonic,          /*!< A sonic event. */

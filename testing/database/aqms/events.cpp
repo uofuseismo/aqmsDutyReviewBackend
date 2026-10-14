@@ -23,6 +23,7 @@
 #include "aqmsDutyReviewBackend/database/aqms/localMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/durationMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/humanMagnitude.hpp"
+#include "aqmsDutyReviewBackend/database/aqms/queries/eventQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/centroidMomentTensorMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/event.hpp"
@@ -438,3 +439,46 @@ TEST_CASE("AQMSDutyReviewBackend::Database::AQMS::Event zero-copy views",
     }
 }
 
+TEST_CASE("AQMSDutyReviewBackend::Database::AQMS event type codes",
+          "[eventQueries][codes]")
+{
+    SECTION("Every writable event type round-trips through its code")
+    {
+        for (const auto type : {Event::EventType::Avalanche,
+                                Event::EventType::Collapse,
+                                Event::EventType::Earthquake,
+                                Event::EventType::Explosion,
+                                Event::EventType::Meteor,
+                                Event::EventType::NuclearTest,
+                                Event::EventType::QuarryBlast,
+                                Event::EventType::Sonic,
+                                Event::EventType::SubnetTrigger,
+                                Event::EventType::Unknown})
+        {
+            REQUIRE(eventTypeFromCode(eventTypeToCode(type)) == type);
+        }
+    }
+    SECTION("mi is a meteor")
+    {
+        REQUIRE(eventTypeFromCode("mi") == Event::EventType::Meteor);
+        REQUIRE(eventTypeToCode(Event::EventType::Meteor) == "mi");
+    }
+    SECTION("Landslide has no code to write")
+    {
+        REQUIRE_THROWS_AS(eventTypeToCode(Event::EventType::Landslide),
+                          std::invalid_argument);
+    }
+    SECTION("Every geographic type round-trips through its code")
+    {
+        for (const auto type : {Origin::GeographicType::Local,
+                                Origin::GeographicType::Regional,
+                                Origin::GeographicType::Teleseismic})
+        {
+            REQUIRE(geographicTypeFromCode(geographicTypeToCode(type))
+                    == type);
+        }
+        REQUIRE_THROWS_AS(
+            geographicTypeToCode(Origin::GeographicType::Unknown),
+            std::invalid_argument);
+    }
+}

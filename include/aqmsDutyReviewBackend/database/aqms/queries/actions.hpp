@@ -152,6 +152,15 @@ enum class ActionOutcome
 /// @param[in] geographicType   The geographic type.
 /// @param[in] logger           Where the outcome is recorded.  Borrowed,
 ///                             may be null.
+/// @result Done if both types were set, DoesNotExist if there is no such
+///         event, SolutionChanged - with nothing done - if the event is no
+///         longer a subnet trigger, and Refused if AQMS would not set
+///         either type.
+/// @note The type check and both writes are one transaction: the event
+///       is retyped with its geographic type, or not at all.
+/// @throws std::invalid_argument if eventType is SubnetTrigger, or either
+///         type has no AQMS code - Landslide, or an Unknown geographic
+///         type.  Nothing is written.
 /// @throws std::exception if the database cannot be reached or refuses
 ///         the call.
 [[nodiscard]] ActionOutcome setSubnetTriggerEventType(
@@ -159,6 +168,24 @@ enum class ActionOutcome
     const int64_t eventIdentifier,
     const AQMS::Event::EventType eventType,
     const AQMS::Origin::GeographicType geographicType,
+    spdlog::logger *logger);
+
+/// @brief This "accepts" a subnet trigger by bumping the event version by 1.
+/// @param[in] mainClient       The main AQMS database.
+/// @param[in] eventIdentifier  The subnet trigger to accept.
+/// @param[in] logger           Where the outcome is recorded.  Borrowed,
+///                             may be null.
+/// @result Done if the trigger is accepted, DoesNotExist if there is no
+///         such event, SolutionChanged - with nothing done - if the event
+///         is no longer a subnet trigger, and Refused if AQMS would not
+///         bump the version.
+/// @note Accepting one already past version 0 is Done without a second
+///       bump.
+/// @throws std::exception if the database cannot be reached or refuses
+///         the call.
+[[nodiscard]] ActionOutcome acceptSubnetTrigger(
+    const Client &mainClient,
+    const int64_t eventIdentifier,
     spdlog::logger *logger);
 
 }
