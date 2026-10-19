@@ -324,32 +324,6 @@ SELECT encode(wave.get_waveform_blob($1, 0, $2, 0, 4070908800), 'hex')
 
  */
 
-/// Every file associated with an event, with the origin time that picks
-/// its archive root - see WAVEFORM_FILE_QUERY for why it is the preferred
-/// origin's and why TrueTime.getEpoch.
-///
-/// @note DISTINCT because a file can hold more than one waveform row, and
-///       the whole file is read either way.
-/// @note $2 restricts it to vertical channels - a SEED channel's third
-///       character is its orientation.  In the SQL rather than after the
-///       fact, so a horizontal file is never read at all.
-constexpr std::string_view ALL_WAVEFORMS_FOR_SUBNET_QUERY
-{
-R"""(
-SELECT DISTINCT filename.dfile AS filename,
-       filename.nbytes AS nbytes,
-       TrueTime.getEpoch(origin.datetime, 'NOMINAL') AS origin_time
-  FROM AssocWaE
- INNER JOIN waveform ON waveform.wfid = AssocWaE.wfid
- INNER JOIN filename ON filename.fileid = waveform.fileid
- INNER JOIN event    ON event.evid = AssocWaE.evid
- INNER JOIN origin   ON origin.orid = event.prefor
- WHERE AssocWaE.evid = $1
-   AND (NOT $2 OR upper(substr(waveform.seedchan, 3, 1)) = 'Z')
- ORDER BY filename.dfile;
-)"""
-};
-
 /// Step one: which file holds this event's data for this stream, and how
 /// big is it.
 ///
@@ -726,77 +700,6 @@ AQMSDutyReviewBackend::Database::AQMS::queryWaveforms(
         catch (const std::exception &e)
         {
             SPDLOG_LOGGER_WARN(logger, "Failed to get waveform because: {}", e.what());
-        }
-    }
-    return waveforms;
-}
-
-std::vector<Waveform>
-AQMSDutyReviewBackend::Database::AQMS::queryAllWaveformsForSubnetTrigger(
-    const DB::Client &client,
-    const int64_t eventIdentifier,
-    const bool verticalChannelFilter,
-    FileRoots &fileRoots,
-    spdlog::logger *logger)
-{
-    struct ArchiveFile
-    {
-        std::string name;
-        int64_t nBytes{0};
-    };
-    std::vector<ArchiveFile> files;
-    double originTime{0};
-    client.execute(
-        [&](pqxx::connection &connection)
-        {
-            pqxx::work transaction(connection);
-            // Assigned at the end, not accumulated: the client re-runs
-            // this after re-dialling a dropped connection.
-            std::vector<ArchiveFile> rows;
-            double time{0};
-            for (const auto &row
-                 : transaction.exec(::ALL_WAVEFORMS_FOR_SUBNET_QUERY,
-                                    pqxx::params{eventIdentifier,
-                                                 verticalChannelFilter}))
-            {
-                if (row.at(0).is_null() || row.at(1).is_null()){continue;}
-                rows.push_back(ArchiveFile{row.at(0).as<std::string> (),
-                                           row.at(1).as<int64_t> ()});
-                if (!row.at(2).is_null()){time = row.at(2).as<double> ();}
-            }
-            transaction.commit();
-            files = std::move(rows);
-            originTime = time;
-        },
-        ::ALL_WAVEFORMS_FOR_SUBNET_QUERY);
-    if (files.empty()){return {};}
-
-    // One event, one origin time, one root - resolved once for every file.
-    const auto fileRoot
-        = getFileRoot(std::chrono::nanoseconds
-                      {static_cast<int64_t> (std::llround(originTime*1.e9))},
-                      fileRoots, client);
-    const auto eventDirectory
-        = fileRoot / std::filesystem::path {std::to_string(eventIdentifier)};
-
-    std::vector<Waveform> waveforms;
-    waveforms.reserve(files.size());
-    for (const auto &file : files)
-    {
-        try
-        {
-            waveforms.push_back(
-                ::readArchiveFile(client,
-                                  (eventDirectory / file.name).string(),
-                                  file.nBytes,
-                                  "event " + std::to_string(eventIdentifier)));
-        }
-        catch (const std::exception &e)
-        {
-            SPDLOG_LOGGER_WARN(logger,
-                               "Skipping {} for event {} because {}",
-                               file.name, eventIdentifier,
-                               std::string {e.what()});
         }
     }
     return waveforms;

@@ -17,7 +17,6 @@ namespace AQMSDutyReviewBackend::Database::AQMS
  class EventSummary;
  class Quarry;
  class Station;
- class SubnetTrigger;
  class Waveform;
 }
 
@@ -57,15 +56,6 @@ namespace AQMSDutyReviewBackend::Database::AQMS
 ///       A caller should answer std::nullopt with a 400.
 [[nodiscard]] std::optional<Event::EventType>
     eventTypeFromString(std::string_view name);
-
-/// @brief Parses a geographic type name as \c toJSON writes it - e.g.
-///        "local" or "teleseismic".
-/// @result The geographic type, or std::nullopt if the name is not one
-///         this backend ever writes.
-/// @note Exact match only, and an unrecognized name is NOT Unknown - for
-///       the same reasons as \c eventTypeFromString.
-[[nodiscard]] std::optional<Origin::GeographicType>
-    geographicTypeFromString(std::string_view name);
 
 /// @brief Serializes the locked events.
 /// @result A JSON array of {eventIdentifier, user} objects.
@@ -228,14 +218,6 @@ struct WaveformEncoding
 [[nodiscard]] boost::json::value toJSON(
     const std::vector<Waveform> &waveforms,
     const WaveformEncoding &encoding = WaveformEncoding {});
-
-/// @brief Serializes the subnet triggers.
-/// @result A JSON array of {eventIdentifier, time, originSource} objects.
-/// @note No position and no magnitude, because a trigger has neither.
-///       What it has is a real time and the machine that raised it.
-/// @note An empty vector serializes to [] and not to null.
-[[nodiscard]] boost::json::value toJSON(
-    const std::vector<SubnetTrigger> &triggers);
 
 /// @brief Serializes the stations.
 /// @result A JSON array of station objects.

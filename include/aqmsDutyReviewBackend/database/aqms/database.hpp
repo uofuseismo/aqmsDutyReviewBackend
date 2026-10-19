@@ -8,8 +8,6 @@
 #include <utility>
 #include <vector>
 #include <spdlog/logger.h>
-#include "aqmsDutyReviewBackend/database/aqms/event.hpp"
-#include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
 
 namespace AQMSDutyReviewBackend::Database
 {
@@ -19,6 +17,7 @@ namespace AQMSDutyReviewBackend::Database
 namespace AQMSDutyReviewBackend::Database::AQMS
 {
  struct AlarmAction;
+ class Event;
  class EventLock;
  class EventSummary;
  struct ExpectedSolution;
@@ -26,7 +25,6 @@ namespace AQMSDutyReviewBackend::Database::AQMS
  class StreamIdentifier;
  class Station;
  class StreamIdentifier;
- class SubnetTrigger;
  class Waveform;
 }
 
@@ -53,11 +51,9 @@ public:
         DoesNotExist,       /*!< The event does not exist in this database. */
         Refused,            /*!< The event exists and AQMS would not do it -
                                  for a cancel, no database would take it. */
-        SolutionChanged,    /*!< The event's preferred origin, magnitude or type
+        SolutionChanged     /*!< The event's preferred origin, magnitude or type
                                  is not the one the analyst reviewed, so
                                  nothing was done. */
-        InvalidArgument     /*!< The request asked for something AQMS has no
-                                 code for, so nothing was done. */
     };
     enum class QueryError
     {
@@ -130,10 +126,6 @@ public:
         -> std::expected<std::string, QueryError>;
 
     [[nodiscard]] auto getCatalog(const std::chrono::seconds &duration = std::chrono::weeks {1}) const -> std::expected<std::vector<EventSummary>, QueryError>;
-
-    /// @brief Generates a catalog of subnet triggers between now - duration and now.
-    /// @result The subnet triggers or why they could not be read.
-    [[nodiscard]] auto getSubnetTriggers(const std::chrono::seconds &duration = std::chrono::weeks {1}) const -> std::expected<std::vector<SubnetTrigger>, QueryError>;
 
     /// @brief Fetches the alarms for an event from every database.
     /// @param[in] eventIdentifier  The event.
@@ -209,15 +201,6 @@ public:
     ///       trips as it is streams.  Ask for the channels you will draw.
     [[nodiscard]] auto fetchWaveforms(int64_t eventIdentifier, const std::vector<StreamIdentifier> &identifiers) const -> std::expected<std::vector<Waveform>, QueryError>;
 
-    /// @brief Fetches every archived waveform for an event.
-    /// @param[in] eventIdentifier  The event identifier.
-    /// @param[in] verticalOnly     If true, only the vertical channels.
-    /// @result A waveform per archived file that could be read.
-    /// @note For subnet triggers, which have no picks to choose channels
-    ///       from.  One round trip per file, so verticalOnly is worth it.
-    [[nodiscard]] auto fetchAllWaveforms(int64_t eventIdentifier, bool verticalOnly) const -> std::expected<std::vector<Waveform>, QueryError>;
-
-
     /// @}
 
     /// @name Actions
@@ -257,32 +240,6 @@ public:
                 const ExpectedSolution &expected) const
         -> std::expected<void, ActionError>;
 
-    /// @brief Marks a subnet trigger reviewed, leaving it a trigger.
-    /// @param[in] eventIdentifier  The subnet trigger.
-    /// @result Nothing on success, or why it could not be done -
-    ///         SolutionChanged if the event is no longer a subnet trigger.
-    /// @note Accepting an accepted trigger succeeds without a second bump.
-    auto acceptSubnetTrigger(int64_t eventIdentifier) const
-        -> std::expected<void, ActionError>;
-    /// @brief Turns a subnet trigger into an event of the given type.
-    /// @param[in] eventIdentifier  The subnet trigger.
-    /// @param[in] eventType        What it is.  Not SubnetTrigger.
-    /// @param[in] geographicType   Where it is.  Not Unknown.
-    /// @result Nothing on success, or why it could not be done -
-    ///         InvalidArgument for a type AQMS has no code for, and
-    ///         SolutionChanged if the event is no longer a subnet trigger.
-    /// @note Both types are set in one transaction, or neither is.
-    auto retypeSubnetTrigger(int64_t eventIdentifier,
-                             Event::EventType eventType,
-                             Origin::GeographicType geographicType) const
-        -> std::expected<void, ActionError>;
-    /// @brief Deletes a subnet trigger - in the AQMS sense of setting its
-    ///        selectflag to 0, not removing the row.
-    /// @param[in] eventIdentifier  The subnet trigger.
-    /// @result Nothing on success, or why it could not be done -
-    ///         SolutionChanged if the event is no longer a subnet trigger.
-    auto deleteSubnetTrigger(int64_t eventIdentifier) const
-        -> std::expected<void, ActionError>;
     /// @}
 
     /// @brief Destructor.

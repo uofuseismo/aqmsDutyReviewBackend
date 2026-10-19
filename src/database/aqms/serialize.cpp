@@ -25,7 +25,6 @@
 #include "aqmsDutyReviewBackend/database/aqms/queries/alarmQueries.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/quarry.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/station.hpp"
-#include "aqmsDutyReviewBackend/database/aqms/subnetTrigger.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/waveform.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/segment.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/streamIdentifier.hpp"
@@ -871,30 +870,6 @@ AQMSDutyReviewBackend::Database::AQMS::toJSON(
 
 boost::json::value
 AQMSDutyReviewBackend::Database::AQMS::toJSON(
-    const std::vector<SubnetTrigger> &triggers)
-{
-    boost::json::array result;
-    result.reserve(triggers.size());
-    for (const auto &trigger : triggers)
-    {
-        boost::json::object item;
-        if (trigger.hasEventIdentifier())
-        {
-            item["eventIdentifier"] = trigger.getEventIdentifier();
-        }
-        // Nanoseconds since the epoch, UTC, as the model holds it.
-        if (trigger.hasTime()){item["time"] = trigger.getTime().count();}
-        if (const auto source = trigger.getOriginSource(); source)
-        {
-            item["originSource"] = *source;
-        }
-        result.push_back(std::move(item));
-    }
-    return result;
-}
-
-boost::json::value
-AQMSDutyReviewBackend::Database::AQMS::toJSON(
     const std::vector<Station> &stations)
 {
     boost::json::array result;
@@ -1007,23 +982,6 @@ AQMSDutyReviewBackend::Database::AQMS::toJSON(
 /// Built on toString rather than a second table of names, so the two cannot
 /// disagree: whatever the serializer writes for a type is, by construction,
 /// what parses back to it.
-std::optional<Origin::GeographicType>
-AQMSDutyReviewBackend::Database::AQMS::geographicTypeFromString(
-    const std::string_view name)
-{
-    constexpr std::array types{
-        Origin::GeographicType::Local,
-        Origin::GeographicType::Regional,
-        Origin::GeographicType::Teleseismic,
-        Origin::GeographicType::Unknown
-    };
-    for (const auto type : types)
-    {
-        if (::toString(type) == name){return type;}
-    }
-    return std::nullopt;
-}
-
 std::optional<Event::EventType>
 AQMSDutyReviewBackend::Database::AQMS::eventTypeFromString(
     const std::string_view name)

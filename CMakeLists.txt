@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(aqmsDutyReviewBackend VERSION 0.4.0 LANGUAGES CXX)
+project(aqmsDutyReviewBackend VERSION 0.5.0 LANGUAGES CXX)
 enable_testing()
 
 option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
@@ -126,14 +126,12 @@ set(HEADER_FILES
     include/${PROJECT_NAME}/database/aqms/queries/magnitudeQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/quarryQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/stationQueries.hpp
-    include/${PROJECT_NAME}/database/aqms/queries/subnetTriggerQueries.hpp
     include/${PROJECT_NAME}/database/aqms/queries/waveformQueries.hpp
     include/${PROJECT_NAME}/database/aqms/serialize.hpp
     include/${PROJECT_NAME}/database/aqms/station.hpp
     include/${PROJECT_NAME}/database/aqms/peakToPeakAmplitude.hpp
     include/${PROJECT_NAME}/database/aqms/stationDurationMagnitude.hpp
     include/${PROJECT_NAME}/database/aqms/stationLocalMagnitude.hpp
-    include/${PROJECT_NAME}/database/aqms/subnetTrigger.hpp
     include/${PROJECT_NAME}/database/aqms/streamIdentifier.hpp
     include/${PROJECT_NAME}/database/client.hpp
     include/${PROJECT_NAME}/database/drp/serialize.hpp
@@ -175,7 +173,6 @@ set(LIBRARY_SRC
     src/database/aqms/queries/magnitudeQueries.cpp
     src/database/aqms/queries/quarryQueries.cpp
     src/database/aqms/queries/stationQueries.cpp
-    src/database/aqms/queries/subnetTriggerQueries.cpp
     src/database/aqms/queries/waveformQueries.cpp
     src/database/aqms/serialize.cpp
     src/database/aqms/station.cpp
@@ -183,7 +180,6 @@ set(LIBRARY_SRC
     src/database/aqms/segment.cpp
     src/database/aqms/stationDurationMagnitude.cpp
     src/database/aqms/stationLocalMagnitude.cpp
-    src/database/aqms/subnetTrigger.cpp
     src/database/aqms/streamIdentifier.cpp
     src/database/aqms/waveform.cpp
     src/database/client.cpp

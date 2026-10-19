@@ -27,7 +27,6 @@
 #include "aqmsDutyReviewBackend/database/aqms/origin.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/event.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/eventSummary.hpp"
-#include "aqmsDutyReviewBackend/database/aqms/subnetTrigger.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/peakToPeakAmplitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/stationLocalMagnitude.hpp"
 #include "aqmsDutyReviewBackend/database/aqms/stationDurationMagnitude.hpp"
