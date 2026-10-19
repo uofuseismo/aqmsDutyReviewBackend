@@ -74,7 +74,7 @@ inline void describeOpenRoute(const std::string &method,
     {
         {"app-settings",
          "Client configuration - backend version, map key, primary database, "
-         "documentation link."},
+         "documentation link, ComCat event page prefix."},
         {"app-settings-password-requirements",
          "The password policy this deployment enforces."},
         {"contacts",

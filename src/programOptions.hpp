@@ -350,6 +350,9 @@ struct ProgramOptions
         documentationURL
             = propertyTree.get<std::string> ("General.documentationURL",
                                              documentationURL);
+        comcatPrefix
+            = propertyTree.get<std::string> ("General.comcatPrefix",
+                                             comcatPrefix);
 
         // Read once, here, so a malformed list stops startup rather than
         // turning into a 500 the first time somebody needs a phone number.
@@ -540,6 +543,9 @@ struct ProgramOptions
     /// Where the deployment's user documentation lives.  Empty when not
     /// configured.
     std::string documentationURL;
+    /// The ComCat event page an event identifier is appended to.  Empty
+    /// turns the link off.
+    std::string comcatPrefix{"https://earthquake.usgs.gov/earthquakes/eventpage/uu"};
     /// The contact list from General.whoToCallFile, served as is.
     /// @note Null when not configured.
     boost::json::value whoToCall;

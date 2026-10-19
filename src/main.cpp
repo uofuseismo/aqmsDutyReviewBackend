@@ -363,6 +363,10 @@ int main(int argc, char *argv[])
         {
             settings["documentationURL"] = programOptions.documentationURL;
         }
+        if (!programOptions.comcatPrefix.empty())
+        {
+            settings["comcatPrefix"] = programOptions.comcatPrefix;
+        }
         auto primaryDatabase
             = programOptions.aqmsDatabaseCredentials.getAlias();
         if (primaryDatabase)
