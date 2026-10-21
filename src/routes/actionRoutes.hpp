@@ -215,6 +215,20 @@ inline void registerActionRoutes(crow::SimpleApp &app,
             const auto result
                 = context.aqmsDatabase->accept(eventIdentifier,
                                              *expected.expected);
+            if (result)
+            {
+                SPDLOG_LOGGER_INFO(context.logger,
+                                   "{} accepted event {}",
+                                   authorization.identity->user,
+                                   eventIdentifier);
+            }
+            else
+            {
+                SPDLOG_LOGGER_WARN(context.logger,
+                                   "{} experienced issue accepting event {}",
+                                   authorization.identity->user,
+                                   eventIdentifier);
+            }
             return ::actionResponse(result, "accepted", eventIdentifier,
                                     context.catalogCache.get(),
                                     context.logger);
