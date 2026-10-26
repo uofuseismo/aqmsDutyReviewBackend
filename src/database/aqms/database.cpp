@@ -34,6 +34,19 @@
 using namespace AQMSDutyReviewBackend::Database::AQMS;
 namespace DB = AQMSDutyReviewBackend::Database;
 
+namespace
+{
+
+/// @result True if the action gave up waiting on another program's locks.
+/// @note lock_not_available (55P03) is the usual one; query_canceled (57014)
+///       is statement_timeout.  pqxx has no class for either.
+[[nodiscard]] bool wasBlocked(const pqxx::sql_error &e)
+{
+    return e.sqlstate() == "55P03" || e.sqlstate() == "57014";
+}
+
+}
+
 class Database::DatabaseImpl
 {
 public:
@@ -416,6 +429,21 @@ auto Database::accept(const int64_t eventIdentifier,
                             std::string {e.what()});
         return std::unexpected(ActionError::InvalidPermissions);
     }
+    catch (const pqxx::sql_error &e)
+    {
+        if (::wasBlocked(e))
+        {
+            SPDLOG_LOGGER_WARN(pImpl->mLogger,
+                               "Gave up accepting event {} - another "
+                               "program is holding it: {}",
+                               eventIdentifier, std::string {e.what()});
+            return std::unexpected(ActionError::Blocked);
+        }
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Could not accept event {} because {}",
+                            eventIdentifier, std::string {e.what()});
+        return std::unexpected(ActionError::ConnectionFailed);
+    }
     catch (const std::exception &e)
     {
         SPDLOG_LOGGER_ERROR(pImpl->mLogger,
@@ -456,6 +484,21 @@ auto Database::cancel(const int64_t eventIdentifier,
                             pImpl->mMainClient->getName(),
                             std::string {e.what()});
         return std::unexpected(ActionError::InvalidPermissions);
+    }
+    catch (const pqxx::sql_error &e)
+    {
+        if (::wasBlocked(e))
+        {
+            SPDLOG_LOGGER_WARN(pImpl->mLogger,
+                               "Gave up cancelling event {} - another "
+                               "program is holding it: {}",
+                               eventIdentifier, std::string {e.what()});
+            return std::unexpected(ActionError::Blocked);
+        }
+        SPDLOG_LOGGER_ERROR(pImpl->mLogger,
+                            "Could not cancel event {} because {}",
+                            eventIdentifier, std::string {e.what()});
+        return std::unexpected(ActionError::ConnectionFailed);
     }
     catch (const std::exception &e)
     {

@@ -188,6 +188,18 @@ SELECT DISTINCT origin.subsource as subsource
 };
 
 
+/// @brief Caps how long a write may wait on another program's locks.
+/// @note Without this, a transaction some other program left open on the
+///       event's rows blocks us indefinitely - and Client::execute holds
+///       its mutex throughout, so every other request through the client
+///       waits too and the whole review page hangs.  A timeout throws and
+///       rolls back; Database maps it to ActionError::Blocked.
+void boundWaits(pqxx::work &transaction)
+{
+    transaction.exec("SET LOCAL lock_timeout = '15s'");
+    transaction.exec("SET LOCAL statement_timeout = '30s'");
+}
+
 /// @result The event's preferred origin, preferred magnitude and type,
 ///         or nullopt if there is no such event.
 [[nodiscard]] std::optional<ExpectedSolution> readSolution(
@@ -315,6 +327,7 @@ void logSolutionChanged(spdlog::logger *logger,
         [&](pqxx::connection &connection)
         {
             pqxx::work transaction(connection);
+            ::boundWaits(transaction);
             const auto status
                 = transaction.query_value<long long>
                   (std::string {query}, pqxx::params{eventIdentifier});
@@ -361,6 +374,7 @@ constexpr int PCS_RANK{100};
         [&](pqxx::connection &connection)
         {
             pqxx::work transaction(connection);
+            ::boundWaits(transaction);
             const auto status
                 = transaction.query_value<long long>
                   (std::string {::POST_ACCEPT_QUERY},
@@ -392,6 +406,7 @@ ActionOutcome AQMSDutyReviewBackend::Database::AQMS::acceptEvent(
         [&](pqxx::connection &connection)
         {
             pqxx::work transaction(connection);
+            ::boundWaits(transaction);
             accepted = false;
             current = ::readSolution(transaction, ::LOCK_SOLUTION_QUERY,
                                       eventIdentifier, logger);

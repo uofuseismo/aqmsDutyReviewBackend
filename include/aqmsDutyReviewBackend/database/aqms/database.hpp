@@ -51,9 +51,11 @@ public:
         DoesNotExist,       /*!< The event does not exist in this database. */
         Refused,            /*!< The event exists and AQMS would not do it -
                                  for a cancel, no database would take it. */
-        SolutionChanged     /*!< The event's preferred origin, magnitude or type
+        SolutionChanged,    /*!< The event's preferred origin, magnitude or type
                                  is not the one the analyst reviewed, so
                                  nothing was done. */
+        Blocked             /*!< Another program held the event's rows past
+                                 the wait limit, so nothing was done. */
     };
     enum class QueryError
     {

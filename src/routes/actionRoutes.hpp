@@ -157,6 +157,16 @@ struct ExpectedSolutionRequest
                     "it to cancel"
                   : ""));
     }
+    if (result.error() == ActionError::Blocked)
+    {
+        // Not "locked" - analysts read that as the review lock.  503, not
+        // 409: reloading changes nothing, only waiting does.
+        const std::string action{verb == "cancelled" ? "cancel" : "accept"};
+        return ::makeMessageResponse(
+            503, "Event " + std::to_string(eventIdentifier) + " was not "
+               + verb + " - another program, probably Jiggle, is blocking "
+               + "the " + action + ".  Try again in 15 minutes");
+    }
     if (result.error() == ActionError::InvalidPermissions)
     {
         SPDLOG_LOGGER_ERROR(logger,
